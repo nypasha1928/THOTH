@@ -1,0 +1,2 @@
+# THOTH
+Trading Application 
