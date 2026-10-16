@@ -1,3 +1,4 @@
+import _environment  # Isolate app import before any persistent state is initialized.
 import tempfile
 import unittest
 from pathlib import Path

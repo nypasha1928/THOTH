@@ -1,3 +1,4 @@
+import _environment  # Isolate app import before any persistent state is initialized.
 import unittest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
