@@ -11,7 +11,7 @@ from pathlib import Path
 from .bybit_testnet import TestnetClient
 from .credentials import runtime_secret
 from .testnet import TestnetSupervisor
-from .verification import reference_status, source_fingerprint, strategy_fingerprint
+from .verification import reference_status, source_fingerprint, strategy_fingerprint, execution_fingerprint
 
 
 class ProductionClient(TestnetClient):
@@ -42,7 +42,7 @@ class ProductionSupervisor(TestnetSupervisor):
             try:
                 receipt=json.loads((directory/'testnet-acceptance.json').read_text())
                 valid=(receipt.get('environment')=='testnet' and receipt.get('source_fingerprint')==source_fingerprint()
-                       and receipt.get('strategy_fingerprint')==strategy_fingerprint(cfg) and receipt.get('protected_and_closed',0)>=1
+                       and receipt.get('strategy_fingerprint')==strategy_fingerprint(cfg) and receipt.get('execution_fingerprint')==execution_fingerprint() and receipt.get('protected_and_closed',0)>=1
                        and receipt.get('unresolved_orders',1)==0 and receipt.get('real_exchange') is True)
             except (OSError,ValueError):valid=False
             if not valid:raise ValueError('Live orders require completed real-exchange testnet acceptance for the current strategy')

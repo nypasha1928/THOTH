@@ -35,7 +35,7 @@ class ProductionLifecycleTests(unittest.TestCase):
         from unittest.mock import patch
         from test_testnet import Exchange
         from thoth.models import TestnetSettings,Settings
-        from thoth.verification import source_fingerprint,strategy_fingerprint
+        from thoth.verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
         class LiveFixture(Exchange):
             BASE='https://api.bybit.com'
             def request(self,method,path,params,private=False):
@@ -50,7 +50,7 @@ class ProductionLifecycleTests(unittest.TestCase):
                 coverage={'long_signals':2,'short_signals':2,'level_types':[f+'_'+s+'_'+k for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')]})
             (root/'validation'/'fixture.json').write_text(json.dumps(receipt))
             # Synthetic local guard fixture, never an actual acceptance claim.
-            (root/'testnet-acceptance.json').write_text(json.dumps(dict(environment='testnet',source_fingerprint=source_fingerprint(),strategy_fingerprint=strategy_fingerprint(cfg),protected_and_closed=1,unresolved_orders=0,real_exchange=True)))
+            (root/'testnet-acceptance.json').write_text(json.dumps(dict(environment='testnet',source_fingerprint=source_fingerprint(),strategy_fingerprint=strategy_fingerprint(cfg),execution_fingerprint=execution_fingerprint(),protected_and_closed=1,unresolved_orders=0,real_exchange=True)))
             def create():return ProductionSupervisor(root/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**kw:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
             service=create();service.configure(cfg)
             with self.assertRaises(ValueError):service.activate('ENABLE TESTNET ORDERS')

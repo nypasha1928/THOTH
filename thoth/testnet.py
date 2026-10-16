@@ -11,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 from urllib.request import urlopen
-from .verification import source_fingerprint,strategy_fingerprint
+from .verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
 
 from .account_risk import new_risk, sample, closure, day
 from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
@@ -193,6 +193,7 @@ class TestnetSupervisor:
         self.state['account_binding']=binding
         self.state['real_testnet_exchange']=(type(client) is TestnetClient and client.transport is urlopen)
         self.state['source_fingerprint']=source_fingerprint()
+        self.state['execution_fingerprint']=execution_fingerprint()
         self.state['strategy_fingerprint']=strategy_fingerprint(cfg)
         return cfg
 
@@ -258,7 +259,7 @@ class TestnetSupervisor:
         self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
             stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
             close_link=None,close_attempt=0,reason=None,protection_confirmed=record['phase']=='protected',
-            source_fingerprint=self.state.get('source_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
+            source_fingerprint=self.state.get('source_fingerprint'),execution_fingerprint=self.state.get('execution_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
             real_exchange=self.state.get('real_testnet_exchange',False))
         self.save()
 
@@ -305,7 +306,7 @@ class TestnetSupervisor:
             return False  # Delay entries until complete realized results are visible.
         pnl=float(sum((dec(r['closedPnl']) for r in unique.values()),dec(0)))
         closure(self.state['risk'],owner['link'],pnl,cfg,self.clock())
-        self.state['closures']=(self.state['closures']+[dict(symbol=symbol,pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))])[-200:]
+        self.state['closures']=(self.state['closures']+[dict(symbol=symbol,pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))])[-200:]
         # Mark entry terminal so startup does not treat old fills as pending ownership.
         self.journal.update(owner['link'],'closed',{'reason':'Position flat and realized P&L reconciled'})
         del self.state['owned'][symbol]

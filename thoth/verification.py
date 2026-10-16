@@ -15,6 +15,13 @@ def source_fingerprint():
     return h.hexdigest()
 
 
+
+def execution_fingerprint():
+    h=hashlib.sha256()
+    for path in sorted((ROOT/'thoth').glob('*.py')):
+        h.update(path.name.encode());h.update(path.read_bytes())
+    return h.hexdigest()
+
 def strategy_fingerprint(cfg):
     values=cfg.model_dump() if hasattr(cfg,'model_dump') else cfg
     return hashlib.sha256(json.dumps({k:values[k] for k in STRATEGY_FIELDS},sort_keys=True).encode()).hexdigest()
