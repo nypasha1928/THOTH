@@ -64,6 +64,7 @@ class TestnetSupervisor:
         state['config']={**TestnetSettings().model_dump(),**state['config']}
         state['risk'].setdefault('portfolio_stop',False)
         state.setdefault('daily_resume_intent',False)
+        state.setdefault('flatten_reason',None)
         return state
 
     def save(self,state=None):
@@ -76,7 +77,7 @@ class TestnetSupervisor:
     def snapshot(self):
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
-            'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
+            'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','loss_pct','streak','pause_until','daily_stop','baseline_required','portfolio_stop')},
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
 
@@ -209,6 +210,10 @@ class TestnetSupervisor:
             if not recovery and self.state['risk']['portfolio_stop']:
                 if self.positions() or self.state['owned']:raise ValueError('Wait for all position-stop exits to settle before restarting')
                 self.state['risk']['portfolio_stop']=False
+            if not recovery and self.state['flatten_reason']:
+                if self.positions() or self.state['owned'] or any(r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records()):
+                    raise ValueError('Wait for close-all orders and results to settle before restarting')
+                self.state['flatten_reason']=None
             self.state['management']=True
             self.state.update(entries=not recovery,status='paused' if recovery else 'running',reason='Restart recovery; new entries paused' if recovery else '')
             self.save()
@@ -236,18 +241,25 @@ class TestnetSupervisor:
         if record['payload'].get('reduceOnly'):return
         symbol=record['payload']['symbol']
         if symbol in self.state['owned']:return
-        if record['phase'] not in ('protected','stop_error'):return
+        if record['phase'] not in ('protected','stop_error','mismatch'):return
         p=active.get(symbol)
-        expected=record['result'].get('filled_qty')
-        # Stop-error records may lack qty; read authoritative order fill again.
         order=self.client.reconcile(symbol,record['link'])
         if not order:return
         filled=dec(order.get('cumExecQty','0'))
-        if not p or filled<=0 or dec(p['size'])!=filled or p['side']!=record['payload']['side']:
-            return
-        self.state['owned'][symbol]=dict(link=record['link'],side=p['side'],qty=str(filled),entry=p['avgPrice'],
-            stop_dollars=record['stop_dollars'],margin=str(dec(p['avgPrice'])*filled/dec(p.get('leverage') or self.state['config']['leverage'])),opened_ms=int(order['createdTime']),
-            close_link=None,close_attempt=0,reason=None,protection_confirmed=record['phase']=='protected',source_fingerprint=self.state.get('source_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),real_exchange=self.state.get('real_testnet_exchange',False))
+        if not filled.is_finite() or filled<=0 or filled>dec(record['payload']['qty']):return
+        if order.get('side',record['payload']['side'])!=record['payload']['side']:return
+        if p and (dec(p['size'])!=filled or p['side']!=record['payload']['side']):return
+        # A position can hit its attached stop before our first poll. Own the
+        # confirmed fill even when already flat so its realized result settles.
+        if not p and order.get('orderStatus') not in ('Filled','Cancelled','PartiallyFilledCanceled'):return
+        entry=dec(p['avgPrice'] if p else order.get('avgPrice','0'))
+        if not entry.is_finite() or entry<=0:return
+        leverage=dec((p or {}).get('leverage') or self.state['config']['leverage'])
+        self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
+            stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
+            close_link=None,close_attempt=0,reason=None,protection_confirmed=record['phase']=='protected',
+            source_fingerprint=self.state.get('source_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
+            real_exchange=self.state.get('real_testnet_exchange',False))
         self.save()
 
     def _cancel_entries(self):
@@ -363,6 +375,12 @@ class TestnetSupervisor:
                 if not owner:continue
                 if owner['close_link']:self._close(symbol,p,owner['reason'] or 'Pending close')
                 elif float(p.get('unrealisedPnl','0'))<=-float(owner['stop_dollars']):self._close(symbol,p,'Individual dollar loss limit')
+            if self.state['flatten_reason']:
+                self._cancel_entries()
+                for symbol,p in active.items():
+                    if symbol in self.state['owned']:self._close(symbol,p,self.state['flatten_reason'])
+                if not active and not self.state['owned'] and not any(r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records()):
+                    self.state['flatten_reason']=None
             pending=self.journal.records()
             if any(r['phase']=='unknown' for r in pending):
                 self._lock('safety_lock','Order outcome is unknown; reconcile before new entries')
@@ -375,6 +393,8 @@ class TestnetSupervisor:
             self.state=self.load()
             if not self.client or not self.state['management']:raise ValueError('Activate testnet risk management first')
             self._lock('paused','Manual close all; new entries disabled')
+            self.state['flatten_reason']='Manual close all'
+            self.save()
             self._cancel_entries()
             active=self.positions()
             for symbol,p in active.items():

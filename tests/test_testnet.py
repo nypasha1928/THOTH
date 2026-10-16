@@ -240,3 +240,47 @@ class TestnetPortfolioStop(unittest.TestCase):
         result=self.activate()
         self.assertFalse(result['risk']['portfolio_stop'])
         self.assertEqual(result['status'],'running')
+
+
+class TestnetFillRaces(unittest.TestCase):
+    setUp=TestnetIntegration.setUp
+    tearDown=TestnetIntegration.tearDown
+    create=TestnetIntegration.create
+    activate=TestnetIntegration.activate
+    signal=TestnetIntegration.signal
+    fill_closes=TestnetIntegration.fill_closes
+
+    def submit_entry(self):
+        self.activate();self.signal(self.now[0]-60,None);self.now[0]+=60;self.signal(self.now[0]-60,'Long')
+        return next(iter(self.exchange.orders))
+
+    def test_attached_stop_can_close_before_first_position_poll(self):
+        link=self.submit_entry();self.exchange.fill(link)
+        self.exchange.prices['BTCUSDT']=98
+        close=self.exchange.close_payload('BTCUSDT','Long','.5','fixture-native-stop')
+        self.exchange.submit(close);self.exchange.fill(close['orderLinkId'])
+        self.service.monitor()
+        self.assertEqual(self.service.state['owned'],{})
+        self.assertEqual(len(self.service.snapshot()['closures']),1)
+        self.assertEqual(self.service.snapshot()['risk']['streak'],1)
+        self.assertEqual(self.service.journal.get(link)['phase'],'closed')
+
+    def test_close_all_latch_catches_fill_after_cancel_request(self):
+        link=self.submit_entry()
+        original=self.exchange.request
+        def cancel_race(method,path,params,private=False):
+            if path=='/v5/order/cancel' and params['orderLinkId']==link:
+                self.exchange.fill(link)
+                return {}
+            return original(method,path,params,private=private)
+        self.exchange.request=cancel_race
+        self.service.close_all()
+        self.assertTrue(self.service.state['flatten_reason'])
+        self.assertTrue(self.service.snapshot()['closing'])
+        self.service.monitor()
+        self.assertEqual(len([o for o in self.exchange.orders.values() if o['reduceOnly']]),1)
+        self.fill_closes()
+        self.assertEqual(self.exchange.active,{})
+        self.assertFalse(self.service.state['flatten_reason'])
+        self.assertFalse(self.service.snapshot()['closing'])
+        self.assertFalse(self.service.snapshot()['entries'])

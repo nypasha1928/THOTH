@@ -16,7 +16,7 @@ function updateAccount(data){if(mode==='live')lv=data;else tn=data}
 function current(){
  if(mode==='paper')return state;
  const tn=selectedAccount();
- return {settings:tn.config,equity:tn.equity,status:tn.status,reason:tn.reason,
+ return {closing:tn.closing,settings:tn.config,equity:tn.equity,status:tn.status,reason:tn.reason,
  daily_loss_pct:tn.risk.loss_pct,streak:tn.risk.streak,
  positions:tn.positions.map(p=>({...p,entry:Number(p.entry),qty:Number(p.qty),mark:Number(p.mark),value:Number(p.qty)*Number(p.entry),leverage:tn.config.leverage,stop_dollars:Number(p.stop_dollars??tn.config.stop_dollars)})),
  trades:tn.closures.map(t=>({...t,closed_at:t.closed_at})),events:tn.events.map(e=>({...e,time:e.time*1000}))};
@@ -56,12 +56,12 @@ function renderWatchlist(){
 function render(){
  const tn=selectedAccount();const s=current();$('equity').textContent=s.equity===null?'—':money(s.equity);$('pnl').textContent=money(s.positions.reduce((sum,p)=>sum+Number(p.pnl),0));
  $('limit').textContent=s.settings.daily_loss_pct;$('count').textContent=s.positions.length+' / '+s.settings.max_positions;
- $('status').textContent=s.status.replaceAll('_',' ')+' · '+(s.reason||'Waiting for confirmed breakouts');
+ $('status').textContent=s.closing?'Closing managed positions; waiting for exchange reconciliation':s.status.replaceAll('_',' ')+' · '+(s.reason||'Waiting for confirmed breakouts');
  $('lossProgress').textContent=Number(s.daily_loss_pct).toFixed(2)+'% daily drawdown · '+s.streak+' consecutive losses';
  $('equityLabel').textContent=mode==='paper'?'Paper equity':(mode==='live'?'LIVE USDT equity':'Testnet USDT equity');$('pnlLabel').textContent=mode==='paper'?'Open paper P&L':(mode==='live'?'Open LIVE P&L':'Open testnet P&L');
  $('fundsBadge').textContent=mode==='paper'?'PAPER FUNDS':(mode==='live'?'LIVE · REAL FUNDS':'TESTNET · NO REAL MONEY');$('positionsTitle').textContent=mode==='paper'?'Paper positions':(mode==='live'?'LIVE positions':'Testnet positions');
  $('start').textContent=mode==='paper'?'Start paper mode':(mode==='live'?'Enable LIVE entries':'Enable testnet entries');$('close').textContent=mode==='paper'?'Close all paper positions':(mode==='live'?'Close all LIVE positions':'Close all testnet positions');
- $('start').disabled=mode!=='paper'&&(!tn.enabled_on_server||tn.entries);$('start').title=mode!=='paper'&&!tn.enabled_on_server?'Server-side '+mode+' activation is disabled':'';
+ $('start').disabled=mode!=='paper'&&(!tn.enabled_on_server||tn.entries||tn.closing);$('start').title=mode!=='paper'&&!tn.enabled_on_server?'Server-side '+mode+' activation is disabled':'';
  $('paperPanel').hidden=mode!=='paper';$('fundsBadge').classList.toggle('red',mode==='live');$('liveAccountState').textContent=lv.management?'Production execution: REAL funds management active or recovering':'Production execution: inactive';$('testnetControls').hidden=mode==='paper';
  $('testnetModeNote').textContent=tn.enabled_on_server?'Server '+mode+' gate enabled. Account and reference checks still apply.':'Server gate disabled. '+(mode==='live'?'Live also requires a source comparison and real testnet acceptance.':'Configure and validate the account before enabling testnet orders.');
  $('positions').replaceChildren();

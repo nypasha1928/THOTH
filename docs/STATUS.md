@@ -4,8 +4,8 @@ Implementation is prepared for review. Paper, testnet and separately gated live 
 
 Verified locally:
 
-- 76 unit/API/integration tests passed in a clean Python 3.12 environment using pinned dependencies.
-- Stateful exchange simulation covered entry, stop verification, partial/rejected/ambiguous outcomes, emergency reduce-only closing, reversal ordering, restart recovery, daily/position loss shutdown and account binding.
+- 78 unit/API/integration tests passed in a clean Python 3.12 environment using pinned dependencies.
+- Stateful exchange simulation covered entry, stop verification, partial/rejected/ambiguous outcomes, emergency reduce-only closing, reversal ordering, restart recovery, daily/position loss shutdown and account binding, including stops closing before the first poll and entries filling after close-all cancellation.
 - Incremental/pruned indicator state matched 6,000 bars of unpruned replay, including checkpoint restoration.
 - Mobile browser checks passed separate paper/testnet/live views, saved settings, isolated default, locked activation, chart overlays/navigation/tap inspection and no horizontal overflow/JavaScript errors.
 - Hardened Docker image built successfully from TLS-downloaded wheels. Non-root/read-only-root runtime, private SQLite modes, writable data volume, health endpoint and disabled exchange gates passed checks.
