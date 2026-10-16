@@ -1,0 +1,16 @@
+# LIVE REAL-FUNDS support. Do not use until reference comparison and actual
+# testnet acceptance have passed. This does NOT activate orders by itself.
+services:
+  app:
+    environment:
+      THOTH_ENABLE_LIVE: "1"
+      THOTH_BYBIT_LIVE_KEY_FILE: /run/secrets/bybit_live_key
+      THOTH_BYBIT_LIVE_SECRET_FILE: /run/secrets/bybit_live_secret
+    secrets:
+      - bybit_live_key
+      - bybit_live_secret
+secrets:
+  bybit_live_key:
+    file: ${THOTH_BYBIT_LIVE_KEY_PATH:?Set the private live key file path}
+  bybit_live_secret:
+    file: ${THOTH_BYBIT_LIVE_SECRET_PATH:?Set the private live secret file path}

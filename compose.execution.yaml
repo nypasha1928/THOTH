@@ -1,0 +1,6 @@
+# Explicit opt-in for TESTNET ONLY, after credentials and read-only checks.
+# This flag does not activate orders; the dashboard activation phrase is also required.
+services:
+  app:
+    environment:
+      THOTH_ENABLE_TESTNET: "1"
