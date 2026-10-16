@@ -1,0 +1,44 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    environment:
+      THOTH_PUBLIC_HOST: ${THOTH_PUBLIC_HOST:?Set your domain hostname}
+      THOTH_PASSWORD_FILE: /run/secrets/thoth_password
+    secrets:
+      - thoth_password
+    volumes:
+      - thoth-data:/app/data
+    networks: [internal]
+    # No host port: only the reverse proxy can reach the dashboard.
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      THOTH_PUBLIC_HOST: ${THOTH_PUBLIC_HOST:?Set your domain hostname}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [internal]
+    depends_on:
+      app:
+        condition: service_healthy
+networks:
+  internal:
+volumes:
+  thoth-data:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  thoth_password:
+    file: ${THOTH_PASSWORD_PATH:?Set the private password file path}

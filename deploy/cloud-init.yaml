@@ -1,0 +1,50 @@
+#cloud-config
+# For a NEW Ubuntu 24.04 VPS only. The provider must inject your SSH public key.
+# No exchange keys, dashboard passwords, domain registrations or paid resources
+# are created by this file. Package signatures remain verified by APT.
+ssh_pwauth: false
+disable_root: false
+timezone: UTC
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - docker.io
+  - docker-compose-v2
+  - python3
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+write_files:
+  - path: /etc/ssh/sshd_config.d/60-thoth.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+  - path: /etc/fail2ban/jail.d/thoth-sshd.local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      backend = systemd
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+runcmd:
+  - [systemctl, enable, --now, docker]
+  - [systemctl, enable, --now, fail2ban]
+  - [timedatectl, set-ntp, 'true']
+  - [ufw, default, deny, incoming]
+  - [ufw, default, allow, outgoing]
+  - [ufw, allow, 22/tcp]
+  - [ufw, allow, 80/tcp]
+  - [ufw, allow, 443/tcp]
+  - [ufw, --force, enable]
+  - [systemctl, reload, ssh]
+final_message: THOTH host prerequisites installed. Upload the verified release bundle and configure DNS before running deploy/install.sh.

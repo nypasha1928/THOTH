@@ -1,0 +1,761 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © TFlab – MTF enhancement + HTF Breakout Filter + Volume Filters + Combined Exit
+// + Trading Time Windows (2 Windows) integrated from VWAP script
+// Modified: SMA 7/50 & SMA 200 filters, HTF & Time Windows removed
+
+//@version=6
+indicator('Support Resistance / 150K , Major/Minor 1500000 [TradingFinder] Market Structure – MTF + HTF + Vol + Exit + Time Windows', overlay = true, max_bars_back = 5000, max_boxes_count = 500, max_labels_count = 500, max_lines_count = 500)
+
+// ===== INPUTS =====
+//Logic
+PP_Long  = input.int(21, 'Long  Term S&R Pivot Period', group = 'Zig Zag Logic')
+PP_Short = input.int(5, 'Short Term S&R Pivot Period', group = 'Zig Zag Logic')
+
+//Display – Current TF
+Show_LMajor_Line = input.bool(true, 'Long Term Major Line,Color' , group = 'Long Term Lines', inline = 'LMajor')
+Show_LMinor_Line = input.bool(true, 'Long Term Minor Line,Color', group = 'Long Term Lines', inline = 'LMinor')
+Color_LMajor_Support = input.color(#085d31, 'S', group = 'Long Term Lines', inline = 'LMajor')
+Color_LMajor_Resistance = input.color(#b70909, 'R', group = 'Long Term Lines', inline = 'LMajor')
+Color_LMinor_Support = input.color(#3e7d5c, 'S', group = 'Long Term Lines', inline = 'LMinor')
+Color_LMinor_Resistance = input.color(#b14848, 'R', group = 'Long Term Lines', inline = 'LMinor')
+LMajor_Style = input.string(line.style_solid, 'Long Term Major Line Style', options = [line.style_solid, line.style_dotted, line.style_dashed], group = 'Long Term Lines')
+LMinor_Style = input.string(line.style_dotted, 'Long Term Minor Line Style', options = [line.style_solid, line.style_dotted, line.style_dashed], group = 'Long Term Lines')
+LMajor_Width = input.int(4, 'Long Term Major Width'  , group = 'Long Term Lines')
+LMinor_Width = input.int(2, 'Long Term Minor Width'  , group = 'Long Term Lines')
+
+Show_ShMajor_Line = input.bool(true, 'Short Term Major Line,Color' , group = 'Short Term Lines', inline = 'ShMajor')
+Show_ShMinor_Line = input.bool(true, 'Short Term Minor Line,Color', group = 'Short Term Lines', inline = 'ShMinor')
+Color_ShMajor_Support = input.color(#83a091, 'S', group = 'Short Term Lines', inline = 'ShMajor')
+Color_ShMajor_Resistance = input.color(#986464, 'R', group = 'Short Term Lines', inline = 'ShMajor')
+Color_ShMinor_Support = input.color(#6e7d75, 'S', group = 'Short Term Lines', inline = 'ShMinor')
+Color_ShMinor_Resistance = input.color(#93716f, 'R', group = 'Short Term Lines', inline = 'ShMinor')
+ShMajor_Style = input.string(line.style_dashed, 'Short Term Major Line Style', options = [line.style_solid, line.style_dotted, line.style_dashed], group = 'Short Term Lines')
+ShMinor_Style = input.string(line.style_dashed, 'Short Term Minor Line Style', options = [line.style_solid, line.style_dotted, line.style_dashed], group = 'Short Term Lines')
+ShMajor_Width = input.int(3, 'Short Term Major Width'  , group = 'Short Term Lines')
+ShMinor_Width = input.int(1, 'Short Term Minor Width'  , group = 'Short Term Lines')
+
+//Signal Settings
+use_LongMajor = input.bool(true, "Use Long Major for Signals", group="Signals")
+use_LongMinor = input.bool(false, "Use Long Minor for Signals", group="Signals")
+use_ShortMajor = input.bool(true, "Use Short Major for Signals", group="Signals")
+use_ShortMinor = input.bool(false, "Use Short Minor for Signals", group="Signals")
+signal_type = input.string("Both", "Signal Type", options=["Breakout", "Bounce/Rejection", "Both"], group="Signals")
+use_sma_7_50_filter = input.bool(false, "Use SMA 7/50 Filter", group="Signals", tooltip="Bullish: SMA7 > SMA50; Bearish: SMA7 < SMA50")
+use_sma_200_filter  = input.bool(false, "Use SMA 200 Filter", group="Signals", tooltip="Bullish: Close > SMA200; Bearish: Close < SMA200")
+
+// ===== SMA CROSS SIGNALS =====
+enable_sma_cross = input.bool(true, "Enable SMA Cross Signals", group="SMA Cross Signals")
+sma_fast_len = input.int(7, "Fast SMA Length", minval=1, group="SMA Cross Signals")
+sma_slow_len = input.int(200, "Slow SMA Length", minval=1, group="SMA Cross Signals")
+color_sma_cross_bull = input.color(color.green, "Bullish Cross Color", group="SMA Cross Signals")
+color_sma_cross_bear = input.color(color.red, "Bearish Cross Color", group="SMA Cross Signals")
+plot_sma_cross = input.bool(true, "Plot SMA Cross Signals", group="SMA Cross Signals")
+
+// ===== EXIT SIGNALS (COMBINED LOGIC, SEPARATE PLOT LOCATIONS) =====
+grpExit = "Exit Signals (Combined)"
+exit_enable      = input.bool(true, "Enable Exit Signals", group = grpExit)
+exit_pair        = input.string("SMA 7 x SMA 50", "Exit Cross Pair", group = grpExit,
+     options = ["SMA 7 x SMA 50", "SMA 7 x SMA 200", "SMA 50 x SMA 200", "Custom"])
+exit_custom_fast = input.int(7,  "Custom Fast SMA Length", minval = 1, group = grpExit)
+exit_custom_slow = input.int(50, "Custom Slow SMA Length", minval = 1, group = grpExit)
+exit_apply_to    = input.string("Both", "Apply Exits To", group = grpExit,
+     options = ["Both", "Long Only", "Short Only"])
+exit_color_long  = input.color(color.red,   "EXIT LONG Color",  group = grpExit, inline = "EC")
+exit_color_short = input.color(color.green, "EXIT SHORT Color", group = grpExit, inline = "EC")
+exit_style       = input.string("X-Cross", "Exit Marker Style", group = grpExit,
+     options = ["X-Cross", "Circle", "Diamond", "Flag"])
+exit_show_text   = input.bool(true, "Show EXIT-L / EXIT-S Text", group = grpExit)
+plot_exits       = input.bool(true, "Plot Exit Signals", group = grpExit)
+
+// >>> Two independent location settings <<<
+exit_loc_long    = input.string("Above Bar", "EXIT LONG Plot Location", group = grpExit,
+     options = ["Above Bar", "Below Bar", "Top", "Bottom"])
+exit_loc_short   = input.string("Below Bar", "EXIT SHORT Plot Location", group = grpExit,
+     options = ["Above Bar", "Below Bar", "Top", "Bottom"])
+
+// ===== VOLUME FILTERS =====
+grpVol = "Volume Filters"
+vol_pass20_enable = input.bool(true, "Enable Volume > SMA(20) Filter", group = grpVol)
+vol_pass20_len    = input.int(20, "Volume SMA Length", minval = 1, group = grpVol)
+vol_thresh_enable = input.bool(false, "Enable Volume Threshold Filter", group = grpVol)
+vol_threshold     = input.float(100000.0, "Volume Threshold (absolute)", minval = 0.0, step = 1000.0, group = grpVol)
+vol_apply_to_sr   = input.bool(true, "Apply Volume Filters to S/R Signals",   group = grpVol)
+vol_apply_to_sma  = input.bool(true, "Apply Volume Filters to SMA Cross Signals", group = grpVol)
+
+// ==============================================================
+// ===== GLOBAL STATE ARRAYS =====
+var array<string>   ArrType_Long   = array.new_string()
+var array<float>    ArrVal_Long    = array.new_float()
+var array<int>      ArrIdx_Long    = array.new_int()
+var array<int>      ArrTim_Long    = array.new_int()
+var array<string>   ArrTypeAdv_Long  = array.new_string()
+var array<float>    ArrValAdv_Long   = array.new_float()
+var array<int>      ArrIdxAdv_Long   = array.new_int()
+var array<int>      ArrTimAdv_Long   = array.new_int()
+
+var array<string>   ArrType_Short  = array.new_string()
+var array<float>    ArrVal_Short   = array.new_float()
+var array<int>      ArrIdx_Short   = array.new_int()
+var array<int>      ArrTim_Short   = array.new_int()
+var array<string>   ArrTypeAdv_Short = array.new_string()
+var array<float>    ArrValAdv_Short  = array.new_float()
+var array<int>      ArrIdxAdv_Short  = array.new_int()
+var array<int>      ArrTimAdv_Short  = array.new_int()
+
+// ==============================================================
+// ===== CORE FUNCTIONS =====
+ZZ(PP, ArrayType, ArrayValue, ArrayIndex, ArrayTime, ArrayTypeAdv, ArrayValueAdv, ArrayIndexAdv, ArrayTimeAdv) =>
+    Open = open
+    High = high
+    Low = low
+    Close = close
+    Bar_Index = bar_index
+    var line ZZLine = na
+    var line Sline = na
+    var line Rline = na
+    var label Label = na
+    PASS = 0
+    HighPivot = ta.pivothigh(PP, PP)
+    LowPivot = ta.pivotlow(PP, PP)
+    HighValue = ta.valuewhen(bool(HighPivot), High[PP], 0)
+    LowValue = ta.valuewhen(bool(LowPivot), Low[PP], 0)
+    HighIndex = ta.valuewhen(bool(HighPivot), Bar_Index[PP], 0)
+    LowIndex = ta.valuewhen(bool(LowPivot), Bar_Index[PP], 0)
+    HighTime = ta.valuewhen(bool(HighPivot), time[PP], 0)
+    LowTime = ta.valuewhen(bool(LowPivot), time[PP], 0)
+    Correct_HighPivot = 0.0
+    Correct_LowPivot = 0.0
+
+    if bool(HighPivot) and bool(LowPivot)
+        if ArrayType.size() == 0
+            PASS := 1
+            PASS
+        else if ArrayType.size() >= 1
+            if ArrayType.get(ArrayType.size() - 1) == 'L' or ArrayType.get(ArrayType.size() - 1) == 'LL'
+                if LowPivot < ArrayValue.get(ArrayType.size() - 1)
+                    array.remove(ArrayType, ArrayType.size() - 1)
+                    array.remove(ArrayValue, ArrayValue.size() - 1)
+                    array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                    array.remove(ArrayTime, ArrayTime.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                    array.push(ArrayValue, LowValue)
+                    array.push(ArrayIndex, LowIndex)
+                    array.push(ArrayTime, LowTime)
+                    Correct_LowPivot := LowValue
+                    Correct_LowPivot
+                else
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                    array.push(ArrayValue, HighValue)
+                    array.push(ArrayIndex, HighIndex)
+                    array.push(ArrayTime, HighTime)
+                Correct_HighPivot := HighValue
+                Correct_HighPivot
+            else if ArrayType.get(ArrayType.size() - 1) == 'H' or ArrayType.get(ArrayType.size() - 1) == 'HH'
+                if HighPivot > ArrayValue.get(ArrayType.size() - 1)
+                    array.remove(ArrayType, ArrayType.size() - 1)
+                    array.remove(ArrayValue, ArrayValue.size() - 1)
+                    array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                    array.remove(ArrayTime, ArrayTime.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                    array.push(ArrayValue, HighValue)
+                    array.push(ArrayIndex, HighIndex)
+                    array.push(ArrayTime, HighTime)
+                    Correct_HighPivot := HighValue
+                    Correct_HighPivot
+                else
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                    array.push(ArrayValue, LowValue)
+                    array.push(ArrayIndex, LowIndex)
+                    array.push(ArrayTime, LowTime)
+                Correct_LowPivot := LowValue
+                Correct_LowPivot
+            else if ArrayType.get(ArrayType.size() - 1) == 'LH'
+                if HighPivot < ArrayValue.get(ArrayType.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                    array.push(ArrayValue, LowValue)
+                    array.push(ArrayIndex, LowIndex)
+                    array.push(ArrayTime, LowTime)
+                    Correct_LowPivot := LowValue
+                    Correct_LowPivot
+                else if HighPivot > ArrayValue.get(ArrayType.size() - 1)
+                    if close < ArrayValue.get(ArrayType.size() - 1)
+                        array.remove(ArrayType, ArrayType.size() - 1)
+                        array.remove(ArrayValue, ArrayValue.size() - 1)
+                        array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                        array.remove(ArrayTime, ArrayTime.size() - 1)
+                        array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                        array.push(ArrayValue, HighValue)
+                        array.push(ArrayIndex, HighIndex)
+                        array.push(ArrayTime, HighTime)
+                        Correct_HighPivot := HighValue
+                        Correct_HighPivot
+                    else if close > ArrayValue.get(ArrayType.size() - 1)
+                        array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                        array.push(ArrayValue, LowValue)
+                        array.push(ArrayIndex, LowIndex)
+                        array.push(ArrayTime, LowTime)
+                        Correct_LowPivot := LowValue
+                        Correct_LowPivot
+            else if ArrayType.get(ArrayType.size() - 1) == 'HL'
+                if LowPivot > ArrayValue.get(ArrayType.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                    array.push(ArrayValue, HighValue)
+                    array.push(ArrayIndex, HighIndex)
+                    array.push(ArrayTime, HighTime)
+                    Correct_HighPivot := HighValue
+                    Correct_HighPivot
+                else if LowPivot < ArrayValue.get(ArrayType.size() - 1)
+                    if close > ArrayValue.get(ArrayType.size() - 1)
+                        array.remove(ArrayType, ArrayType.size() - 1)
+                        array.remove(ArrayValue, ArrayValue.size() - 1)
+                        array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                        array.remove(ArrayTime, ArrayTime.size() - 1)
+                        array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                        array.push(ArrayValue, LowValue)
+                        array.push(ArrayIndex, LowIndex)
+                        array.push(ArrayTime, LowTime)
+                        Correct_LowPivot := LowValue
+                        Correct_LowPivot
+                    else if close < ArrayValue.get(ArrayType.size() - 1)
+                        array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                        array.push(ArrayValue, HighValue)
+                        array.push(ArrayIndex, HighIndex)
+                        array.push(ArrayTime, HighTime)
+                        Correct_HighPivot := HighValue
+                        Correct_HighPivot
+    else if bool(HighPivot)
+        if ArrayType.size() == 0
+            array.insert(ArrayType, 0, 'H')
+            array.insert(ArrayValue, 0, HighValue)
+            array.insert(ArrayIndex, 0, HighIndex)
+            array.insert(ArrayTime, 0, HighTime)
+            Correct_HighPivot := HighValue
+            Correct_HighPivot
+        else if ArrayType.size() >= 1
+            if ArrayType.get(ArrayType.size() - 1) == 'L' or ArrayType.get(ArrayType.size() - 1) == 'HL' or ArrayType.get(ArrayType.size() - 1) == 'LL'
+                if HighPivot > ArrayValue.get(ArrayType.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                    array.push(ArrayValue, HighValue)
+                    array.push(ArrayIndex, HighIndex)
+                    array.push(ArrayTime, HighTime)
+                    Correct_HighPivot := HighValue
+                    Correct_HighPivot
+                else if HighPivot < ArrayValue.get(ArrayType.size() - 1)
+                    array.remove(ArrayType, ArrayType.size() - 1)
+                    array.remove(ArrayValue, ArrayValue.size() - 1)
+                    array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                    array.remove(ArrayTime, ArrayTime.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                    array.push(ArrayValue, LowValue)
+                    array.push(ArrayIndex, LowIndex)
+                    array.push(ArrayTime, LowTime)
+                    Correct_LowPivot := LowValue
+                    Correct_LowPivot
+            else if ArrayType.get(ArrayType.size() - 1) == 'H' or ArrayType.get(ArrayType.size() - 1) == 'HH' or ArrayType.get(ArrayType.size() - 1) == 'LH'
+                if ArrayValue.get(ArrayValue.size() - 1) < HighValue
+                    array.remove(ArrayType, ArrayType.size() - 1)
+                    array.remove(ArrayValue, ArrayValue.size() - 1)
+                    array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                    array.remove(ArrayTime, ArrayTime.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                    array.push(ArrayValue, HighValue)
+                    array.push(ArrayIndex, HighIndex)
+                    array.push(ArrayTime, HighTime)
+                    Correct_HighPivot := HighValue
+                    Correct_HighPivot
+    else if bool(LowPivot)
+        if ArrayType.size() == 0
+            array.insert(ArrayType, 0, 'L')
+            array.insert(ArrayValue, 0, LowValue)
+            array.insert(ArrayIndex, 0, LowIndex)
+            array.insert(ArrayTime, 0, LowTime)
+            Correct_LowPivot := LowValue
+            Correct_LowPivot
+        else if ArrayType.size() >= 1
+            if ArrayType.get(ArrayType.size() - 1) == 'H' or ArrayType.get(ArrayType.size() - 1) == 'HH' or ArrayType.get(ArrayType.size() - 1) == 'LH'
+                if LowPivot < ArrayValue.get(ArrayType.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                    array.push(ArrayValue, LowValue)
+                    array.push(ArrayIndex, LowIndex)
+                    array.push(ArrayTime, LowTime)
+                    Correct_LowPivot := LowValue
+                    Correct_LowPivot
+                else if LowPivot > ArrayValue.get(ArrayType.size() - 1)
+                    array.remove(ArrayType, ArrayType.size() - 1)
+                    array.remove(ArrayValue, ArrayValue.size() - 1)
+                    array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                    array.remove(ArrayTime, ArrayTime.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < HighValue ? 'HH' : 'LH' : 'H') 
+                    array.push(ArrayValue, HighValue)
+                    array.push(ArrayIndex, HighIndex)
+                    array.push(ArrayTime, HighTime)
+                    Correct_HighPivot := HighValue
+                    Correct_HighPivot
+            else if ArrayType.get(ArrayType.size() - 1) == 'L' or ArrayType.get(ArrayType.size() - 1) == 'HL' or ArrayType.get(ArrayType.size() - 1) == 'LL'
+                if ArrayValue.get(ArrayValue.size() - 1) > LowValue
+                    array.remove(ArrayType, ArrayType.size() - 1)
+                    array.remove(ArrayValue, ArrayValue.size() - 1)
+                    array.remove(ArrayIndex, ArrayIndex.size() - 1)
+                    array.remove(ArrayTime, ArrayTime.size() - 1)
+                    array.push(ArrayType, ArrayType.size() > 2 ? ArrayValue.get(ArrayType.size() - 2) < LowValue ? 'HL' : 'LL' : 'L') 
+                    array.push(ArrayValue, LowValue)
+                    array.push(ArrayIndex, LowIndex)
+                    array.push(ArrayTime, LowTime)
+                    Correct_LowPivot := LowValue
+                    Correct_LowPivot
+
+    var float Major_HighLevel = na
+    var float Major_LowLevel = na
+    var int Major_HighIndex = na
+    var int Major_LowIndex = na
+    var int Major_HighTime = na
+    var int Major_LowTime = na
+    var string Major_HighType = na
+    var string Major_LowType = na
+
+    var float Minor_HighLevel = na
+    var float Minor_LowLevel = na
+    var int Minor_HighIndex = na
+    var int Minor_LowIndex = na
+    var int Minor_HighTime = na
+    var int Minor_LowTime = na
+    var string Minor_HighType = na
+    var string Minor_LowType = na
+
+    if ArrayType.size() == 2
+        if ArrayType.get(0) == 'H'
+            Major_HighLevel := ArrayValue.get(0)
+            Major_LowLevel := ArrayValue.get(1)
+            Major_HighIndex := ArrayIndex.get(0)
+            Major_LowIndex := ArrayIndex.get(1)
+            Major_HighTime := ArrayTime.get(0)
+            Major_LowTime := ArrayTime.get(1)
+            Major_HighType := ArrayType.get(0)
+            Major_LowType := ArrayType.get(1)
+        else if ArrayType.get(0) == 'L'
+            Major_HighLevel := ArrayValue.get(1)
+            Major_LowLevel := ArrayValue.get(0)
+            Major_HighIndex := ArrayIndex.get(1)
+            Major_LowIndex := ArrayIndex.get(0)
+            Major_HighTime := ArrayTime.get(1)
+            Major_LowTime := ArrayTime.get(0)
+            Major_HighType := ArrayType.get(1)
+            Major_LowType := ArrayType.get(0)
+
+    var bool Lock0 = true
+    var bool Lock1 = true
+
+    if ArrayValue.size() == 1
+        if Lock0
+            array.insert(ArrayTypeAdv, 0, 'M' + ArrayType.get(0))
+            array.insert(ArrayValueAdv, 0, ArrayValue.get(0))
+            array.insert(ArrayIndexAdv, 0, ArrayIndex.get(0))
+            array.insert(ArrayTimeAdv, 0, ArrayTime.get(0))
+            Lock0 := false
+            Lock0
+
+    if ArrayValue.size() == 2
+        if Lock1
+            array.insert(ArrayTypeAdv, 1, 'M' + ArrayType.get(1))
+            array.insert(ArrayValueAdv, 1, ArrayValue.get(1))
+            array.insert(ArrayIndexAdv, 1, ArrayIndex.get(1))
+            array.insert(ArrayTimeAdv, 1, ArrayTime.get(1))
+            Lock1 := false
+            Lock1
+
+    if ArrayValue.size() > 1
+        if ArrayValue.get(ArrayValue.size() - 1)[1] != ArrayValue.get(ArrayValue.size() - 1)
+            if str.substring(ArrayType.get(ArrayType.size() - 1)[1], str.length(ArrayType.get(ArrayType.size() - 1)) - 1) != str.substring(ArrayType.get(ArrayType.size() - 1), str.length(ArrayType.get(ArrayType.size() - 1)) - 1)
+                array.push(ArrayTypeAdv, 'm' + ArrayType.get(ArrayType.size() - 1))
+                array.push(ArrayValueAdv, ArrayValue.get(ArrayValue.size() - 1))
+                array.push(ArrayIndexAdv, ArrayIndex.get(ArrayIndex.size() - 1))
+                array.push(ArrayTimeAdv, ArrayTime.get(ArrayTime.size() - 1))
+            else if str.substring(ArrayType.get(ArrayType.size() - 1)[1], str.length(ArrayType.get(ArrayType.size() - 1)) - 1) == str.substring(ArrayType.get(ArrayType.size() - 1), str.length(ArrayType.get(ArrayType.size() - 1)) - 1)
+                array.remove(ArrayValueAdv, ArrayValueAdv.size() - 1)
+                array.remove(ArrayIndexAdv, ArrayIndexAdv.size() - 1)
+                array.remove(ArrayTimeAdv, ArrayTimeAdv.size() - 1)
+                array.push(ArrayValueAdv, ArrayValue.get(ArrayValue.size() - 1))
+                array.push(ArrayIndexAdv, ArrayIndex.get(ArrayIndex.size() - 1))
+                array.push(ArrayTimeAdv, ArrayTime.get(ArrayTime.size() - 1))
+
+    if ArrayValueAdv.size() > 1
+        if close > Major_HighLevel
+            if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mL'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('ML')
+                Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mHL'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mLL'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mLH' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mHH' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'MLH' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'MHH'
+                if ArrayTypeAdv.get(ArrayTypeAdv.size() - 2) == 'mHL'
+                    ArrayTypeAdv.remove(ArrayTypeAdv.size() - 2)
+                    ArrayTypeAdv.insert(ArrayValueAdv.size() - 2, 'M' + ArrayType.get(ArrayType.size() - 2))
+                    Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 2)
+                    Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 2)
+                    Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 2)
+                    Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 2)
+                else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 2) == 'mLL'
+                    ArrayTypeAdv.remove(ArrayTypeAdv.size() - 2)
+                    ArrayTypeAdv.insert(ArrayValueAdv.size() - 2, 'M' + ArrayType.get(ArrayType.size() - 2))
+                    Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 2)
+                    Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 2)
+                    Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 2)
+                    Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 2)
+
+        if ArrayValueAdv.get(ArrayValueAdv.size() - 1) > Major_HighLevel
+            if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mH'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('MH')
+                Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mLH'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mHH' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'MHH'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+
+        if close < Major_LowLevel
+            if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mH'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('MH')
+                Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mLH'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mHH'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mHL' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mLL' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'MHL' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'MLL'
+                if ArrayTypeAdv.get(ArrayTypeAdv.size() - 2) == 'mLH'
+                    ArrayTypeAdv.remove(ArrayTypeAdv.size() - 2)
+                    ArrayTypeAdv.insert(ArrayValueAdv.size() - 2, 'M' + ArrayType.get(ArrayType.size() - 2))
+                    Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 2)
+                    Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 2)
+                    Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 2)
+                    Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 2)
+                else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 2) == 'mHH'
+                    ArrayTypeAdv.remove(ArrayTypeAdv.size() - 2)
+                    ArrayTypeAdv.insert(ArrayValueAdv.size() - 2, 'M' + ArrayType.get(ArrayType.size() - 2))
+                    Major_HighLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 2)
+                    Major_HighIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 2)
+                    Major_HighTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 2)
+                    Major_HighType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 2)
+
+        if ArrayValueAdv.get(ArrayValueAdv.size() - 1) < Major_LowLevel
+            if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mL'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('ML')
+                Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mHL'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+            else if ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'mLL' or ArrayTypeAdv.get(ArrayTypeAdv.size() - 1) == 'MLL'
+                ArrayTypeAdv.remove(ArrayTypeAdv.size() - 1)
+                ArrayTypeAdv.push('M' + ArrayType.get(ArrayType.size() - 1))
+                Major_LowLevel := ArrayValueAdv.get(ArrayValueAdv.size() - 1)
+                Major_LowIndex := ArrayIndexAdv.get(ArrayIndexAdv.size() - 1)
+                Major_LowTime := ArrayTimeAdv.get(ArrayTimeAdv.size() - 1)
+                Major_LowType := ArrayTypeAdv.get(ArrayTypeAdv.size() - 1)
+
+    [ArrayTypeAdv, ArrayValueAdv, ArrayIndexAdv, ArrayTimeAdv]
+
+ExtractLevels(Type, Value, Index, Time) =>
+    float sup_major = na
+    float res_major = na
+    float sup_minor = na
+    float res_minor = na
+    int time_sup_major = na
+    int time_res_major = na
+    int time_sup_minor = na
+    int time_res_minor = na
+
+    if array.size(Type) > 0
+        idx = array.size(Type) - 1
+        found_major_sup = false
+        found_major_res = false
+        found_minor_sup = false
+        found_minor_res = false
+        while idx >= 0 and not (found_major_sup and found_major_res and found_minor_sup and found_minor_res)
+            t = array.get(Type, idx)
+            if not found_major_sup and (t == "MLL" or t == "MHL")
+                sup_major := array.get(Value, idx)
+                time_sup_major := array.get(Time, idx)
+                found_major_sup := true
+            if not found_major_res and (t == "MHH" or t == "MLH")
+                res_major := array.get(Value, idx)
+                time_res_major := array.get(Time, idx)
+                found_major_res := true
+            if not found_minor_sup and (t == "mLL" or t == "mHL")
+                sup_minor := array.get(Value, idx)
+                time_sup_minor := array.get(Time, idx)
+                found_minor_sup := true
+            if not found_minor_res and (t == "mHH" or t == "mLH")
+                res_minor := array.get(Value, idx)
+                time_res_minor := array.get(Time, idx)
+                found_minor_res := true
+            idx := idx - 1
+
+    [sup_major, res_major, sup_minor, res_minor, time_sup_major, time_res_major, time_sup_minor, time_res_minor]
+
+Drawing(Type, Value, Index, Time, Show_Major, Show_Minor, Color_Major_Support, Color_Minor_Support, Color_Major_Resistance, Color_Minor_Resistance, Style_Major, Style_Minor, Width_Major, Width_Minor, use_time = false) =>
+    var line Major_Support_Line      = na
+    var line Minor_Support_Line      = na 
+    var line Major_Resistance_Line   = na
+    var line Minor_Resistance_Line   = na 
+ 
+    if array.size(Type) > 0
+        idx_last = array.size(Type) - 1
+        y = array.get(Value, idx_last)
+        t = array.get(Type, idx_last)
+        x1 = use_time ? array.get(Time, idx_last) : array.get(Index, idx_last)
+
+        if Show_Major == true and array.size(Type) > 2
+            if t == 'MLL' or t == 'MHL'
+                line.delete(Major_Support_Line)
+                if use_time
+                    Major_Support_Line := line.new(x1, y, x1, y, xloc = xloc.bar_time, extend = extend.right, style = Style_Major, color = Color_Major_Support, width = Width_Major)
+                else
+                    Major_Support_Line := line.new(x1, y, x1 + 1, y, extend = extend.right, style = Style_Major, color = Color_Major_Support, width = Width_Major)
+            if t == 'MHH' or t == 'MLH'
+                line.delete(Major_Resistance_Line)
+                if use_time
+                    Major_Resistance_Line := line.new(x1, y, x1, y, xloc = xloc.bar_time, extend = extend.right, style = Style_Major, color = Color_Major_Resistance, width = Width_Major)
+                else
+                    Major_Resistance_Line := line.new(x1, y, x1 + 1, y, extend = extend.right, style = Style_Major, color = Color_Major_Resistance, width = Width_Major)        
+
+        if Show_Minor == true and array.size(Type) > 2
+            if t == 'mLL' or t == 'mHL'
+                line.delete(Minor_Support_Line)
+                if use_time
+                    Minor_Support_Line := line.new(x1, y, x1, y, xloc = xloc.bar_time, extend = extend.right, style = Style_Minor, color = Color_Minor_Support, width = Width_Minor)
+                else
+                    Minor_Support_Line := line.new(x1, y, x1 + 1, y, extend = extend.right, style = Style_Minor, color = Color_Minor_Support, width = Width_Minor)
+            if t == 'mHH' or t == 'mLH'
+                line.delete(Minor_Resistance_Line)
+                if use_time
+                    Minor_Resistance_Line := line.new(x1, y, x1, y, xloc = xloc.bar_time, extend = extend.right, style = Style_Minor, color = Color_Minor_Resistance, width = Width_Minor)
+                else
+                    Minor_Resistance_Line := line.new(x1, y, x1 + 1, y, extend = extend.right, style = Style_Minor, color = Color_Minor_Resistance, width = Width_Minor)        
+
+// ================================================================
+// ===== MAIN SCRIPT =====
+
+[AT_Long, AV_Long, AI_Long, ATim_Long] = ZZ(PP_Long, ArrType_Long, ArrVal_Long, ArrIdx_Long, ArrTim_Long, ArrTypeAdv_Long, ArrValAdv_Long, ArrIdxAdv_Long, ArrTimAdv_Long)
+[AT_Short, AV_Short, AI_Short, ATim_Short] = ZZ(PP_Short, ArrType_Short, ArrVal_Short, ArrIdx_Short, ArrTim_Short, ArrTypeAdv_Short, ArrValAdv_Short, ArrIdxAdv_Short, ArrTimAdv_Short)
+
+Drawing(AT_Long, AV_Long, AI_Long, ATim_Long, Show_LMajor_Line, Show_LMinor_Line, Color_LMajor_Support, Color_LMinor_Support, Color_LMajor_Resistance, Color_LMinor_Resistance, LMajor_Style, LMinor_Style, LMajor_Width, LMinor_Width, false)
+Drawing(AT_Short, AV_Short, AI_Short, ATim_Short, Show_ShMajor_Line, Show_ShMinor_Line, Color_ShMajor_Support, Color_ShMinor_Support, Color_ShMajor_Resistance, Color_ShMinor_Resistance, ShMajor_Style, ShMinor_Style, ShMajor_Width, ShMinor_Width, false)
+
+// ===== SMAs =====
+sma7   = ta.sma(close, 7)
+sma50  = ta.sma(close, 50)
+sma200 = ta.sma(close, 200)
+sma_fast = ta.sma(close, sma_fast_len)
+sma_slow = ta.sma(close, sma_slow_len)
+
+isBreakout() => signal_type == "Breakout" or signal_type == "Both"
+isBounceRejection() => signal_type == "Bounce/Rejection" or signal_type == "Both"
+
+filter_bullish = (not use_sma_7_50_filter or (sma7 > sma50)) and (not use_sma_200_filter or close > sma200)
+filter_bearish = (not use_sma_7_50_filter or (sma7 < sma50)) and (not use_sma_200_filter or close < sma200)
+
+// ===== VOLUME FILTER LOGIC =====
+vol_sma20 = ta.sma(volume, vol_pass20_len)
+vol_pass20_ok   = not vol_pass20_enable   or volume > vol_sma20
+vol_thresh_ok   = not vol_thresh_enable   or volume >= vol_threshold
+vol_filter_pass = vol_pass20_ok and vol_thresh_ok
+
+// ===== S/R SIGNALS (Volume applied) =====
+[L_sup_maj_cur, L_res_maj_cur, L_sup_min_cur, L_res_min_cur, _, _, _, _] = ExtractLevels(AT_Long, AV_Long, AI_Long, ATim_Long)
+[S_sup_maj_cur, S_res_maj_cur, S_sup_min_cur, S_res_min_cur, _, _, _, _] = ExtractLevels(AT_Short, AV_Short, AI_Short, ATim_Short)
+
+bullish_breakout = false
+bullish_bounce = false
+
+if isBreakout()
+    if use_LongMajor and not na(L_res_maj_cur) and ta.crossover(close, L_res_maj_cur)
+        bullish_breakout := true
+    if use_LongMinor and not na(L_res_min_cur) and ta.crossover(close, L_res_min_cur)
+        bullish_breakout := true
+    if use_ShortMajor and not na(S_res_maj_cur) and ta.crossover(close, S_res_maj_cur)
+        bullish_breakout := true
+    if use_ShortMinor and not na(S_res_min_cur) and ta.crossover(close, S_res_min_cur)
+        bullish_breakout := true
+
+if isBounceRejection()
+    if use_LongMajor and not na(L_sup_maj_cur) and low <= L_sup_maj_cur and close > L_sup_maj_cur and close > close[1]
+        bullish_bounce := true
+    if use_LongMinor and not na(L_sup_min_cur) and low <= L_sup_min_cur and close > L_sup_min_cur and close > close[1]
+        bullish_bounce := true
+    if use_ShortMajor and not na(S_sup_maj_cur) and low <= S_sup_maj_cur and close > S_sup_maj_cur and close > close[1]
+        bullish_bounce := true
+    if use_ShortMinor and not na(S_sup_min_cur) and low <= S_sup_min_cur and close > S_sup_min_cur and close > close[1]
+        bullish_bounce := true
+
+sr_vol_ok = not vol_apply_to_sr or vol_filter_pass
+
+bullish_signal = (bullish_breakout or bullish_bounce) and filter_bullish and sr_vol_ok
+
+bearish_breakdown = false
+bearish_rejection = false
+
+if isBreakout()
+    if use_LongMajor and not na(L_sup_maj_cur) and ta.crossunder(close, L_sup_maj_cur)
+        bearish_breakdown := true
+    if use_LongMinor and not na(L_sup_min_cur) and ta.crossunder(close, L_sup_min_cur)
+        bearish_breakdown := true
+    if use_ShortMajor and not na(S_sup_maj_cur) and ta.crossunder(close, S_sup_maj_cur)
+        bearish_breakdown := true
+    if use_ShortMinor and not na(S_sup_min_cur) and ta.crossunder(close, S_sup_min_cur)
+        bearish_breakdown := true
+
+if isBounceRejection()
+    if use_LongMajor and not na(L_res_maj_cur) and high >= L_res_maj_cur and close < L_res_maj_cur and close < close[1]
+        bearish_rejection := true
+    if use_LongMinor and not na(L_res_min_cur) and high >= L_res_min_cur and close < L_res_min_cur and close < close[1]
+        bearish_rejection := true
+    if use_ShortMajor and not na(S_res_maj_cur) and high >= S_res_maj_cur and close < S_res_maj_cur and close < close[1]
+        bearish_rejection := true
+    if use_ShortMinor and not na(S_res_min_cur) and high >= S_res_min_cur and close < S_res_min_cur and close < close[1]
+        bearish_rejection := true
+
+bearish_signal = (bearish_breakdown or bearish_rejection) and filter_bearish and sr_vol_ok
+
+// ===== SMA CROSS SIGNALS (Volume applied) =====
+sma_cross_bull_raw = enable_sma_cross and ta.crossover(sma_fast, sma_slow)
+sma_cross_bear_raw = enable_sma_cross and ta.crossunder(sma_fast, sma_slow)
+
+sma_vol_ok = not vol_apply_to_sma or vol_filter_pass
+
+sma_cross_bull = sma_cross_bull_raw and sma_vol_ok
+sma_cross_bear = sma_cross_bear_raw and sma_vol_ok
+
+// ===== COMBINED SIGNALS (inherits all filters automatically) =====
+bullish_combined = bullish_signal or sma_cross_bull
+bearish_combined = bearish_signal or sma_cross_bear
+
+// ===== COMBINED EXIT SIGNAL LOGIC =====
+exit_fast_len = exit_pair == "SMA 7 x SMA 50"   ? 7  :    exit_pair == "SMA 7 x SMA 200"  ? 7  :    exit_pair == "SMA 50 x SMA 200" ? 50 :    exit_custom_fast
+
+exit_slow_len = exit_pair == "SMA 7 x SMA 50"   ? 50  :   exit_pair == "SMA 7 x SMA 200"  ? 200 :   exit_pair == "SMA 50 x SMA 200" ? 200 :   exit_custom_slow
+
+exit_fast = ta.sma(close, exit_fast_len)
+exit_slow = ta.sma(close, exit_slow_len)
+
+exit_bear_cross = ta.crossunder(exit_fast, exit_slow)
+exit_bull_cross = ta.crossover (exit_fast, exit_slow)
+
+var int posState = 0
+
+exit_long  = exit_enable and posState ==  1 and exit_bear_cross and exit_apply_to != "Short Only"
+exit_short = exit_enable and posState == -1 and exit_bull_cross and exit_apply_to != "Long Only"
+exit_signal = exit_long or exit_short
+
+if bullish_combined
+    posState := 1
+else if bearish_combined
+    posState := -1
+else if exit_signal
+    posState := 0
+
+// ===== PLOTS =====
+plotshape(bullish_signal, title="Bullish S/R Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small)
+plotshape(bearish_signal, title="Bearish S/R Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small)
+
+plotshape(plot_sma_cross and sma_cross_bull, title="SMA Cross Bullish", location=location.belowbar, color=color_sma_cross_bull, style=shape.triangleup, size=size.small)
+plotshape(plot_sma_cross and sma_cross_bear, title="SMA Cross Bearish", location=location.abovebar, color=color_sma_cross_bear, style=shape.triangledown, size=size.small)
+
+// ===== EXIT SIGNAL PLOTS — TWO LOCATIONS =====
+exit_shape = exit_style == "X-Cross" ? shape.xcross  :
+             exit_style == "Circle"  ? shape.circle  :
+             exit_style == "Diamond" ? shape.diamond :
+                                       shape.flag
+
+exit_loc_long_resolved = exit_loc_long  == "Above Bar" ? location.abovebar :
+                         exit_loc_long  == "Below Bar" ? location.belowbar :
+                         exit_loc_long  == "Top"       ? location.top      :
+                                                          location.bottom
+
+exit_loc_short_resolved = exit_loc_short == "Above Bar" ? location.abovebar :
+                          exit_loc_short == "Below Bar" ? location.belowbar :
+                          exit_loc_short == "Top"       ? location.top      :
+                                                           location.bottom
+
+// EXIT LONG — its own location input
+plotshape(plot_exits and exit_long, title = "Exit Long",
+     location = exit_loc_long_resolved, color = exit_color_long,
+     style = exit_shape, size = size.small)
+
+// EXIT SHORT — its own location input
+plotshape(plot_exits and exit_short, title = "Exit Short",
+     location = exit_loc_short_resolved, color = exit_color_short,
+     style = exit_shape, size = size.small)
+
+// ===== ALERTS =====
+alertcondition(bullish_signal, title="Bullish S/R Signal", message="Bullish S/R signal: Volume filter passed.")
+alertcondition(bearish_signal, title="Bearish S/R Signal", message="Bearish S/R signal: Volume filter passed.")
+
+alertcondition(sma_cross_bull, title="SMA Cross Bullish", message="SMA fast crossed ABOVE slow; Volume passed.")
+alertcondition(sma_cross_bear, title="SMA Cross Bearish", message="SMA fast crossed BELOW slow; Volume passed.")
+
+alertcondition(bullish_combined, title="Combined Bullish Signal", message="Combined Bullish Signal (all filters confirmed).")
+alertcondition(bearish_combined, title="Combined Bearish Signal", message="Combined Bearish Signal (all filters confirmed).")
+
+// Combined alert (single)
+alertcondition(exit_signal, title = "Exit Signal (Combined)", message = "EXIT Signal: SMA reversal cross triggered — close the active position.")
+// Optional detailed alerts
+alertcondition(exit_long,  title = "Exit Long (detail)",  message = "EXIT LONG: close the active long position.")
+alertcondition(exit_short, title = "Exit Short (detail)", message = "EXIT SHORT: close the active short position.")
+
+// ===== COMBINED ENTRY + OPPOSITE EXIT ALERTS =====
+alertcondition(bullish_combined or exit_short,
+     title   = "Combined Bullish OR Exit Short",
+     message = "BUY / COVER: Combined Bullish entry OR Exit Short triggered.")
+
+alertcondition(bearish_combined or exit_long,
+     title   = "Combined Bearish OR Exit Long",
+     message = "SELL / CLOSE: Combined Bearish entry OR Exit Long triggered.")

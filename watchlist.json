@@ -1,0 +1,1406 @@
+[
+  {
+    "original": "CME_MINI:ES1!",
+    "symbol": "ES1!",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:BTCUSDT.P",
+    "symbol": "BTCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PAXGUSDT.P",
+    "symbol": "PAXGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:STORJUSDT.P",
+    "symbol": "STORJUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LABUSDT.P",
+    "symbol": "LABUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:RIVERUSDT.P",
+    "symbol": "RIVERUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LSKUSDT.P",
+    "symbol": "LSKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AVAAIUSDT.P",
+    "symbol": "AVAAIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:RAVEUSDT.P",
+    "symbol": "RAVEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BLURUSDT.P",
+    "symbol": "BLURUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:CYSUSDT.P",
+    "symbol": "CYSUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:EDGEUSDT.P",
+    "symbol": "EDGEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SIRENUSDT.P",
+    "symbol": "SIRENUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BTRUSDT.P",
+    "symbol": "BTRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ZECUSDT.P",
+    "symbol": "ZECUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ENSOUSDT.P",
+    "symbol": "ENSOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MAGMAUSDT.P",
+    "symbol": "MAGMAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:EVAAUSDT.P",
+    "symbol": "EVAAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SOXLUSDT.P",
+    "symbol": "SOXLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XANUSDT.P",
+    "symbol": "XANUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:JTOUSDT.P",
+    "symbol": "JTOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ALLOUSDT.P",
+    "symbol": "ALLOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BLESSUSDT.P",
+    "symbol": "BLESSUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:JCTUSDT.P",
+    "symbol": "JCTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:APRUSDT.P",
+    "symbol": "APRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HANAUSDT.P",
+    "symbol": "HANAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PEOPLEUSDT.P",
+    "symbol": "PEOPLEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BLUAIUSDT.P",
+    "symbol": "BLUAIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ZORAUSDT.P",
+    "symbol": "ZORAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BICOUSDT.P",
+    "symbol": "BICOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:POLUSDT.P",
+    "symbol": "POLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TRIAUSDT.P",
+    "symbol": "TRIAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PORTALUSDT.P",
+    "symbol": "PORTALUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:STGUSDT.P",
+    "symbol": "STGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ESPUSDT.P",
+    "symbol": "ESPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SNTUSDT.P",
+    "symbol": "SNTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HUSDT.P",
+    "symbol": "HUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:COHRUSDT.P",
+    "symbol": "COHRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:DASHUSDT.P",
+    "symbol": "DASHUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MRVLUSDT.P",
+    "symbol": "MRVLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:STOUSDT.P",
+    "symbol": "STOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ZBTUSDT.P",
+    "symbol": "ZBTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AEROUSDT.P",
+    "symbol": "AEROUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:FIDAUSDT.P",
+    "symbol": "FIDAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HNTUSDT.P",
+    "symbol": "HNTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SPXUSDT.P",
+    "symbol": "SPXUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NIULAIUSDT.P",
+    "symbol": "NIULAIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ONGUSDT.P",
+    "symbol": "ONGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BSVUSDT.P",
+    "symbol": "BSVUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PRLUSDT.P",
+    "symbol": "PRLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ARKMUSDT.P",
+    "symbol": "ARKMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NILUSDT.P",
+    "symbol": "NILUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ZETAUSDT",
+    "symbol": "ZETAUSDT",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:PTBUSDT.P",
+    "symbol": "PTBUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AGIUSDT.P",
+    "symbol": "AGIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:KAITOUSDT.P",
+    "symbol": "KAITOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:KNCUSDT.P",
+    "symbol": "KNCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:1000BONKUSDT.P",
+    "symbol": "1000BONKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:OPNUSDT.P",
+    "symbol": "OPNUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:INTCUSDT.P",
+    "symbol": "INTCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SOLUSDT.P",
+    "symbol": "SOLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NOMUSDT.P",
+    "symbol": "NOMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:GRVTUSDT.P",
+    "symbol": "GRVTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ACEUSDT.P",
+    "symbol": "ACEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AIXBTUSDT.P",
+    "symbol": "AIXBTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:CAKEUSDT.P",
+    "symbol": "CAKEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AVAUSDT.P",
+    "symbol": "AVAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AAVEUSDT.P",
+    "symbol": "AAVEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:EWYUSDT.P",
+    "symbol": "EWYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:OGUSDT.P",
+    "symbol": "OGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:WETUSDT.P",
+    "symbol": "WETUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ZKCUSDT.P",
+    "symbol": "ZKCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ETHUSDT.P",
+    "symbol": "ETHUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BOMEUSDT.P",
+    "symbol": "BOMEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PIEVERSEUSDT.P",
+    "symbol": "PIEVERSEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:EDENUSDT.P",
+    "symbol": "EDENUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:METISUSDT.P",
+    "symbol": "METISUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "OKX:CHZUSDT.P",
+    "symbol": "CHZUSDT",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:AXLUSDT.P",
+    "symbol": "AXLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ONTUSDT.P",
+    "symbol": "ONTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SHIB1000USDT.P",
+    "symbol": "SHIB1000USDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:JASMYUSDT.P",
+    "symbol": "JASMYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BNBUSDT.P",
+    "symbol": "BNBUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:FLNCUSDT.P",
+    "symbol": "FLNCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AXSUSDT.P",
+    "symbol": "AXSUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:CFGUSDT.P",
+    "symbol": "CFGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XMRUSDT.P",
+    "symbol": "XMRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BOBAUSDT.P",
+    "symbol": "BOBAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:CELOUSDT.P",
+    "symbol": "CELOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HOMEUSDT.P",
+    "symbol": "HOMEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:1000TURBOUSDT.P",
+    "symbol": "1000TURBOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NEOUSDT.P",
+    "symbol": "NEOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LTCUSDT.P",
+    "symbol": "LTCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:1000PEPEUSDT.P",
+    "symbol": "1000PEPEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MNTUSDT.P",
+    "symbol": "MNTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SANDUSDT.P",
+    "symbol": "SANDUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:GUNUSDT.P",
+    "symbol": "GUNUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BMTUSDT.P",
+    "symbol": "BMTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AZTECUSDT.P",
+    "symbol": "AZTECUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AAPLUSDT.P",
+    "symbol": "AAPLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XLMUSDT.P",
+    "symbol": "XLMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AMZNUSDT.P",
+    "symbol": "AMZNUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:GOOGLUSDT.P",
+    "symbol": "GOOGLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ROSEUSDT.P",
+    "symbol": "ROSEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AXTIUSDT.P",
+    "symbol": "AXTIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ARIAUSDT.P",
+    "symbol": "ARIAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MEUSDT.P",
+    "symbol": "MEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NIGHTUSDT.P",
+    "symbol": "NIGHTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:KASUSDT.P",
+    "symbol": "KASUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:RESOLVUSDT.P",
+    "symbol": "RESOLVUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ENJUSDT.P",
+    "symbol": "ENJUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:DOGEUSDT.P",
+    "symbol": "DOGEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TNSRUSDT.P",
+    "symbol": "TNSRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XRPUSDT.P",
+    "symbol": "XRPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HOODUSDT.P",
+    "symbol": "HOODUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AGLDUSDT.P",
+    "symbol": "AGLDUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BATUSDT.P",
+    "symbol": "BATUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BIOUSDT.P",
+    "symbol": "BIOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:DUSKUSDT.P",
+    "symbol": "DUSKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:EWJUSDT.P",
+    "symbol": "EWJUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ORDIUSDT.P",
+    "symbol": "ORDIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "OANDA:XAGUSD",
+    "symbol": "XAGUSD",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:TWTUSDT.P",
+    "symbol": "TWTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:WUSDT.P",
+    "symbol": "WUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LITUSDT.P",
+    "symbol": "LITUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LYNUSDT.P",
+    "symbol": "LYNUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TUTUSDT.P",
+    "symbol": "TUTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TSMUSDT.P",
+    "symbol": "TSMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:YGGUSDT.P",
+    "symbol": "YGGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:QQQUSDT.P",
+    "symbol": "QQQUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:WLDUSDT.P",
+    "symbol": "WLDUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HYPEUSDT.P",
+    "symbol": "HYPEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:METAUSDT.P",
+    "symbol": "METAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:IOUSDT.P",
+    "symbol": "IOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:RPLUSDT.P",
+    "symbol": "RPLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SPYUSDT.P",
+    "symbol": "SPYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:KERNELUSDT.P",
+    "symbol": "KERNELUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "NASDAQ:QQQ",
+    "symbol": "QQQ",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:MSFTUSDT.P",
+    "symbol": "MSFTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:WIFUSDT.P",
+    "symbol": "WIFUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ADAUSDT.P",
+    "symbol": "ADAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XAUTUSDT.P",
+    "symbol": "XAUTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:UNIUSDT.P",
+    "symbol": "UNIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "OANDA:XAUUSD",
+    "symbol": "XAUUSD",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:ESPORTSUSDT.P",
+    "symbol": "ESPORTSUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ARCUSDT.P",
+    "symbol": "ARCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LINKUSDT.P",
+    "symbol": "LINKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "NYSE:CVX",
+    "symbol": "CVX",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:FILUSDT.P",
+    "symbol": "FILUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LDOUSDT.P",
+    "symbol": "LDOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SQDUSDT.P",
+    "symbol": "SQDUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LPTUSDT.P",
+    "symbol": "LPTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:JELLYJELLYUSDT.P",
+    "symbol": "JELLYJELLYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:APEUSDT.P",
+    "symbol": "APEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SEIUSDT.P",
+    "symbol": "SEIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TSLAUSDT.P",
+    "symbol": "TSLAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AVAXUSDT.P",
+    "symbol": "AVAXUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MUUSDT.P",
+    "symbol": "MUUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ANKRUSDT.P",
+    "symbol": "ANKRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LQTYUSDT.P",
+    "symbol": "LQTYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BANDUSDT.P",
+    "symbol": "BANDUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NVDAUSDT.P",
+    "symbol": "NVDAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ZKUSDT.P",
+    "symbol": "ZKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:INITUSDT.P",
+    "symbol": "INITUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:GALAUSDT.P",
+    "symbol": "GALAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XVGUSDT.P",
+    "symbol": "XVGUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TAOUSDT.P",
+    "symbol": "TAOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:RENDERUSDT.P",
+    "symbol": "RENDERUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SUIUSDT.P",
+    "symbol": "SUIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ARBUSDT.P",
+    "symbol": "ARBUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TRXUSDT.P",
+    "symbol": "TRXUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AKTUSDT.P",
+    "symbol": "AKTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:COMPUSDT.P",
+    "symbol": "COMPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XPINUSDT.P",
+    "symbol": "XPINUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HBARUSDT.P",
+    "symbol": "HBARUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SKRUSDT.P",
+    "symbol": "SKRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SLPUSDT.P",
+    "symbol": "SLPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "NASDAQ:HOOD",
+    "symbol": "HOOD",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "OKX:XTZUSDT.P",
+    "symbol": "XTZUSDT",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:APEXUSDT.P",
+    "symbol": "APEXUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:DEXEUSDT.P",
+    "symbol": "DEXEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:KATUSDT.P",
+    "symbol": "KATUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:EPICUSDT.P",
+    "symbol": "EPICUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:UBERUSDT.P",
+    "symbol": "UBERUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NETUSDT.P",
+    "symbol": "NETUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ENAUSDT.P",
+    "symbol": "ENAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HEIUSDT.P",
+    "symbol": "HEIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XPLUSDT.P",
+    "symbol": "XPLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NVOUSDT.P",
+    "symbol": "NVOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:FORMUSDT.P",
+    "symbol": "FORMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SNDKUSDT.P",
+    "symbol": "SNDKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:USUSDT.P",
+    "symbol": "USUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MARSCOINUSDT.P",
+    "symbol": "MARSCOINUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ICPUSDT.P",
+    "symbol": "ICPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:STXXUSDT.P",
+    "symbol": "STXXUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:INJUSDT.P",
+    "symbol": "INJUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:VETUSDT.P",
+    "symbol": "VETUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HEMIUSDT.P",
+    "symbol": "HEMIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BRUSDT.P",
+    "symbol": "BRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PUFFERUSDT.P",
+    "symbol": "PUFFERUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:WAVESUSDT.P",
+    "symbol": "WAVESUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:DOTUSDT.P",
+    "symbol": "DOTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SAGAUSDT.P",
+    "symbol": "SAGAUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:UVXYUSDT.P",
+    "symbol": "UVXYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:CLOUSDT.P",
+    "symbol": "CLOUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ORCLUSDT.P",
+    "symbol": "ORCLUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:USELESSUSDT.P",
+    "symbol": "USELESSUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:B3USDT.P",
+    "symbol": "B3USDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ATOMUSDT.P",
+    "symbol": "ATOMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:AKEUSDT.P",
+    "symbol": "AKEUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:MYXUSDT.P",
+    "symbol": "MYXUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:JUPUSDT.P",
+    "symbol": "JUPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:GRTUSDT.P",
+    "symbol": "GRTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:RAYDIUMUSDT.P",
+    "symbol": "RAYDIUMUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "OKX:LSKUSDT",
+    "symbol": "LSKUSDT",
+    "selectable": false,
+    "status": "Exchange/type mapping required"
+  },
+  {
+    "original": "BYBIT:UAIUSDT.P",
+    "symbol": "UAIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:TACUSDT.P",
+    "symbol": "TACUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:HMSTRUSDT.P",
+    "symbol": "HMSTRUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BEATUSDT.P",
+    "symbol": "BEATUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:VELVETUSDT.P",
+    "symbol": "VELVETUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:BABYUSDT.P",
+    "symbol": "BABYUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SUSHIUSDT.P",
+    "symbol": "SUSHIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:LRCUSDT.P",
+    "symbol": "LRCUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:NEARUSDT.P",
+    "symbol": "NEARUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:METUSDT.P",
+    "symbol": "METUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:XCNUSDT.P",
+    "symbol": "XCNUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:COTIUSDT.P",
+    "symbol": "COTIUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:DRIFTUSDT.P",
+    "symbol": "DRIFTUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:PONSUSDT.P",
+    "symbol": "PONSUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:OPUSDT.P",
+    "symbol": "OPUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:SUSDT.P",
+    "symbol": "SUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:STRKUSDT.P",
+    "symbol": "STRKUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:ARUSDT.P",
+    "symbol": "ARUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  },
+  {
+    "original": "BYBIT:FUSDT.P",
+    "symbol": "FUSDT",
+    "selectable": true,
+    "status": "Instrument validation pending"
+  }
+]

@@ -1,0 +1,1 @@
+"""THOTH trading control application."""
