@@ -117,3 +117,7 @@ The archive contains a file manifest and an adjacent SHA-256 checksum. Public ho
 ### Optional unverified live activation
 
 Live normally requires matching TradingView and actual testnet receipts. An explicit server-side override now permits skipping both, while keeping account checks and real-funds confirmation. See [deployment instructions](deploy/README.md#explicit-unverified-live-option). This does not mean indicator behavior or real exchange execution has been verified.
+
+### Read-only balance display
+
+In LIVE or testnet view, **Check connection / refresh balance** reads USDT wallet balance, equity and account unrealized P&L without enabling orders. The display is a timestamped snapshot, valid for five minutes, not the combined value of all account coins. Non-USDT assets or borrowing are reported separately as a trading restriction; they do not hide the balance. Wallet read failures preserve successful API verification but show balance unavailable. Changing credentials or restarting invalidates the cached reading.
