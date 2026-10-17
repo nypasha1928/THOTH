@@ -92,3 +92,13 @@ docker build --build-context wheelhouse=/tmp/thoth-wheelhouse -f deploy/Dockerfi
 ```
 
 Use a wheelhouse matching Python/CPU architecture. Never disable TLS, signatures or expected checksums to make installation pass. Normal VPS builds can use the root Dockerfile.
+
+## Explicit unverified live option
+
+An operator who chooses to skip TradingView comparison and actual testnet acceptance can add `compose.live-unverified.yaml` to the base and live overrides. This sets `THOTH_ALLOW_UNVERIFIED_LIVE=1`; it does not fabricate verification receipts or activate entries. This option trades an unverified strategy with real funds. The default verified path remains unchanged.
+
+```bash
+docker compose -f compose.yaml -f compose.live.yaml -f compose.live-unverified.yaml up --build -d --wait
+```
+
+First provision private live credentials and the persistent deployment variables described above. Keep the app password and key paths in a root-private `.env` (paths only, no keys). The web activation dialog must still receive `ENABLE LIVE ORDERS`. Dedicated-account, margin-mode, account identity, withdrawal-disabled/IP-bound key checks, risk limits, and restart entry pause remain enforced. Account checks may require a separate dedicated Bybit account/subaccount with no unrelated trades. Removing the override restores the verification requirement for new activation; known exit recovery remains available.
