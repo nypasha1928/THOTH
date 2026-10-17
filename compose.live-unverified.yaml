@@ -1,0 +1,6 @@
+# Optional REAL-FUNDS override: skips only TradingView/testnet acceptance.
+# Use with compose.yaml and compose.live.yaml. Never activates entries itself.
+services:
+  app:
+    environment:
+      THOTH_ALLOW_UNVERIFIED_LIVE: "1"

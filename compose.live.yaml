@@ -1,5 +1,5 @@
 # LIVE REAL-FUNDS support. Do not use until reference comparison and actual
-# testnet acceptance have passed. This does NOT activate orders by itself.
+# testnet acceptance have passed, unless explicitly opting into unverified live. This does NOT activate orders by itself.
 services:
   app:
     environment:

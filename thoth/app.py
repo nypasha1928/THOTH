@@ -61,7 +61,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=['localhost', '127.0.0.1
 engine = Engine(os.environ.get('THOTH_DB', str(ROOT / 'data' / 'paper.sqlite')))
 testnet = TestnetSupervisor(Path(engine.path).with_name('testnet.sqlite'),
     enabled=os.environ.get('THOTH_ENABLE_TESTNET')=='1',password_configured=bool(PASSWORD))
-live = ProductionSupervisor(Path(engine.path).with_name('live.sqlite'),enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD))
+live = ProductionSupervisor(Path(engine.path).with_name('live.sqlite'),enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD),allow_unverified=os.environ.get('THOTH_ALLOW_UNVERIFIED_LIVE')=='1')
 
 
 @app.middleware('http')
@@ -134,7 +134,7 @@ def readiness():
     live_state=live.snapshot()
     live_reference=reference_status(live_state['config'],Path(engine.path).parent/'validation')
     live_healthy=bool(live_state['last_monitor'] and __import__('time').time()-live_state['last_monitor']<15)
-    return {'paper_available':True,'live_ready':bool(live_state['entries'] and live_state['status']=='running' and live_healthy and live_reference['verified']), 'live_reference':live_reference,'live_reason':'Live activation requires reference comparison, actual testnet acceptance, secure credentials and explicit server/operator activation',
+    return {'paper_available':True,'live_ready':bool(live_state['entries'] and live_state['status']=='running' and live_healthy and (live_reference['verified'] or live.allow_unverified)), 'unverified_live_allowed':live.allow_unverified, 'live_reference':live_reference,'live_reason':('Unverified live opt-in enabled; account checks and explicit activation still required' if live.allow_unverified else 'Live activation requires reference comparison, actual testnet acceptance, secure credentials and explicit server/operator activation'),
         'public_host_configured':bool(PUBLIC_HOST),'authentication_configured':bool(PASSWORD),
         'testnet_server_enabled':testnet.enabled,'testnet_credentials_configured':account['configured'],
         'testnet_last_monitor':testnet_state['last_monitor'],

@@ -113,3 +113,7 @@ python tools/package_release.py dist/thoth-release.tar.gz
 ```
 
 The archive contains a file manifest and an adjacent SHA-256 checksum. Public hosting, actual exchange acceptance, and real-phone installation remain external checks. No real account or credentials have been supplied in this workspace. Bybit production access here returned a country restriction; no VPN or alternate-host bypass is configured.
+
+### Optional unverified live activation
+
+Live normally requires matching TradingView and actual testnet receipts. An explicit server-side override now permits skipping both, while keeping account checks and real-funds confirmation. See [deployment instructions](deploy/README.md#explicit-unverified-live-option). This does not mean indicator behavior or real exchange execution has been verified.

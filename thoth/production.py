@@ -1,8 +1,8 @@
 """Production execution shares the tested account engine, behind extra gates.
 
 A live account is never auto-activated here. Deployment must explicitly enable
-the server flag, supply separate credentials, have a passing reference receipt
-and a completed testnet execution acceptance receipt, and receive the live
+the server flag, supply separate credentials, satisfy verification (or explicitly
+opt into unverified live trading), and receive the live
 confirmation phrase from the authenticated operator.
 """
 import json
@@ -19,12 +19,16 @@ class ProductionClient(TestnetClient):
 
 
 class ProductionSupervisor(TestnetSupervisor):
-    def __init__(self,path,enabled=False,password_configured=False,client_factory=ProductionClient,credentials=None,clock=None):
+    def __init__(self,path,enabled=False,password_configured=False,client_factory=ProductionClient,credentials=None,clock=None,allow_unverified=False):
+        self.allow_unverified=allow_unverified
         options=dict(enabled=enabled,password_configured=password_configured,client_factory=client_factory,
             credentials=credentials or (lambda:(runtime_secret('THOTH_BYBIT_LIVE_KEY'),runtime_secret('THOTH_BYBIT_LIVE_SECRET'))),
             environment='live')
         if clock is not None:options['clock']=clock
         super().__init__(path,**options)
+
+    def snapshot(self):
+        return super().snapshot() | {"unverified_live_allowed": self.allow_unverified}
 
     def activate(self,confirmation,recovery=False):
         self._recovering=recovery
@@ -36,7 +40,7 @@ class ProductionSupervisor(TestnetSupervisor):
         cfg=self.state['config']
         directory=Path(self.path).parent
         recovery=getattr(self,'_recovering',False) and bool(self.state['account_binding'] and self.state['management'])
-        if not recovery:
+        if not recovery and not self.allow_unverified:
             reference=reference_status(cfg,directory/'validation')
             if not reference['verified']:raise ValueError('Live orders require a passing TradingView reference comparison for these settings')
             try:
@@ -47,6 +51,8 @@ class ProductionSupervisor(TestnetSupervisor):
             except (OSError,ValueError):valid=False
             if not valid:raise ValueError('Live orders require completed real-exchange testnet acceptance for the current strategy')
         cfg=super()._preflight()
+        if not recovery and self.allow_unverified:
+            self.event("Operator opted into LIVE orders without TradingView or testnet acceptance; strategy remains unverified")
         if not recovery:
             info=self.client.request('GET','/v5/user/query-api',{},private=True)
             ips=info.get('ips')

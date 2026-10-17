@@ -22,6 +22,25 @@ class ProductionGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'TradingView'):service.activate('ENABLE LIVE ORDERS')
             factory.assert_not_called();credentials.assert_not_called()
 
+    def test_unverified_opt_in_does_not_skip_server_or_account_gates(self):
+        from test_testnet import Exchange
+        from thoth.models import TestnetSettings
+        with tempfile.TemporaryDirectory() as d:
+            credentials=Mock()
+            disabled=ProductionSupervisor(Path(d)/'disabled.sqlite',allow_unverified=True,credentials=credentials)
+            with self.assertRaisesRegex(ValueError,'disabled'):disabled.activate('ENABLE LIVE ORDERS')
+            credentials.assert_not_called()
+            class LiveFixture(Exchange):
+                BASE='https://api.bybit.com'
+            exchange=LiveFixture(lambda:1792152000.)
+            service=ProductionSupervisor(Path(d)/'live.sqlite',enabled=True,password_configured=True,
+                allow_unverified=True,client_factory=lambda *a,**kw:exchange,credentials=lambda:('fixture','fixture'))
+            with self.assertRaises(ValueError):service.activate('ENABLE LIVE ORDERS')
+            service.configure(TestnetSettings(dedicated_account=True))
+            with self.assertRaisesRegex(ValueError,'egress IP'):service.activate('ENABLE LIVE ORDERS')
+            self.assertFalse(service.snapshot()['entries'])
+            self.assertTrue(service.snapshot()['unverified_live_allowed'])
+
     def test_journal_rejects_wrong_environment_endpoint(self):
         with tempfile.TemporaryDirectory() as d:
             client=ProductionClient()
@@ -31,6 +50,12 @@ class ProductionGateTests(unittest.TestCase):
 
 class ProductionLifecycleTests(unittest.TestCase):
     def test_live_uses_shared_engine_but_recovery_cannot_open_entries(self):
+        self.exercise_lifecycle(False)
+
+    def test_explicit_unverified_live_still_protects_and_recovers(self):
+        self.exercise_lifecycle(True)
+
+    def exercise_lifecycle(self,unverified):
         import json
         from unittest.mock import patch
         from test_testnet import Exchange
@@ -51,7 +76,10 @@ class ProductionLifecycleTests(unittest.TestCase):
             (root/'validation'/'fixture.json').write_text(json.dumps(receipt))
             # Synthetic local guard fixture, never an actual acceptance claim.
             (root/'testnet-acceptance.json').write_text(json.dumps(dict(environment='testnet',source_fingerprint=source_fingerprint(),strategy_fingerprint=strategy_fingerprint(cfg),execution_fingerprint=execution_fingerprint(),protected_and_closed=1,unresolved_orders=0,real_exchange=True)))
-            def create():return ProductionSupervisor(root/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**kw:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
+            if unverified:
+                (root/'validation'/'fixture.json').unlink()
+                (root/'testnet-acceptance.json').unlink()
+            def create():return ProductionSupervisor(root/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**kw:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0],allow_unverified=unverified)
             service=create();service.configure(cfg)
             with self.assertRaises(ValueError):service.activate('ENABLE TESTNET ORDERS')
             service.activate('ENABLE LIVE ORDERS')
@@ -60,9 +88,10 @@ class ProductionLifecycleTests(unittest.TestCase):
             now[0]+=60;service.apply_signals(settings,{'BTCUSDT':dict(time=now[0]-60,signal='Long',mark=100)})
             exchange.fill(next(iter(exchange.orders)));service.monitor()
             self.assertTrue(service.snapshot()['management'])
-            (root/'validation'/'fixture.json').unlink();(root/'testnet-acceptance.json').unlink()
+            (root/'validation'/'fixture.json').unlink(missing_ok=True);(root/'testnet-acceptance.json').unlink(missing_ok=True)
             restarted=create();restarted.activate('ENABLE LIVE ORDERS',recovery=True)
             self.assertFalse(restarted.snapshot()['entries'])
             exchange.prices['BTCUSDT']=98;restarted.monitor()
             self.assertTrue(any(o['reduceOnly'] for o in exchange.orders.values()))
-            with self.assertRaises(ValueError):restarted.activate('ENABLE LIVE ORDERS')
+            if not unverified:
+                with self.assertRaises(ValueError):restarted.activate('ENABLE LIVE ORDERS')
