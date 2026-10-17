@@ -43,7 +43,7 @@ class ConnectionTests(unittest.TestCase):
         with self.credentials():result=Connection(factory).verify()
         factory.assert_called_once_with('fixture-key','fixture-secret',armed=False)
         self.assertTrue(result['verified']);self.assertFalse(result['execution_enabled'])
-        self.assertEqual([c.args[0] for c in client.request.call_args_list],['GET','GET'])
+        self.assertEqual([c.args[0] for c in client.request.call_args_list],['GET','GET','GET'])
         text=json.dumps(result)
         for private in ('fixture-key','fixture-secret','private-id','accountID'):self.assertNotIn(private,text)
 
@@ -72,3 +72,39 @@ class ConnectionTests(unittest.TestCase):
         self.assertFalse(result['verified'])
         self.assertNotIn('fixture-secret',json.dumps(result))
         self.assertEqual(client.request.call_count,1)
+
+
+class ReadOnlyBalanceTests(unittest.TestCase):
+    def test_live_balance_visible_with_other_assets_and_no_execution(self):
+        client=Mock()
+        client.request.side_effect=[{'permissions':{'Wallet':[]},'readOnly':0},
+            {'marginMode':'ISOLATED_MARGIN'},
+            {'list':[{'coin':[{'coin':'USDT','walletBalance':'150','equity':'148.5','unrealisedPnl':'-1.5'},
+                              {'coin':'ETH','equity':'0.01','borrowAmount':'0'}], 'accountID':'private-id'}]}]
+        factory=Mock(return_value=client)
+        connection=Connection(factory,environment='live')
+        with patch.dict(os.environ,{'THOTH_BYBIT_LIVE_KEY':'fixture-key','THOTH_BYBIT_LIVE_SECRET':'fixture-secret'},clear=True):
+            result=connection.verify()
+            self.assertTrue(result['verified'])
+            self.assertEqual(result['balance']['wallet_balance'],'150')
+            self.assertEqual(result['balance']['equity'],'148.5')
+            self.assertEqual(result['balance']['other_asset_count'],1)
+            self.assertIn('Trading restriction',result['balance_reason'])
+            self.assertFalse(result['execution_enabled'])
+            self.assertNotIn('private-id',json.dumps(result))
+            self.assertEqual([c.args[0] for c in client.request.call_args_list],['GET']*3)
+            factory.assert_called_once_with('fixture-key','fixture-secret',armed=False)
+            with patch.dict(os.environ,{'THOTH_BYBIT_LIVE_SECRET':'changed'}):
+                self.assertIsNone(connection.status()['balance'])
+            with patch('thoth.connection.time',return_value=connection.checked_at+301):
+                self.assertIsNone(connection.status()['balance'])
+
+    def test_wallet_failure_does_not_erase_verified_access_or_leak_errors(self):
+        for wallet in (RuntimeError('SECRET upstream body'),{'list':[{'coin':[{'coin':'USDT','equity':'NaN','walletBalance':'1','unrealisedPnl':'0'}]}]}):
+            client=Mock();client.request.side_effect=[{'permissions':{'Wallet':[]},'readOnly':0},{'marginMode':'ISOLATED_MARGIN'},wallet]
+            with patch.dict(os.environ,{'THOTH_BYBIT_TESTNET_KEY':'fixture','THOTH_BYBIT_TESTNET_SECRET':'fixture'},clear=True):
+                result=Connection(Mock(return_value=client)).verify()
+            self.assertTrue(result['verified'])
+            self.assertIsNone(result['balance'])
+            self.assertIn('Balance unavailable',result['balance_reason'])
+            self.assertNotIn('SECRET',json.dumps(result))

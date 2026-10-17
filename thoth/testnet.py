@@ -116,7 +116,7 @@ class TestnetSupervisor:
         if len(accounts)!=1:raise ValueError('Unified account balance unavailable')
         coins=accounts[0]['coin']
         if any(c['coin']!='USDT' and (dec(c.get('equity','0'))!=0 or dec(c.get('borrowAmount','0'))!=0) for c in coins):
-            raise ValueError('Use a dedicated USDT-only testnet account')
+            raise ValueError('Trading requires a USDT-only account: non-USDT equity or borrowing detected')
         usdt=next((c for c in coins if c['coin']=='USDT'),None)
         if not usdt or dec(usdt.get('spotBorrow','0'))!=0 or dec(usdt.get('borrowAmount','0'))!=0:
             raise ValueError('USDT balance must be available without borrowing')

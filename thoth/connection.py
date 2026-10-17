@@ -2,6 +2,7 @@
 import threading
 import hashlib
 import hmac
+from decimal import Decimal
 from time import time
 
 from .bybit_testnet import TestnetClient
@@ -18,6 +19,8 @@ class Connection:
         self.verified = False
         self.reason = 'Not checked'
         self.margin_mode = None
+        self.balance = None
+        self.balance_reason = "Not checked"
         self.last_probe = 0
         self.fingerprint = None
 
@@ -46,6 +49,7 @@ class Connection:
         elif self.verified and not verified:
             reason = 'Credentials changed or verification expired; check connection again'
         return dict(environment=self.environment, configured=configured, verified=verified,
+                    balance=self.balance if verified else None, balance_reason=self.balance_reason if verified else "Verify connection to read balance",
                     checked_at=self.checked_at, margin_mode=self.margin_mode if verified else None,
                     reason=reason if self.environment=='testnet' else reason.replace('Testnet','Live').replace('testnet','live'), execution_enabled=False, live_supported=self.environment=='live')
 
@@ -58,6 +62,8 @@ class Connection:
             self.verified = False
             self.fingerprint = None
             self.margin_mode = None
+            self.balance = None
+            self.balance_reason = "Not checked"
             try:
                 key,secret = self._credentials()
             except CredentialError:
@@ -87,8 +93,36 @@ class Connection:
                     self.margin_mode = mode if mode in ('ISOLATED_MARGIN','REGULAR_MARGIN','PORTFOLIO_MARGIN') else 'unknown'
                     self.verified = True
                     self.fingerprint = hashlib.sha256((key+'\0'+secret).encode()).digest()
-                    self.reason = 'Testnet account read access verified; execution remains disabled'
+                    self.reason = 'Testnet account read access verified; read-only check does not activate orders'
+                    self._read_balance(client)
             except Exception:
                 self.reason = 'Testnet verification failed; check network, key permissions, IP whitelist and server clock'
             self.checked_at = time()
             return self.status()
+
+    def _read_balance(self,client):
+        # Read-only display: account eligibility must not suppress balance visibility.
+        try:
+            result=client.request('GET','/v5/account/wallet-balance',{'accountType':'UNIFIED'},private=True)
+            accounts=result['list']
+            if len(accounts)!=1:raise ValueError('Unexpected account count')
+            coins=accounts[0]['coin']
+            usdt=next((coin for coin in coins if coin['coin']=='USDT'),None)
+            if usdt is None:raise ValueError('USDT record unavailable')
+            def number(value):
+                parsed=Decimal(str(value))
+                if not parsed.is_finite():raise ValueError('Nonfinite balance')
+                return format(parsed,'f')
+            balance={'wallet_balance':number(usdt['walletBalance']),'equity':number(usdt['equity']),
+                     'unrealised_pnl':number(usdt['unrealisedPnl']),'checked_at':time()}
+            other=sum(1 for c in coins if c['coin']!='USDT' and
+                      (Decimal(str(c.get('equity','0')))!=0 or Decimal(str(c.get('borrowAmount','0')))!=0))
+            borrowed=any(Decimal(str(usdt.get(k,'0')))!=0 for k in ('spotBorrow','borrowAmount'))
+            balance['other_asset_count']=other
+            balance['usdt_borrowing']=borrowed
+            self.balance=balance
+            self.balance_reason=('Trading restriction: non-USDT assets or borrowing detected; USDT-only account required'
+                                 if other or borrowed else 'USDT balance read; trading eligibility is checked separately')
+        except Exception:
+            self.balance=None
+            self.balance_reason='Balance unavailable; check wallet read access and retry Check connection'
