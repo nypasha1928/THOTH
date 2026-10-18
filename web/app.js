@@ -45,15 +45,40 @@ function renderSettings(){
  $('settingsGroup').disabled=mode!=='paper'&&tn.entries;
  dirty=false;formDraft={...c,symbols:[...c.symbols]};renderWatchlist();
 }
-function renderWatchlist(){
- const q=$('search').value.toUpperCase();$('coins').replaceChildren();
- for(const x of watchlist.filter(x=>x.original.includes(q))){
- const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=x.symbol;
- input.disabled=!x.selectable||(mode!=='paper'&&selectedAccount().entries);input.checked=x.selectable&&formDraft.symbols.includes(x.symbol);
- input.onchange=()=>{const set=new Set(formDraft.symbols);input.checked?set.add(x.symbol):set.delete(x.symbol);formDraft.symbols=[...set];dirty=true;$('selection').textContent=set.size+' selected · Unsaved changes'};
- label.append(input,document.createTextNode(x.original.replace('BYBIT:','')));label.title=x.status;$('coins').append(label);
- }$('selection').textContent=formDraft.symbols.length+' selected'+(dirty?' · Unsaved changes':'');
+function symbolsLocked(){return mode!=='paper'&&selectedAccount().entries}
+function matchesSearch(x){return x.selectable&&x.original.toUpperCase().includes($('search').value.trim().toUpperCase())}
+function setDraftSymbols(symbols){if(symbolsLocked())return;formDraft.symbols=[...new Set(symbols)];dirty=true;renderWatchlist();renderScope()}
+function renderScope(){
+ const saved=current().settings.symbols;
+ $('savedSymbols').textContent=mode.toUpperCase()+' · Saved trading symbols ('+saved.length+'): '+(saved.join(', ')||'none');
+ const viewed=$('symbol').value;
+ $('chartScope').textContent='Chart: '+viewed+' · '+(saved.includes(viewed)?'Included in saved trading list':'View only — not enabled for trading')+(dirty?' · Unsaved edits do not affect the bot':'');
 }
+function syncSymbolLock(){
+ const locked=symbolsLocked();
+ for(const input of $('coins').querySelectorAll('input'))input.disabled=locked;
+ for(const b of $('selectedSymbols').querySelectorAll('button'))b.disabled=locked;
+ for(const id of ['clearSymbols','saveSymbols'])$(id).disabled=locked;
+ $('selectVisible').disabled=locked||!watchlist.some(matchesSearch);
+ $('onlyChart').disabled=locked||!watchlist.some(x=>x.selectable&&x.symbol===$('symbol').value);
+ $('watchlistLock').textContent=locked?'Pause entries before editing trading symbols. Existing positions remain managed.':'Select symbols, then save. Removing a symbol with an open managed position is blocked by the server.';
+}
+function renderWatchlist(){
+ const locked=symbolsLocked();$('coins').replaceChildren();
+ const filtered=watchlist.filter(x=>matchesSearch(x)&&(!$('selectedOnly').checked||formDraft.symbols.includes(x.symbol)));
+ for(const x of filtered){
+ const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=x.symbol;
+ input.disabled=locked;input.checked=formDraft.symbols.includes(x.symbol);
+ input.onchange=()=>setDraftSymbols(input.checked?[...formDraft.symbols,x.symbol]:formDraft.symbols.filter(s=>s!==x.symbol));
+ label.append(input,document.createTextNode(x.symbol));label.className=input.checked?'symbol-choice selected':'symbol-choice';$('coins').append(label);
+ }
+ if(!filtered.length){const p=document.createElement('p');p.textContent='No matching symbols';$('coins').append(p)}
+ $('selection').textContent=formDraft.symbols.length+' selected'+(dirty?' · Unsaved changes':' · Saved');
+ $('selectedSymbols').replaceChildren();for(const symbol of formDraft.symbols){const b=document.createElement('button');b.textContent=symbol+' ×';b.disabled=locked;b.setAttribute('aria-label','Remove '+symbol+' from trading symbols');b.onclick=()=>setDraftSymbols(formDraft.symbols.filter(s=>s!==symbol));$('selectedSymbols').append(b)}
+ syncSymbolLock();
+ renderScope();
+}
+
 function render(){
  const tn=selectedAccount();const s=current();const reading=accountReadings[mode];const recent=reading?.verified&&reading.balance&&Date.now()/1000-reading.balance.checked_at<300;const equity=s.equity??(recent?reading.balance.equity:null);$('equity').textContent=equity===null?'—':money(equity);$('pnl').textContent=money(s.positions.reduce((sum,p)=>sum+Number(p.pnl),0));
  $('limit').textContent=s.settings.daily_loss_pct;$('count').textContent=s.positions.length+' / '+s.settings.max_positions;
@@ -65,21 +90,31 @@ function render(){
  $('start').disabled=mode!=='paper'&&(!tn.enabled_on_server||tn.entries||tn.closing);$('start').title=mode!=='paper'&&!tn.enabled_on_server?'Server-side '+mode+' activation is disabled':'';
  $('paperPanel').hidden=mode!=='paper';$('fundsBadge').classList.toggle('red',mode==='live');$('liveAccountState').textContent=lv.management?'Production execution: REAL funds management active or recovering':'Production execution: inactive';$('testnetControls').hidden=mode==='paper';
  $('testnetModeNote').textContent=tn.enabled_on_server?'Server '+mode+' gate enabled. '+(mode==='live'&&tn.unverified_live_allowed?'UNVERIFIED LIVE: TradingView and testnet acceptance skipped. Account checks still apply.':'Account and reference checks still apply.'):'Server gate disabled. '+(mode==='live'?'Live also requires a source comparison and real testnet acceptance.':'Configure and validate the account before enabling testnet orders.');
+ $('positionNote').textContent=mode==='paper'?'Paper positions are simulated. Fees, funding and liquidation are not simulated.':'Bot-managed '+mode.toUpperCase()+' positions. Verify fills and stops on Bybit; dollar loss limits can be exceeded by fees, slippage or outages.';
  $('positions').replaceChildren();
- for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,money(p.value)+' / '+p.leverage+'×',money(p.pnl)]){const td=document.createElement('td');td.textContent=value;row.append(td)}row.onclick=()=>{$('symbol').value=p.symbol;loadChart()};$('positions').append(row)}
+ for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,money(p.value)+' / '+p.leverage+'×',money(p.pnl)]){const td=document.createElement('td');td.textContent=value;row.append(td)}row.onclick=()=>{$('symbol').value=p.symbol;renderWatchlist();loadChart()};$('positions').append(row)}
  $('events').replaceChildren();for(const event of [...s.events].reverse().slice(0,12)){const li=document.createElement('li');li.textContent=new Date(event.time).toLocaleTimeString()+' · '+event.message;$('events').append(li)}
  $('execution').replaceChildren();for(const record of tn.execution.filter(r=>!['closed','cancelled','rejected'].includes(r.phase))){const li=document.createElement('li');li.textContent=record.symbol+' · '+record.phase+(record.reason?' · '+record.reason:'');$('execution').append(li)}
  $('baseline').disabled=!(tn.risk.baseline_required&&tn.management);
  $('settingsGroup').disabled=mode!=='paper'&&tn.entries;
+ renderScope();
+ syncSymbolLock();
  draw();
 }
 function collect(){const cfg={...formDraft,timeframe:$('strategyTf').value,portfolio_loss_basis:$('portfolioBasis').value};for(const id of fieldIds){const input=$(id);cfg[id]=input.type==='checkbox'?input.checked:Number(input.value)}cfg.automatic_paper=mode==='paper'&&$('automatic_paper').checked;
  if(mode!=='paper'){cfg.margin_mode=$('marginMode').value;cfg.dedicated_account=$('dedicated').checked}return cfg}
 $('settings').oninput=()=>{dirty=true};
-$('settings').onsubmit=async e=>{e.preventDefault();try{const cfg=collect();if(mode==='paper')state=await api('settings','PUT',cfg);else updateAccount(await api(mode+'/settings','PUT',cfg));renderSettings();render();message('Settings saved. Existing positions keep their original size and dollar stop.');loadChart()}catch(e){message(e.message)}};
-$('viewMode').onchange=()=>{if(dirty&&!confirm('Discard unsaved settings and switch funds view?')){$('viewMode').value=mode;return}mode=$('viewMode').value;renderSettings();render();loadChart();connectionStatus();showReadiness();showReadiness()};
+async function saveSettings(){try{const cfg=collect();if(mode==='paper')state=await api('settings','PUT',cfg);else updateAccount(await api(mode+'/settings','PUT',cfg));renderSettings();render();message('Settings saved. Existing positions keep their original size and dollar stop.');$('symbolSaveMessage').textContent='Saved trading symbols: '+current().settings.symbols.join(', ');loadChart()}catch(e){message(e.message);$('symbolSaveMessage').textContent=e.message}}
+$('settings').onsubmit=e=>{e.preventDefault();saveSettings()};
+$('saveSymbols').onclick=saveSettings;
+$('viewMode').onchange=()=>{if(dirty&&!confirm('Discard unsaved settings and switch funds view?')){$('viewMode').value=mode;return}mode=$('viewMode').value;renderSettings();render();loadChart();connectionStatus();showReadiness()};
 $('search').oninput=renderWatchlist;
-$('start').onclick=async()=>{try{if(mode==='paper'){state=await api('control/start','POST');render()}else {const isLive=mode==='live';$('activationHeading').textContent=isLive?'Enable LIVE orders — REAL FUNDS':'Enable Bybit TESTNET orders';$('activationPhraseLabel').textContent=isLive?'ENABLE LIVE ORDERS':'ENABLE TESTNET ORDERS';$('activationDescription').textContent=isLive?(selectedAccount()?.unverified_live_allowed?'This can trade REAL funds WITHOUT TradingView comparison or testnet acceptance. Strategy behavior is unverified. Account checks and risk controls still apply.':'This can trade REAL funds. Reference comparison, actual testnet acceptance and an IP-bound dedicated-account key are required.'):'This uses testnet funds, not real funds. Dedicated account and matching margin mode are required.';$('testnetPhrase').value='';$('activationError').textContent='';$('testnetDialog').showModal()}}catch(e){message(e.message)}};
+$('selectedOnly').onchange=renderWatchlist;
+$('selectVisible').onclick=()=>setDraftSymbols([...formDraft.symbols,...watchlist.filter(matchesSearch).map(x=>x.symbol)]);
+$('clearSymbols').onclick=()=>setDraftSymbols([]);
+$('onlyChart').onclick=()=>setDraftSymbols([$('symbol').value]);
+$('editSymbols').onclick=()=>{$('symbolPanel').scrollIntoView({behavior:'smooth',block:'start'});$('search').focus({preventScroll:true})};
+$('start').onclick=async()=>{try{if(dirty){$('symbolSaveMessage').textContent='Save your strategy and trading symbols before activation.';$('symbolPanel').scrollIntoView({behavior:'smooth'});return;}if(mode==='paper'){state=await api('control/start','POST');render()}else {const isLive=mode==='live';$('activationHeading').textContent=isLive?'Enable LIVE orders — REAL FUNDS':'Enable Bybit TESTNET orders';$('activationPhraseLabel').textContent=isLive?'ENABLE LIVE ORDERS':'ENABLE TESTNET ORDERS';$('activationDescription').textContent=isLive?(selectedAccount()?.unverified_live_allowed?'This can trade REAL funds WITHOUT TradingView comparison or testnet acceptance. Strategy behavior is unverified. Account checks and risk controls still apply.':'This can trade REAL funds. Reference comparison, actual testnet acceptance and an IP-bound dedicated-account key are required.'):'This uses testnet funds, not real funds. Dedicated account and matching margin mode are required.';$('activationSymbols').textContent='Saved trading symbols: '+current().settings.symbols.join(', ')+' · '+current().settings.timeframe+' timeframe · '+money(current().settings.position_value)+' position value · '+current().settings.leverage+'× leverage';$('testnetPhrase').value='';$('activationError').textContent='';$('testnetDialog').showModal()}}catch(e){message(e.message)}};
 $('pause').onclick=async()=>{try{if(mode==='paper')state=await api('control/pause','POST');else updateAccount(await api(mode+'/pause','POST'));render()}catch(e){message(e.message)}};
 $('close').onclick=async()=>{if(!confirm('Close all '+(mode==='paper'?'PAPER':mode==='live'?'LIVE REAL-FUNDS':'TESTNET')+' managed positions and block new entries?'))return;try{if(mode==='paper')state=await api('control/close_all','POST');else updateAccount(await api(mode+'/close-all','POST'));render()}catch(e){message(e.message)}};
 $('activateTestnet').onclick=async()=>{try{updateAccount(await api(mode+'/activate','POST',{confirmation:$('testnetPhrase').value}));$('testnetDialog').close();$('testnetPhrase').value='';render();message('Account checks completed. Watch '+mode+' account and execution status.')}catch(e){$('activationError').textContent=e.message}};
@@ -88,11 +123,11 @@ $('baseline').onclick=async()=>{if(!confirm('Use current '+mode.toUpperCase()+' 
 $('paperOrder').onsubmit=async e=>{e.preventDefault();try{state=await api('paper/orders','POST',{symbol:$('symbol').value,side:$('side').value,price:Number($('price').value),signal_id:crypto.randomUUID()});render();message('Manual paper order recorded.')}catch(e){message(e.message)}};
 $('mark').onclick=async()=>{try{const price=Number($('price').value);if(!(price>0))throw Error('Enter a positive paper price');state=await api('paper/marks','POST',{prices:{[$('symbol').value]:price}});render()}catch(e){message(e.message)}};
 async function loadChart(background=false){if(background&&(chartLoading||chartOffset>0))return;chartLoading=true;const request=++chartRequest;$('chartStatus').textContent='Loading '+(mode==='testnet'?'TESTNET':mode==='live'?'LIVE':'Bybit')+' candles…';try{const data=await api('chart/'+$('symbol').value+'?interval='+$('tf').value+'&environment='+mode);if(request!==chartRequest)return;chartRows=data.candles;smaRows=data.sma;analysis=data.analysis||[];chartOffset=0;$('chartStatus').textContent=data.source+' · forming candle excluded · see strategy reference status';draw()}catch(e){if(request!==chartRequest)return;chartRows=[];smaRows=[];analysis=[];draw();$('chartStatus').textContent=e.message}finally{if(request===chartRequest)chartLoading=false}}
-$('symbol').onchange=()=>loadChart();$('tf').onchange=()=>loadChart();
+$('symbol').onchange=()=>{renderWatchlist();loadChart()};$('tf').onchange=()=>loadChart();
 async function connectionStatus(verify=false){try{const environment=mode==='live'?'live':'testnet';const status=await api((verify?'connection/verify':'connection')+'?environment='+environment,verify?'POST':'GET');accountReadings[environment]=status;if((mode==='live'?'live':'testnet')!==environment)return;$('accountBalance').textContent=status.balance?'USDT wallet: '+money(status.balance.wallet_balance)+' · USDT equity: '+money(status.balance.equity)+' · Account unrealized P&L: '+money(status.balance.unrealised_pnl)+' · Snapshot '+new Date(status.balance.checked_at*1000).toLocaleTimeString()+' · '+status.balance_reason:status.balance_reason;render();$('accountStatus').textContent=environment.toUpperCase()+' read access: '+(status.verified?'verified':status.configured?'not verified':'not configured')+' · '+status.reason}catch(e){$('accountStatus').textContent='Connection check unavailable: '+e.message}}
 $('verifyAccount').onclick=()=>connectionStatus(true);
 $('logout').onclick=async()=>{try{await api('logout','POST');location.href='/login'}catch(e){message(e.message)}};
-async function init(){try{[state,tn,lv,watchlist]=await Promise.all([api('state'),api('testnet'),api('live'),api('watchlist')]);for(const item of watchlist.filter(x=>x.selectable)){const option=document.createElement('option');option.value=item.symbol;option.textContent=item.symbol;$('symbol').append(option)}renderSettings();render();loadChart();connectionStatus();showReadiness();showReadiness();
+async function init(){try{[state,tn,lv,watchlist]=await Promise.all([api('state'),api('testnet'),api('live'),api('watchlist')]);for(const item of watchlist.filter(x=>x.selectable)){const option=document.createElement('option');option.value=item.symbol;option.textContent=item.symbol;$('symbol').append(option)}renderSettings();render();loadChart();connectionStatus();showReadiness();
  setInterval(async()=>{if(polling)return;polling=true;try{const updated=await Promise.all([api('state'),api('testnet'),api('live'),api('runner')]);[state,tn,lv]=updated;const health=mode!=='paper'?selectedAccount().feed_health:updated[3];$('runnerHealth').textContent='Market worker: '+(health?.status||'idle');render()}catch{$('status').textContent='Connection lost · last displayed data may be stale'}finally{polling=false}},5000);
  }catch(e){message(e.message)}}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});

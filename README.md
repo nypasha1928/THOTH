@@ -121,3 +121,11 @@ Live normally requires matching TradingView and actual testnet receipts. An expl
 ### Read-only balance display
 
 In LIVE or testnet view, **Check connection / refresh balance** reads USDT wallet balance, equity and account unrealized P&L without enabling orders. The display is a timestamped snapshot, valid for five minutes, not the combined value of all account coins. Non-USDT assets or borrowing are reported separately as a trading restriction; they do not hide the balance. Wallet read failures preserve successful API verification but show balance unavailable. Changing credentials or restarting invalidates the cached reading.
+
+### Chart and trading watchlist
+
+The saved trading-symbol summary is separate from the chart symbol. Search, select matching results, clear all, remove selected chips, or use **Use chart symbol only**, then save. Edits do not affect trading until saved. The save action includes strategy/risk edits; symbol changes are locked while exchange entries are enabled. Activation displays the saved trading list and rejects unsaved edits.
+
+The responsive chart supports hover/tap OHLC inspection, a crosshair, candle zoom, history navigation, latest-candle return, and independent S/R, SMA and breakout display toggles. These toggles do not change strategy settings. Candle-based scaling keeps price action visible; **Fit all levels** includes distant overlays/stops. Where available, positions show the exchange-reported stop instead of an estimate.
+
+Optional browser validation: install Playwright in your development environment and provide Chromium at `/usr/bin/chromium`, then run `python tools/browser_smoke.py`. It uses isolated temporary state, simulated API routes and no credentials/orders. The screenshots `docs/desktop-watchlist-fixture.png` and `docs/mobile-watchlist-fixture.png` are synthetic browser fixtures, not real trading results.
