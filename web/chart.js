@@ -7,8 +7,9 @@ function draw(){
  const ns='http://www.w3.org/2000/svg';
  function shape(tag,attrs,parent=svg){const node=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);parent.append(node);return node}
  const end=chartRows.length-chartOffset,rows=chartRows.slice(Math.max(0,end-visibleBars),end);
+ $('chartNavigationStatus').textContent=chartOffset>0||chartPriceShift!==0?'Exploring chart · auto refresh paused. Latest candle returns to the live edge and auto scale.':'Mouse wheel: zoom · Hold left mouse button and drag: move time and price · Reset view: restore scale';
  $('title').textContent=$('symbol').value+' · '+$('tf').selectedOptions[0].textContent;
- $('older').disabled=chartOffset>=Math.max(0,chartRows.length-visibleBars);$('newer').disabled=chartOffset===0;$('latest').disabled=chartOffset===0;
+ $('older').disabled=chartOffset>=Math.max(0,chartRows.length-visibleBars);$('newer').disabled=chartOffset===0;$('latest').disabled=chartOffset===0&&chartPriceShift===0;
  if(!rows.length){$('candleInfo').textContent='No candles available for this chart.';return}
  const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+12),x=i=>L+(i+.5)*step;
  const levelSnapshot=analysis.filter(b=>b.time<=finish).at(-1);
@@ -20,7 +21,8 @@ function draw(){
  const stop=p=>Number(p.stop)>0?Number(p.stop):p.entry+(p.side==='Long'?-1:1)*p.stop_dollars/p.qty;
  const values=rows.flatMap(r=>[Number(r.low),Number(r.high)]);
  if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);if(showSma)for(const r of rows){const v=smaByTime.get(r.time);if(Number.isFinite(v))values.push(v)}for(const p of positions)values.push(p.entry,stop(p))}
- const bottom=Math.min(...values),top=Math.max(...values),pad=Math.max((top-bottom)*.12,Math.abs(top)*.00002,.000001),min=bottom-pad,max=top+pad;
+ const bottom=Math.min(...values),top=Math.max(...values),pad=Math.max((top-bottom)*.12,Math.abs(top)*.00002,.000001),min=bottom-pad+chartPriceShift,max=top+pad+chartPriceShift;
+ chartGeometry={W,L,P,step,firstIndex:Math.max(0,end-visibleBars),pricePerPixel:(max-min)/(B-T)*H/svg.getBoundingClientRect().height};
  const y=p=>B-(Number(p)-min)/(max-min)*(B-T),price=p=>Number(p).toLocaleString('en-US',{maximumFractionDigits:Math.abs(p)<1?6:Math.abs(p)<10?4:2});
  for(let i=0;i<6;i++){const value=min+(max-min)*i/5,yy=y(value);shape('path',{d:`M${L} ${yy} H${R}`,stroke:'#263c32','stroke-dasharray':'2 4'});shape('text',{x:R+8,y:yy+4,fill:'#a9bbb0','font-size':11}).textContent=price(value)}
  const defs=shape('defs',{}),clip=shape('clipPath',{id:'plotClip'},defs);shape('rect',{x:L,y:T-10,width:P,height:B-T+20},clip);
@@ -52,9 +54,9 @@ function draw(){
  function inspect(i,show=true){const r=rows[i];$('candleInfo').textContent=new Date(r.time*1000).toISOString().replace('T',' ').slice(0,16)+' UTC · O '+price(r.open)+'  H '+price(r.high)+'  L '+price(r.low)+'  C '+price(r.close);if(show){cross.setAttribute('d',`M${x(i)} ${T} V${B} M${L} ${y(r.close)} H${R}`);dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(r.close));dot.setAttribute('visibility','visible')}}
  const inspectedIndex=rows.findIndex(r=>r.time===inspectedCandle);inspect(inspectedIndex>=0?inspectedIndex:rows.length-1,false);
  function point(e){const rect=svg.getBoundingClientRect(),px=(e.clientX-rect.left)/rect.width*W;const i=Math.max(0,Math.min(rows.length-1,Math.floor((px-L)/step)));inspectedCandle=rows[i].time;inspect(i)}
- svg.onpointerdown=e=>{if(e.button!==0)return;chartDrag={id:e.pointerId,startX:e.clientX,startY:e.clientY,offset:chartOffset,step:step*svg.getBoundingClientRect().width/W,moved:false};suppressChartClick=false;svg.setPointerCapture(e.pointerId)};
+ svg.onpointerdown=e=>{if(e.button!==0)return;chartDrag={id:e.pointerId,startX:e.clientX,startY:e.clientY,offset:chartOffset,step:step*svg.getBoundingClientRect().width/W,priceShift:chartPriceShift,pricePerPixel:chartGeometry.pricePerPixel,moved:false};suppressChartClick=false;svg.setPointerCapture(e.pointerId)};
  svg.onpointermove=e=>{
-  if(chartDrag&&chartDrag.id===e.pointerId){const dx=e.clientX-chartDrag.startX,dy=e.clientY-chartDrag.startY;if(!chartDrag.moved&&Math.abs(dx)<5)return;if(e.pointerType==='touch'&&!chartDrag.moved&&Math.abs(dy)>Math.abs(dx))return;chartDrag.moved=true;suppressChartClick=true;svg.classList.add('dragging');const next=Math.max(0,Math.min(Math.max(0,chartRows.length-visibleBars),chartDrag.offset+Math.round(dx/chartDrag.step)));if(next!==chartOffset){chartOffset=next;inspectedCandle=null;draw()}return}
+  if(chartDrag&&chartDrag.id===e.pointerId){const dx=e.clientX-chartDrag.startX,dy=e.clientY-chartDrag.startY;if(!chartDrag.moved&&Math.max(Math.abs(dx),Math.abs(dy))<5)return;if(e.pointerType==='touch'&&!chartDrag.moved&&Math.abs(dy)>Math.abs(dx))return;chartDrag.moved=true;suppressChartClick=true;svg.classList.add('dragging');const next=Math.max(0,Math.min(Math.max(0,chartRows.length-visibleBars),chartDrag.offset+Math.round(dx/chartDrag.step)));const shift=e.pointerType==='touch'?chartDrag.priceShift:chartDrag.priceShift+dy*chartDrag.pricePerPixel;if(next!==chartOffset||shift!==chartPriceShift){chartOffset=next;chartPriceShift=shift;inspectedCandle=null;draw()}return}
   if(e.pointerType==='mouse')point(e);
  };
  function endDrag(e){if(chartDrag?.id===e.pointerId){chartDrag=null;svg.classList.remove('dragging');if(svg.hasPointerCapture(e.pointerId))svg.releasePointerCapture(e.pointerId)}}
@@ -65,7 +67,21 @@ function draw(){
 $('zoom').oninput=()=>{visibleBars=Number($('zoom').value);chartOffset=Math.min(chartOffset,Math.max(0,chartRows.length-visibleBars));draw()};
 $('older').onclick=()=>{chartOffset=Math.min(Math.max(0,chartRows.length-visibleBars),chartOffset+Math.max(10,Math.floor(visibleBars/3)));draw()};
 $('newer').onclick=()=>{chartOffset=Math.max(0,chartOffset-Math.max(10,Math.floor(visibleBars/3)));draw()};
-$('latest').onclick=()=>{chartOffset=0;inspectedCandle=null;draw()};
+$('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;inspectedCandle=null;draw()};
+$('resetChartView').onclick=()=>{visibleBars=70;$('zoom').value='70';chartOffset=0;chartPriceShift=0;inspectedCandle=null;draw()};
 $('refresh').onclick=()=>loadChart();
 for(const id of ['showLevels','showSma','showSignals','fitLevels'])$(id).onchange=()=>draw();
 window.addEventListener('resize',()=>{if(chartRows.length)draw()});
+
+// Wheel handling must be non-passive to zoom the plot instead of scrolling
+// the dashboard. Keep the candle under the pointer anchored when bounds allow.
+$('chart').addEventListener('wheel',e=>{
+ if(!chartRows.length||!chartGeometry||!Number.isFinite(e.deltaY)||e.deltaY===0)return;
+ e.preventDefault();
+ const g=chartGeometry,rect=$('chart').getBoundingClientRect(),fraction=Math.max(0,Math.min(1,((e.clientX-rect.left)/rect.width*g.W-g.L)/g.P));
+ const oldCount=Math.min(visibleBars,chartRows.length),anchor=g.firstIndex+fraction*(oldCount+12)-.5;
+ const next=Math.max(20,Math.min(500,Math.round(visibleBars*(e.deltaY<0?.85:1/.85))));
+ const count=Math.min(next,chartRows.length),first=anchor-fraction*(count+12)+.5;
+ visibleBars=next;$('zoom').value=String(next);chartOffset=Math.max(0,Math.min(Math.max(0,chartRows.length-next),Math.round(chartRows.length-count-first)));
+ inspectedCandle=null;draw();
+},{passive:false});

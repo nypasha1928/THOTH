@@ -6,7 +6,7 @@ const chartStyleDefaults={bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',sho
  short_minor:{support:'#6e7d75',resistance:'#93716f',style:'dashed',width:1,visible:true}};
 const chartStyleKey='thoth.chart.appearance.v1';
 const copyStyle=()=>JSON.parse(JSON.stringify(chartStyleDefaults));
-let chartStyle=copyStyle(),chartDrag=null,suppressChartClick=false;
+let chartStyle=copyStyle(),chartDrag=null,suppressChartClick=false,chartPriceShift=0,chartGeometry=null;
 try{const stored=JSON.parse(localStorage.getItem(chartStyleKey)||'null');if(stored&&typeof stored==='object'){
  for(const key of ['bull','bear','longSignal','shortSignal','sma'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
  if(Number.isInteger(stored.signalSize)&&stored.signalSize>=10&&stored.signalSize<=32)chartStyle.signalSize=stored.signalSize;
