@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   for i in range(600):
    stamp=1792300000+i*60;value=2400+math.sin(i/9)*8+i*.02
    rows.append(dict(time=stamp,open=value-1,close=value+1,high=value+3,low=value-3))
-   levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),time=stamp) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
+   levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
   chart=dict(source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
   writes=[];activation=[];errors=[]
@@ -70,6 +70,41 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.check('#showLevels');page.check('#showSma');page.check('#showSignals')
    page.locator('#zoom').fill('35');page.locator('#zoom').dispatch_event('input')
    assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+   # Chart-only search and coin-name navigation must never modify trading settings.
+   saved_before=copy.deepcopy(writes[-1][1]['symbols']);write_count=len(writes)
+   page.click('#chartSearch');page.fill('#chartSearchInput','ETHUSDT')
+   page.locator('#chartSearchResults button').filter(has_text='ETHUSDT').click()
+   expect(page.locator('#symbol')).to_have_value('ETHUSDT')
+   expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   page.get_by_role('button',name='View SOLUSDT chart',exact=True).click()
+   expect(page.locator('#symbol')).to_have_value('SOLUSDT')
+   assert len(writes)==write_count and writes[-1][1]['symbols']==saved_before
+   # Actual horizontal drag in both directions, including pointer capture across redraws.
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.45;sy=box['y']+box['height']*.5
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx+90,sy,steps=6);page.mouse.up()
+   offset=page.evaluate('() => chartOffset');assert offset>0,offset
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx-50,sy,steps=6);page.mouse.up()
+   assert page.evaluate('() => chartOffset')<offset
+   page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
+   major=page.locator('[data-sr-key="long_resistance_major"]')
+   expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
+   assert ' V' not in major.get_attribute('d')
+   expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
+   page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
+   page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
+   expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
+   page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
+   expect(page.locator('[data-signal="Long"]').first).to_have_attribute('fill','#aabbcc')
+   page.get_by_label('Long-term major Support',exact=True).fill('#33bb77')
+   expect(page.locator('[data-sr-key="long_support_major"]')).to_have_attribute('stroke','#33bb77')
+   page.get_by_label('Long-term major Show',exact=True).uncheck();expect(rays).to_have_count(6)
+   page.get_by_label('Long-term major Show',exact=True).check()
+   page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','true')
+   assert page.locator('#chartCard').bounding_box()['y']==0
+   page.screenshot(path=str(root/'docs/desktop-interactive-chart-fixture.png'))
+   page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','false')
+   page.click('#closeAppearance')
    page.screenshot(path=str(root/'docs/desktop-watchlist-fixture.png'),full_page=True)
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#testnetDialog')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#testnetDialog')).not_to_be_visible()
    # Poll update locks every mutation without discarding the form draft.
@@ -79,17 +114,32 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    payloads['live']['entries']=False
    expect(page.locator('#clearSymbols')).to_be_enabled(timeout=10000)
    page.set_viewport_size({'width':390,'height':844});page.reload()
+   assert page.evaluate('() => chartStyle.bull')=='#12abcd'
+   page.click('#appearanceToggle');page.click('#resetAppearance')
+   assert page.evaluate('() => chartStyle.bull')=='#26a69a'
+   page.click('#closeAppearance')
    page.select_option('#viewMode','live');expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    page.select_option('#symbol','ETHUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
    page.locator('#chart').click(position={'x':130,'y':120});expect(page.locator('#candleInfo')).to_contain_text(' O ')
    assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+   page.click('#chartSearch');page.fill('#chartSearchInput','ETHUSDT');page.keyboard.press('Enter')
+   expect(page.locator('#chartSearchDialog')).not_to_be_visible()
+   page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','true')
+   assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+   assert page.locator('#chartCard').bounding_box()['y']==0
+   page.screenshot(path=str(root/'docs/mobile-interactive-chart-fixture.png'))
+   page.click('#maximizeChart')
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
    page.select_option('#viewMode','testnet');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
    page.select_option('#viewMode','paper');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+   page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")
+   page.reload();expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+   assert page.evaluate('() => chartStyle.bull')=='#26a69a'
+   assert page.evaluate('() => chartStyle.long_major.width')==4
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, chart controls, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, dragging, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()

@@ -67,10 +67,10 @@ function renderWatchlist(){
  const locked=symbolsLocked();$('coins').replaceChildren();
  const filtered=watchlist.filter(x=>matchesSearch(x)&&(!$('selectedOnly').checked||formDraft.symbols.includes(x.symbol)));
  for(const x of filtered){
- const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=x.symbol;
+ const label=document.createElement('div'),input=document.createElement('input');input.type='checkbox';input.value=x.symbol;input.setAttribute('aria-label','Allow '+x.symbol+' to trade');
  input.disabled=locked;input.checked=formDraft.symbols.includes(x.symbol);
  input.onchange=()=>setDraftSymbols(input.checked?[...formDraft.symbols,x.symbol]:formDraft.symbols.filter(s=>s!==x.symbol));
- label.append(input,document.createTextNode(x.symbol));label.className=input.checked?'symbol-choice selected':'symbol-choice';$('coins').append(label);
+ const chartButton=document.createElement('button');chartButton.type='button';chartButton.textContent=x.symbol;chartButton.setAttribute('aria-label','View '+x.symbol+' chart');chartButton.onclick=()=>openChartSymbol(x.symbol);label.append(input,chartButton);label.className=input.checked?'symbol-choice selected':'symbol-choice';$('coins').append(label);
  }
  if(!filtered.length){const p=document.createElement('p');p.textContent='No matching symbols';$('coins').append(p)}
  $('selection').textContent=formDraft.symbols.length+' selected'+(dirty?' · Unsaved changes':' · Saved');
