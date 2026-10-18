@@ -161,3 +161,7 @@ The chart adds a separate volume pane with bullish/bearish bars and a simple 20-
 Each fresh public quote now updates the displayed forming candle's close and observed high/low, including its display SMA 7. This does not mutate fetched candle records, volume, closed candles or strategy analysis. Quotes for another symbol/environment, stale quotes, and quotes outside that candle's time window are ignored for candle synchronization. At a candle boundary the live view requests fresh candle data rather than inventing a new bar.
 
 The yellow price label stays at the exact price-line height when on scale. High/Low labels move to avoid it; they cannot shift the current-price label. Manual off-scale prices retain directional tags. Refresh cadence remains five seconds for quotes and fifteen seconds for candles, subject to network availability; this is not a tick-by-tick WebSocket feed.
+
+### Candle countdown
+
+A second-by-second countdown appears under the yellow current-price tag and above the chart: `MM:SS` for 1m and `HH:MM:SS` for Daily, counting to UTC candle boundaries. It uses the available Bybit clock offset plus a fresh server-time sample even when the five-second price quote is cached. The device clock is the fallback before synchronization. The timer tracks the current market candle, including while viewing history; it does not predict a signal or submit orders. Hiding the current-price tag also hides its attached timer; the separate countdown readout remains visible. Quote refresh cadence remains five seconds.

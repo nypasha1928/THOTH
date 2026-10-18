@@ -70,3 +70,14 @@ function synchronizeFormingCandle(rows,quote,context,previous=null){
  // candle, closed history, or any changes to the strategy's analysis records.
  return {rows:[...rows.slice(0,-1),{...last,close:quote.price,high:state.high,low:state.low}],state};
 }
+
+function candleCountdown(nowMilliseconds=marketNow(),interval=$('tf').value){
+ const period=interval==='D'?86400:60,now=Math.floor(nowMilliseconds/1000),remaining=period-((now%period)+period)%period;
+ const seconds=String(remaining%60).padStart(2,'0'),minutes=String(Math.floor(remaining/60)%60).padStart(2,'0');
+ return interval==='D'?String(Math.floor(remaining/3600)).padStart(2,'0')+':'+minutes+':'+seconds:minutes+':'+seconds;
+}
+function updateCandleCountdown(){
+ const text=candleCountdown();for(const node of document.querySelectorAll('[data-candle-countdown]'))node.textContent=text;
+ $('candleCountdown').textContent='Current '+($('tf').value==='D'?'Daily':'1m')+' candle closes in '+text+' · UTC';
+}
+setInterval(updateCandleCountdown,1000);

@@ -146,7 +146,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#ffffff')
    expect(page.locator('[data-volume-bar]')).to_have_count(70)
    expect(page.locator('[data-volume-ma]')).to_have_attribute('stroke','#f2b84b')
-   expect(page.locator('[data-extreme="Now"] rect')).to_have_attribute('fill','#ffdf00')
+   expect(page.locator('[data-extreme="Now"] rect').first).to_have_attribute('fill','#ffdf00')
    expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
    average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
    assert average==[22,155,False],average
@@ -178,6 +178,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert geometry['close']==103,geometry
    assert abs(geometry['labelCenter']-geometry['priceY'])<.001,geometry
    assert abs(geometry['labelCenter']-geometry['highCenter'])>=22,geometry
+   countdowns=page.evaluate('() => [candleCountdown(0,"1"),candleCountdown(59000,"1"),candleCountdown(60000,"1"),candleCountdown(86399000,"D"),candleCountdown(86400000,"D")]')
+   assert countdowns==['01:00','00:01','01:00','00:00:01','24:00:00'],countdowns
+   expect(page.locator('[data-candle-countdown]')).to_be_visible()
+   timer=page.locator('[data-candle-countdown]').text_content()
+   expect(page.locator('[data-candle-countdown]')).not_to_have_text(timer,timeout=3000)
+   expect(page.locator('#candleCountdown')).to_contain_text('1m candle closes in')
    rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
    major=page.locator('[data-sr-key="long_resistance_major"]')
    expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
@@ -249,6 +255,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
