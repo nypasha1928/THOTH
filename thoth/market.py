@@ -58,7 +58,7 @@ def _quote(symbol, environment, bucket):
     return dict(symbol=symbol,environment=environment,price=price,observed_at=observed,exchange_clock_offset=exchange-observed)
 
 
-@lru_cache(maxsize=24)
+@lru_cache(maxsize=12)
 def _history_page(symbol,interval,environment,before,bucket):
     host='https://api-testnet.bybit.com' if environment=='testnet' else 'https://api.bybit.com'
     params=dict(category='linear',symbol=symbol,interval=interval,limit=1000)
@@ -72,10 +72,10 @@ def _history_page(symbol,interval,environment,before,bucket):
 def chart_history(symbol,interval,bars,environment):
     """Bounded public chart replay only; never writes execution checkpoints."""
     from time import sleep
-    if not 1000<=bars<=10000 or interval not in ('1','D') or environment not in ('paper','live','testnet'):
+    if not 1000<=bars<=5000 or interval not in ('1','D') or environment not in ('paper','live','testnet'):
         raise ValueError('Unsupported historical chart request')
     collected={};before=None
-    for page in range(10):
+    for page in range(5):
         rows=_history_page(symbol,interval,environment,before,int(time()//30))
         if not rows:break
         if before is not None and any(r['time']>=before for r in rows):raise ValueError('Historical pagination did not advance')

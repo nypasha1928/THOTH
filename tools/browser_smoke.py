@@ -40,10 +40,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  writes=[];activation=[];errors=[]
+  writes=[];activation=[];errors=[];chart_queries=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
-   if path.startswith('chart/'):result=chart_daily if 'interval=D' in url else chart_older if 'lookback=2000' in url else chart
+   if path.startswith('chart/'):
+    chart_queries.append(url)
+    result=chart_daily if 'interval=D' in url else chart_older if 'lookback=2000' in url else chart
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live' if 'environment=live' in url else 'testnet' if 'environment=testnet' in url else 'paper'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -271,7 +273,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#oldest');expect(page.locator('#older')).to_be_disabled()
    assert page.evaluate('() => chartRows.length')==2000
    expect(page.locator('#historyStatus')).to_contain_text('Historical replay')
+   queries=len(chart_queries);page.evaluate('async () => await loadChart(true)');assert len(chart_queries)==queries
+   assert page.evaluate('() => chartLookback')==2000
    page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   expect(page.locator('#historyStatus')).to_contain_text('1000 candles loaded')
+   assert page.evaluate('() => chartLookback')==1000
    page.select_option('#viewMode','testnet');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
    page.select_option('#viewMode','paper');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
    page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")

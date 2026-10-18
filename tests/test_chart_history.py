@@ -32,7 +32,7 @@ class ChartHistoryTests(unittest.TestCase):
     def test_short_available_history_and_limits(self):
         row=dict(time=60,open=100,high=101,low=99,close=100,volume=5)
         with patch('thoth.market._history_page',return_value=[row]) as fetch:
-            self.assertEqual(chart_history('ETHUSDT','1',10000,'live'),[row])
+            self.assertEqual(chart_history('ETHUSDT','1',5000,'live'),[row])
             self.assertEqual(fetch.call_count,1)
-        for count in (0,10001):
+        for count in (0,5001):
             with self.assertRaises(ValueError):chart_history('ETHUSDT','1',count,'live')

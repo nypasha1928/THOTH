@@ -222,7 +222,7 @@ def current_quote(symbol: str, environment: str = 'paper'):
 
 
 @app.get('/api/chart/{symbol}')
-def chart(symbol: str, interval: str = '1', environment: str = 'paper', lookback: int = Query(1000,ge=1000,le=10000)):
+def chart(symbol: str, interval: str = '1', environment: str = 'paper', lookback: int = Query(1000,ge=1000,le=5000)):
     import re
     if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in ('1', 'D') or environment not in ('paper','testnet','live'):
         raise HTTPException(422, 'Unsupported symbol or interval')

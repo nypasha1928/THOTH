@@ -10,10 +10,10 @@ function draw(){
  function shape(tag,attrs,parent=svg){const node=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);parent.append(node);return node}
  const synchronized=synchronizeFormingCandle(chartRows,currentQuote,{symbol:$('symbol').value,environment:mode,interval:$('tf').value},formingDisplayState);formingDisplayState=synchronized.state;const displayRows=synchronized.rows;
  const end=displayRows.length-chartOffset,rows=displayRows.slice(Math.max(0,end-visibleBars),end);
- $('chartNavigationStatus').textContent=chartOffset>0||chartPriceShift!==0||chartPriceZoom!==1?'Exploring chart · auto refresh paused. Latest candle returns to the live edge and auto scale.':'Wheel over candles: time zoom · Drag/wheel on right price scale: price zoom · Double-click price scale: auto scale';
+ $('chartNavigationStatus').textContent=chartLookback>1000||chartOffset>0||chartPriceShift!==0||chartPriceZoom!==1?'Exploring chart · auto refresh paused. Latest candle returns to the live edge and auto scale.':'Wheel over candles: time zoom · Drag/wheel on right price scale: price zoom · Double-click price scale: auto scale';
  $('title').textContent=$('symbol').value+' · '+$('tf').selectedOptions[0].textContent;
  $('oldest').disabled=!chartRows.length||chartOffset>=Math.max(0,chartRows.length-visibleBars);
- $('older').disabled=chartOffset>=Math.max(0,chartRows.length-visibleBars);$('newer').disabled=chartOffset===0;$('latest').disabled=chartOffset===0&&chartPriceShift===0&&chartPriceZoom===1;
+ $('older').disabled=chartOffset>=Math.max(0,chartRows.length-visibleBars);$('newer').disabled=chartOffset===0;$('latest').disabled=chartLookback===1000&&chartOffset===0&&chartPriceShift===0&&chartPriceZoom===1;
  if(!rows.length){chartGeometry=null;for(const key of ['onpointerdown','onpointermove','onpointerup','onpointercancel','onclick','ondblclick'])svg[key]=null;$('candleInfo').textContent=chartLoading?'Loading candles…':'No candles available for this chart.';return}
  const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+chartStyle.rightGap),x=i=>L+(i+.5)*step;
  const levelSnapshot=analysis.filter(b=>b.time<=finish).at(-1);
@@ -96,7 +96,7 @@ function draw(){
 $('zoom').oninput=()=>{visibleBars=Number($('zoom').value);chartOffset=Math.min(chartOffset,Math.max(0,chartRows.length-visibleBars));draw()};
 $('older').onclick=()=>{chartOffset=Math.min(Math.max(0,chartRows.length-visibleBars),chartOffset+Math.max(10,Math.floor(visibleBars/3)));draw()};
 $('newer').onclick=()=>{chartOffset=Math.max(0,chartOffset-Math.max(10,Math.floor(visibleBars/3)));draw()};
-$('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;draw()};
+$('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;if(chartLookback>1000){chartLookback=1000;historyExhausted=false;loadChart();return;}draw()};
 $('resetChartView').onclick=()=>{visibleBars=70;$('zoom').value='70';chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;draw()};
 $('autoPriceScale').onclick=()=>{chartPriceZoom=1;chartPriceShift=0;draw()};
 $('refresh').onclick=()=>loadChart();

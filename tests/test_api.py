@@ -71,7 +71,7 @@ class ApiTests(unittest.TestCase):
             self.assertTrue(result.json()['historical_replay'])
             fetch.assert_called_once_with('ETHUSDT','1',2000,'paper')
             worker.history.assert_not_called();worker.analysis.assert_not_called()
-        self.assertEqual(self.client.get('/api/chart/ETHUSDT?lookback=10001').status_code,422)
+        self.assertEqual(self.client.get('/api/chart/ETHUSDT?lookback=5001').status_code,422)
 
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
