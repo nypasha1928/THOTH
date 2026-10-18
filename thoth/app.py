@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .engine import Engine
-from .market import candles, sma
+from .market import candles, sma, quote
 from .models import Settings, PaperOrder, Marks, TestnetSettings, TestnetActivation
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -210,6 +210,15 @@ def runner_status():
 @app.get('/api/watchlist')
 def watchlist():
     return json.loads((ROOT / 'watchlist.json').read_text())
+
+
+@app.get('/api/quote/{symbol}')
+def current_quote(symbol: str, environment: str = 'paper'):
+    import re
+    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT',symbol) or environment not in ('paper','testnet','live'):
+        raise HTTPException(422,'Unsupported symbol or environment')
+    try:return quote(symbol,environment)
+    except Exception:raise HTTPException(502,'Current Bybit price unavailable') from None
 
 
 @app.get('/api/chart/{symbol}')

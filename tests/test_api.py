@@ -48,6 +48,18 @@ class ApiTests(unittest.TestCase):
         with patch('thoth.app.candles', side_effect=TimeoutError):
             self.assertEqual(self.client.get('/api/chart/BTCUSDT').status_code, 502)
 
+    def test_public_quote_contract_and_redacted_failure(self):
+        with patch('thoth.app.quote',return_value={'symbol':'ETHUSDT','environment':'live','price':2430.12,'observed_at':1792300001.}) as request:
+            result=self.client.get('/api/quote/ETHUSDT?environment=live')
+            self.assertEqual(result.status_code,200)
+            self.assertEqual(result.json()['price'],2430.12)
+            request.assert_called_once_with('ETHUSDT','live')
+        self.assertEqual(self.client.get('/api/quote/ETHUSDT?environment=wrong').status_code,422)
+        with patch('thoth.app.quote',side_effect=RuntimeError('private upstream body')):
+            result=self.client.get('/api/quote/ETHUSDT')
+            self.assertEqual(result.status_code,502)
+            self.assertNotIn('private upstream',result.text)
+
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
         self.assertEqual(len(entries), 234)
