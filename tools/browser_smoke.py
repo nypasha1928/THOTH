@@ -53,7 +53,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Draft edits cannot trigger activation; no order route is reached.
    page.click('#start');expect(page.locator('#symbolSaveMessage')).to_contain_text('Save your strategy')
    assert not activation
+   page.select_option('#symbol','SOLUSDT')
    page.click('#saveSymbols');expect(page.locator('#savedSymbols')).not_to_contain_text('SOLUSDT')
+   expect(page.locator('#symbol')).to_have_value('ETHUSDT')
    assert writes[-1][1]['symbols']==['ETHUSDT']
    page.select_option('#symbol','SOLUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    assert writes[-1][1]['symbols']==['ETHUSDT']
@@ -86,6 +88,23 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx-50,sy,steps=6);page.mouse.up()
    assert page.evaluate('() => chartOffset')<offset
    page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   # Wheel zoom acts on the chart; vertical mouse dragging moves the price view.
+   page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.5;sy=box['y']+box['height']*.5
+   page.mouse.move(sx,sy);before=page.evaluate('() => visibleBars');page.mouse.wheel(0,-200)
+   expect(page.locator('#zoom')).not_to_have_value(str(before))
+   zoomed=page.evaluate('() => visibleBars');assert zoomed<before
+   page.mouse.wheel(0,200)
+   expect(page.locator('#zoom')).not_to_have_value(str(zoomed))
+   if page.locator('#latest').is_enabled():page.click('#latest')
+   page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.5;sy=box['y']+box['height']*.5
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx,sy+45,steps=6);page.mouse.up()
+   assert page.evaluate('() => chartPriceShift')>0
+   expect(page.locator('#latest')).to_be_enabled()
+   page.click('#resetChartView');expect(page.locator('#zoom')).to_have_value('70')
+   assert page.evaluate('() => chartPriceShift')==0
+   expect(page.locator('#latest')).to_be_disabled()
    rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
    major=page.locator('[data-sr-key="long_resistance_major"]')
    expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
@@ -140,6 +159,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, dragging, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
