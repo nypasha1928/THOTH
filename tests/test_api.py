@@ -60,6 +60,19 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(result.status_code,502)
             self.assertNotIn('private upstream',result.text)
 
+    def test_extended_chart_replay_does_not_touch_execution_history(self):
+        from unittest.mock import Mock
+        rows=[dict(time=i*60,open=100,high=101,low=99,close=100,volume=5) for i in range(2000)]
+        worker=Mock()
+        with patch('thoth.app.chart_history',return_value=rows) as fetch,patch('thoth.app.runner',worker):
+            result=self.client.get('/api/chart/ETHUSDT?lookback=2000')
+            self.assertEqual(result.status_code,200)
+            self.assertEqual(len(result.json()['candles']),2000)
+            self.assertTrue(result.json()['historical_replay'])
+            fetch.assert_called_once_with('ETHUSDT','1',2000,'paper')
+            worker.history.assert_not_called();worker.analysis.assert_not_called()
+        self.assertEqual(self.client.get('/api/chart/ETHUSDT?lookback=5001').status_code,422)
+
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
         self.assertEqual(len(entries), 234)
