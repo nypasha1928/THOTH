@@ -22,3 +22,13 @@ class QuoteTests(unittest.TestCase):
             body={'retCode':0,'result':{'list':[{'symbol':symbol,'lastPrice':value}]}}
             with patch('thoth.market.urlopen',side_effect=lambda *a,**k:io.BytesIO(json.dumps(body).encode())):
                 with self.assertRaises(ValueError):quote('ETHUSDT','live')
+
+    def test_clock_advances_even_when_price_quote_is_cached(self):
+        now=[1792300001.]
+        body={'retCode':0,'time':(now[0]-.1)*1000,'result':{'list':[{'symbol':'ETHUSDT','lastPrice':'2430.12'}]}}
+        with patch('thoth.market.urlopen',side_effect=lambda *a,**k:io.BytesIO(json.dumps(body).encode())) as request,patch('thoth.market.time',side_effect=lambda:now[0]):
+            first=quote('ETHUSDT','live');now[0]+=2;second=quote('ETHUSDT','live')
+            self.assertEqual(request.call_count,1)
+            self.assertEqual(second['observed_at'],first['observed_at'])
+            self.assertEqual(second['server_time'],first['server_time']+2)
+            self.assertAlmostEqual(second['exchange_clock_offset'],-.1,places=5)

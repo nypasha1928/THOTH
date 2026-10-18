@@ -58,3 +58,26 @@ function displayAverage(rows,period,field){
  for(let i=0;i<rows.length;i++){const value=rows[i][field],ok=Number.isFinite(value);if(ok){sum+=value;valid++}if(i>=period){const old=rows[i-period][field];if(Number.isFinite(old)){sum-=old;valid--}}if(i>=period-1&&valid===period)result.set(rows[i].time,sum/period)}
  return result;
 }
+
+let formingDisplayState=null;
+function synchronizeFormingCandle(rows,quote,context,previous=null){
+ const last=rows.at(-1),seconds=context.interval==='D'?86400:60,now=context.now??Date.now()/1000;
+ if(!last||!quote||quote.symbol!==context.symbol||quote.environment!==context.environment||!Number.isFinite(quote.price)||quote.price<=0||now-quote.observed_at>=20||now-quote.observed_at< -5||now<last.time||now>=last.time+seconds||quote.observed_at<last.time||quote.observed_at>=last.time+seconds)return {rows,state:previous};
+ const key=[context.environment,context.symbol,context.interval,last.time].join(':');
+ const prior=previous?.key===key?previous:null;
+ const state={key,high:Math.max(last.high,quote.price,prior?.high??-Infinity),low:Math.min(last.low,quote.price,prior?.low??Infinity)};
+ // Price/observed extrema are display-only. Do not manufacture volume, a new
+ // candle, closed history, or any changes to the strategy's analysis records.
+ return {rows:[...rows.slice(0,-1),{...last,close:quote.price,high:state.high,low:state.low}],state};
+}
+
+function candleCountdown(nowMilliseconds=marketNow(),interval=$('tf').value){
+ const period=interval==='D'?86400:60,now=Math.floor(nowMilliseconds/1000),remaining=period-((now%period)+period)%period;
+ const seconds=String(remaining%60).padStart(2,'0'),minutes=String(Math.floor(remaining/60)%60).padStart(2,'0');
+ return interval==='D'?String(Math.floor(remaining/3600)).padStart(2,'0')+':'+minutes+':'+seconds:minutes+':'+seconds;
+}
+function updateCandleCountdown(){
+ const text=candleCountdown();for(const node of document.querySelectorAll('[data-candle-countdown]'))node.textContent=text;
+ $('candleCountdown').textContent='Current '+($('tf').value==='D'?'Daily':'1m')+' candle closes in '+text+' · UTC';
+}
+setInterval(updateCandleCountdown,1000);

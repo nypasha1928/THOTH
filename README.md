@@ -155,3 +155,13 @@ The **Now** price tag and current-price readout use Bybit's public last-traded-p
 **Appearance** now includes adjustable **Right spacing (bars)** (default 24), **Chart background**, and **Show current price line and label**. The current-price line/tag are yellow, with dark tag text. Hiding them affects the chart only; the timestamped quote readout remains available. Display preferences are stored on this browser/device.
 
 The chart adds a separate volume pane with bullish/bearish bars and a simple 20-bar volume MA, plus a white 7-bar SMA of closing prices on the price pane. Both default on and can be hidden in Appearance. They are display-only indicators, independent of the SMA 200 strategy filter and never used for orders. Averages use available candle history before the visible window and only appear after enough valid bars; missing volume is not fabricated. The volume pane uses its own scale and the same time coordinates as price. Forming-bar values can change as candle data refreshes.
+
+### Current-price alignment
+
+Each fresh public quote now updates the displayed forming candle's close and observed high/low, including its display SMA 7. This does not mutate fetched candle records, volume, closed candles or strategy analysis. Quotes for another symbol/environment, stale quotes, and quotes outside that candle's time window are ignored for candle synchronization. At a candle boundary the live view requests fresh candle data rather than inventing a new bar.
+
+The yellow price label stays at the exact price-line height when on scale. High/Low labels move to avoid it; they cannot shift the current-price label. Manual off-scale prices retain directional tags. Refresh cadence remains five seconds for quotes and fifteen seconds for candles, subject to network availability; this is not a tick-by-tick WebSocket feed.
+
+### Candle countdown
+
+A second-by-second countdown appears under the yellow current-price tag and above the chart: `MM:SS` for 1m and `HH:MM:SS` for Daily, counting to UTC candle boundaries. It uses the available Bybit clock offset plus a fresh server-time sample even when the five-second price quote is cached. The device clock is the fallback before synchronization. The timer tracks the current market candle, including while viewing history; it does not predict a signal or submit orders. Hiding the current-price tag also hides its attached timer; the separate countdown readout remains visible. Quote refresh cadence remains five seconds.

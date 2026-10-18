@@ -36,7 +36,7 @@ from time import time
 
 def quote(symbol, environment='live'):
     """Public last-traded price, cached for five seconds; never sends credentials."""
-    return dict(_quote(symbol, environment, int(time() // 5)))
+    return dict(_quote(symbol, environment, int(time() // 5)),server_time=time())
 
 
 @lru_cache(maxsize=256)
@@ -52,4 +52,7 @@ def _quote(symbol, environment, bucket):
         raise ValueError('Quote unavailable')
     price=float(rows[0]['lastPrice'])
     if not isfinite(price) or price<=0:raise ValueError('Invalid quote')
-    return dict(symbol=symbol,environment=environment,price=price,observed_at=time())
+    observed=time()
+    exchange=float(result.get('time',observed*1000))/1000
+    if not isfinite(exchange):exchange=observed
+    return dict(symbol=symbol,environment=environment,price=price,observed_at=observed,exchange_clock_offset=exchange-observed)
