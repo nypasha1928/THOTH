@@ -150,6 +150,34 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
    average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
    assert average==[22,155,False],average
+   # Quote/candle alignment: update only the forming candle and retain observed
+   # extrema; never change closed bars, volume, source arrays, or trade settings.
+   check=page.evaluate('''() => {
+    const now=Math.floor(Date.now()/1000),stamp=Math.floor(now/60)*60;
+    const rows=[{time:stamp-60,open:99,high:101,low:98,close:100,volume:7},{time:stamp,open:100,high:101,low:99,close:100,volume:3}];
+    const original=JSON.stringify(rows),context={symbol:'SOLUSDT',environment:'live',interval:'1',now:stamp+30};
+    const q={symbol:'SOLUSDT',environment:'live',price:103,observed_at:stamp+30};
+    const first=synchronizeFormingCandle(rows,q,context);
+    const second=synchronizeFormingCandle(rows,{...q,price:102},context,first.state);
+    return {unchanged:original===JSON.stringify(rows),closed:first.rows[0].close,close:second.rows[1].close,high:second.rows[1].high,volume:second.rows[1].volume,
+      historical:synchronizeFormingCandle(rows,q,{...context,now:stamp+60}).rows===rows,
+      wrongSymbol:synchronizeFormingCandle(rows,{...q,symbol:'ETHUSDT'},context).rows===rows,
+      stale:synchronizeFormingCandle(rows,{...q,observed_at:stamp},context).rows===rows};
+   }''')
+   assert check==dict(unchanged=True,closed=100,close=102,high=103,volume=3,historical=True,wrongSymbol=True,stale=True),check
+   geometry=page.evaluate('''() => {
+    const saved=chartRows,oldQuote=currentQuote,oldState=formingDisplayState;
+    const stamp=Math.floor(Date.now()/60000)*60;
+    chartRows=Array.from({length:30},(_,i)=>({time:stamp-(29-i)*60,open:100,high:101,low:99,close:100,volume:2}));
+    currentQuote={symbol:$('symbol').value,environment:mode,price:103,observed_at:Date.now()/1000};draw();
+    const tag=document.querySelector('[data-extreme="Now"]'),rect=tag.querySelector('rect'),high=document.querySelector('[data-extreme="High"] rect');
+    const result={close:Number(document.querySelector('[data-candle]:last-of-type')?.dataset.candleClose||[...document.querySelectorAll('[data-candle]')].at(-1).dataset.candleClose),
+      labelCenter:Number(rect.getAttribute('y'))+10,priceY:Number(tag.dataset.priceY),highCenter:Number(high.getAttribute('y'))+10};
+    chartRows=saved;currentQuote=oldQuote;formingDisplayState=oldState;draw();return result;
+   }''')
+   assert geometry['close']==103,geometry
+   assert abs(geometry['labelCenter']-geometry['priceY'])<.001,geometry
+   assert abs(geometry['labelCenter']-geometry['highCenter'])>=22,geometry
    rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
    major=page.locator('[data-sr-key="long_resistance_major"]')
    expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
@@ -221,6 +249,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
