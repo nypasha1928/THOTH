@@ -27,3 +27,29 @@ def sma(rows, length):
         if i >= length-1:
             output.append(dict(time=row['time'], value=total/length))
     return output
+
+
+from functools import lru_cache
+from math import isfinite
+from time import time
+
+
+def quote(symbol, environment='live'):
+    """Public last-traded price, cached for five seconds; never sends credentials."""
+    return dict(_quote(symbol, environment, int(time() // 5)))
+
+
+@lru_cache(maxsize=256)
+def _quote(symbol, environment, bucket):
+    if environment not in ('paper','live','testnet'):
+        raise ValueError('Unsupported quote environment')
+    host='https://api-testnet.bybit.com' if environment=='testnet' else 'https://api.bybit.com'
+    params=urlencode(dict(category='linear',symbol=symbol))
+    with urlopen(host+'/v5/market/tickers?'+params,timeout=10) as response:
+        result=json.load(response)
+    rows=result.get('result',{}).get('list',[])
+    if result.get('retCode')!=0 or len(rows)!=1 or rows[0].get('symbol')!=symbol:
+        raise ValueError('Quote unavailable')
+    price=float(rows[0]['lastPrice'])
+    if not isfinite(price) or price<=0:raise ValueError('Invalid quote')
+    return dict(symbol=symbol,environment=environment,price=price,observed_at=time())

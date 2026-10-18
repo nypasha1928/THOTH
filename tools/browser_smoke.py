@@ -27,10 +27,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
   chart=dict(source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
+  chart_daily=copy.deepcopy(chart)
+  for array in ('candles','analysis','sma'):
+   for i,row in enumerate(chart_daily[array]):
+    row['time']=1740009600+i*86400
+    if array=='analysis':
+     for level in row['levels'].values():level['pivot_time']=1740009600+max(0,(i//100)*100-20)*86400
   writes=[];activation=[];errors=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
-   if path.startswith('chart/'):result=chart
+   if path.startswith('chart/'):result=chart_daily if 'interval=D' in url else chart
+   elif path.startswith('quote/'):
+    symbol=path.split('/')[1];environment='live' if 'environment=live' in url else 'testnet' if 'environment=testnet' in url else 'paper'
+    result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:result=payloads[path]
    elif path.endswith('/settings') and method=='PUT':
@@ -105,6 +114,32 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#resetChartView');expect(page.locator('#zoom')).to_have_value('70')
    assert page.evaluate('() => chartPriceShift')==0
    expect(page.locator('#latest')).to_be_disabled()
+   # Price-axis zoom changes only price span, not candle count or symbol settings.
+   page.locator('#chart').scroll_into_view_if_needed();box=page.locator('#chart').bounding_box()
+   ax=box['x']+box['width']-25;ay=box['y']+box['height']*.5
+   count=page.evaluate('() => visibleBars')
+   page.mouse.move(ax,ay);page.mouse.wheel(0,-160)
+   page.locator('#chart').hover(position={'x':box['width']-25,'y':box['height']*.5})
+   assert page.evaluate('() => chartPriceZoom')<1
+   assert page.evaluate('() => visibleBars')==count
+   page.mouse.move(ax,ay);page.mouse.down();page.mouse.move(ax,ay+40,steps=5);page.mouse.up()
+   assert page.evaluate('() => chartPriceZoom')<.85
+   page.mouse.dblclick(ax,ay);assert page.evaluate('() => chartPriceZoom')==1
+   expect(page.locator('[data-extreme="Now"]')).to_contain_text('2,412.34')
+   expect(page.locator('#quoteStatus')).to_contain_text('Current price:')
+   expect(page.locator('[data-extreme="High"]')).to_contain_text('High')
+   expect(page.locator('[data-extreme="Low"]')).to_contain_text('Low')
+   assert page.locator('[data-time-tick]').count()==70
+   ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
+   assert all(b-a==60 for a,b in zip(ticks,ticks[1:]))
+   page.locator('#chart').click(position={'x':150,'y':120})
+   expect(page.locator('[data-crosshair-time]')).to_be_visible()
+   expect(page.locator('[data-crosshair-time]')).to_contain_text('UTC')
+   page.select_option('#tf','D');expect(page.locator('#title')).to_contain_text('1D')
+   expect(page.locator('[data-time-label]').first).to_contain_text('2026-')
+   ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
+   assert all(b-a==86400 for a,b in zip(ticks,ticks[1:]))
+   page.select_option('#tf','1');expect(page.locator('#title')).to_contain_text('1m')
    rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
    major=page.locator('[data-sr-key="long_resistance_major"]')
    expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
@@ -159,6 +194,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
