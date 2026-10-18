@@ -100,6 +100,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#symbol')).to_have_value('SOLUSDT')
    assert len(writes)==write_count and writes[-1][1]['symbols']==saved_before
    # Actual horizontal drag in both directions, including pointer capture across redraws.
+   page.locator('#chart').scroll_into_view_if_needed()
    box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.45;sy=box['y']+box['height']*.5
    page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx+90,sy,steps=6);page.mouse.up()
    offset=page.evaluate('() => chartOffset');assert offset>0,offset
@@ -128,15 +129,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.25;sy=box['y']+box['height']*.3
    page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx+80,sy-30,steps=6);page.mouse.up()
    expect(page.locator('[data-measurement]')).to_have_count(1)
+   expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('[data-ruler-summary]')).to_contain_text('%')
+   finished=page.locator('#measurementReadout').text_content();page.mouse.move(sx+110,sy+20)
+   expect(page.locator('#measurementReadout')).to_have_text(finished)
    expect(page.locator('#measurementReadout')).to_contain_text('Price move:')
    expect(page.locator('#measurementReadout')).to_contain_text('candle intervals')
    stats=page.evaluate('() => measurementStats({time:0,price:100},{time:120,price:105},[{time:0},{time:60},{time:120}])')
    assert stats==dict(delta=5,percent=5,bars=2,seconds=120),stats
    page.click('#clearMeasurement');expect(page.locator('[data-measurement]')).to_have_count(0)
+   page.click('#measureChart')
    page.locator('#chart').click(position={'x':90,'y':80});expect(page.locator('#measurementReadout')).to_contain_text('First point set')
    page.locator('#chart').click(position={'x':180,'y':120});expect(page.locator('#measurementReadout')).to_contain_text('Price move:')
    page.click('#clearMeasurement')
-   page.click('#measureChart');expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
    # Price-axis zoom changes only price span, not candle count or symbol settings.
    page.locator('#chart').scroll_into_view_if_needed();box=page.locator('#chart').bounding_box()
    ax=box['x']+box['width']-25;ay=box['y']+box['height']*.5
@@ -268,6 +274,23 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.locator('#chartCard').bounding_box()['y']==0
    page.screenshot(path=str(root/'docs/mobile-interactive-chart-fixture.png'))
    page.click('#maximizeChart')
+   # Real touch events exercise Android measurement without native page scrolling.
+   page.click('#measureChart');page.locator('#chart').scroll_into_view_if_needed()
+   expect(page.locator('#chart')).to_have_css('touch-action','none')
+   box=page.locator('#chart').bounding_box();tx=box['x']+box['width']*.2;ty=box['y']+box['height']*.3
+   touch=page.context.new_cdp_session(page);touch.send('Emulation.setTouchEmulationEnabled',{'enabled':True,'maxTouchPoints':1})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':tx,'y':ty}]})
+   for step in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':tx+step*10,'y':ty-step*4}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+   expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('[data-ruler-summary]')).to_contain_text('%')
+   expect(page.locator('#measurementReadout')).to_contain_text('candle intervals')
+   page.locator('#chartCard').screenshot(path=str(root/'docs/mobile-measurement-fixture.png'))
+   page.click('#clearMeasurement')
+   page.click('#measureChart');page.locator('#chart').click(position={'x':100,'y':80})
+   expect(page.locator('#measurementReadout')).to_contain_text('First point set')
+   page.click('#measureChart');expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('[data-measurement]')).to_have_count(0)
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
    page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)
    page.click('#oldest');expect(page.locator('#older')).to_be_disabled()
@@ -287,6 +310,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()

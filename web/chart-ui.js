@@ -88,6 +88,7 @@ function measurementStats(start,end,rows){
  const a=rows.findIndex(r=>r.time===start.time),b=rows.findIndex(r=>r.time===end.time);
  return {delta,percent,bars:a>=0&&b>=0?Math.abs(b-a):null,seconds:Math.abs(end.time-start.time)};
 }
-$('measureChart').onclick=()=>{rulerMode=!rulerMode;rulerPointer=null;$('measureChart').setAttribute('aria-pressed',String(rulerMode));$('measureChart').textContent=rulerMode?'Measure: ON':'Measure';draw()};
-$('clearMeasurement').onclick=()=>{chartMeasurement=null;rulerPointer=null;draw()};
+function setRulerMode(enabled){rulerMode=enabled;rulerPointer=null;$('measureChart').setAttribute('aria-pressed',String(enabled));$('measureChart').textContent=enabled?'Cancel measure':'Measure move'}
+$('measureChart').onclick=()=>{const enabled=!rulerMode;setRulerMode(enabled);if(enabled||!chartMeasurement?.end)chartMeasurement=null;draw()};
+$('clearMeasurement').onclick=()=>{chartMeasurement=null;setRulerMode(false);draw()};
 $('oldest').onclick=()=>{chartOffset=Math.max(0,chartRows.length-visibleBars);chartPriceShift=0;chartPriceZoom=1;draw()};
