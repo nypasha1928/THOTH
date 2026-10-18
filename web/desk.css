@@ -4,3 +4,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 #chart [data-price-axis],#chart [data-price-tick],#chart [data-extreme]{cursor:ns-resize}
 
 #chart.ruler-mode{cursor:crosshair}#measureChart[aria-pressed=true]{background:#1c5260;border-color:#57c6ec;color:#e5faff}#measurementReadout{color:#acd9ec;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+
+#chart.ruler-mode{touch-action:none}#measureChart{border-color:#57c6ec}#clearMeasurement{font-size:12px}

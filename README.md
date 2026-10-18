@@ -172,6 +172,10 @@ A second-by-second countdown appears under the yellow current-price tag and abov
 
 Extended S/R signals are a separate historical replay of fetched data. They never update execution checkpoints or send orders. As additional warm-up history becomes available, early inferred levels/signals can change; they are not a backtest or a substitute for execution logs and TradingView comparison. More data increases chart-load time.
 
-Enable **Measure**, then click two chart points or drag between them. The ruler reports signed USDT price change, percentage from the start price, candle intervals and elapsed time; endpoints stay attached to their price/time coordinates while panning. **Clear measurement** removes it. This is a chart price measurement, excluding leverage, fees, funding, liquidation and realized trade performance. It does not select trading symbols or submit orders.
+Activate **Measure move**, then click two chart points or drag between them. The ruler reports signed USDT price change, percentage from the start price, candle intervals and elapsed time; endpoints stay attached to their price/time coordinates while panning. **Clear measure** removes it. This is a chart price measurement, excluding leverage, fees, funding, liquidation and realized trade performance. It does not select trading symbols or submit orders.
 
 Extended-history snapshots refresh only on request to limit server work. **Latest candle** returns to the normal 1,000-candle live view and resumes automatic candle refresh. Quote refresh remains separate. The public historical-page cache is also reduced.
+
+### Measure move button
+
+The **Measure move** button is now in the chart's top toolbar. Activate it, then hold/drag/release or click a start and end point. Measurement input automatically stops at the second point; its percentage, signed price move, candle intervals and elapsed time stay visible on the chart. Ordinary dragging returns to panning. Click **Measure move** again for a new measurement or **Clear measure** to remove it. While measuring, Android touch drags stay in the chart instead of scrolling the page. The ruler uses SVG screen coordinates so responsive chart scaling does not shift the selected points. This remains a display-only price measurement, not an order or leveraged P&L calculation.
