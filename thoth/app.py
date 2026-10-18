@@ -17,12 +17,12 @@ from .bybit_testnet import TestnetClient
 from .indicator import evaluate
 from urllib.error import URLError
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .engine import Engine
-from .market import candles, sma, quote
+from .market import candles, sma, quote, chart_history
 from .models import Settings, PaperOrder, Marks, TestnetSettings, TestnetActivation
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -222,16 +222,16 @@ def current_quote(symbol: str, environment: str = 'paper'):
 
 
 @app.get('/api/chart/{symbol}')
-def chart(symbol: str, interval: str = '1', environment: str = 'paper'):
+def chart(symbol: str, interval: str = '1', environment: str = 'paper', lookback: int = Query(1000,ge=1000,le=10000)):
     import re
     if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in ('1', 'D') or environment not in ('paper','testnet','live'):
         raise HTTPException(422, 'Unsupported symbol or interval')
     try:
-        rows = TestnetClient().candles(symbol, interval) if environment=='testnet' else candles(symbol, interval)
+        rows = chart_history(symbol,interval,lookback,environment) if lookback>1000 else TestnetClient().candles(symbol, interval) if environment=='testnet' else candles(symbol, interval)
     except (URLError, TimeoutError, ValueError, KeyError) as exc:
         raise HTTPException(502, 'Bybit market data unavailable; no synthetic fallback used') from exc
     cfg = (testnet if environment=='testnet' else live).snapshot()['config'] if environment in ('testnet','live') else engine.snapshot()['settings']
-    history_runner = testnet_feed if environment=='testnet' else live_feed if environment=='live' else runner
+    history_runner = (testnet_feed if environment=='testnet' else live_feed if environment=='live' else runner) if lookback==1000 else None
     history = history_runner.history(symbol, interval, rows) if history_runner else rows
     # Chart timeframe is independent from the execution setting.
     chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'timeframe': interval})
@@ -240,7 +240,7 @@ def chart(symbol: str, interval: str = '1', environment: str = 'paper'):
     return {'source': 'Bybit TESTNET public API' if environment=='testnet' else 'Bybit LIVE market data' if environment=='live' else 'Bybit public API', 'candles': rows, 'sma': averages,
             'analysis': analysis,
             'indicator_status': 'Experimental S/R port; TradingView parity verification pending',
-            'last_candle_closed': False}
+            'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 
 
 app.mount('/', StaticFiles(directory=ROOT / 'web', html=True), name='web')

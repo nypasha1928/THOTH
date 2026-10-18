@@ -165,3 +165,11 @@ The yellow price label stays at the exact price-line height when on scale. High/
 ### Candle countdown
 
 A second-by-second countdown appears under the yellow current-price tag and above the chart: `MM:SS` for 1m and `HH:MM:SS` for Daily, counting to UTC candle boundaries. It uses the available Bybit clock offset plus a fresh server-time sample even when the five-second price quote is cached. The device clock is the fallback before synchronization. The timer tracks the current market candle, including while viewing history; it does not predict a signal or submit orders. Hiding the current-price tag also hides its attached timer; the separate countdown readout remains visible. Quote refresh cadence remains five seconds.
+
+### Extended chart history and measurement ruler
+
+**Load 1,000 older candles** expands the chart from the initial 1,000 to at most 10,000 candles (about 6 days 22 hours on 1m), subject to exchange listing/data availability. **Oldest loaded** jumps to the left edge; drag or use Earlier/Later to explore. The loaded UTC date range and candle count are shown. Pagination is bounded, cached briefly, deduplicated, and rejects non-advancing pages or gaps rather than fabricating bars. Failed older-history requests preserve the current chart.
+
+Extended S/R signals are a separate historical replay of fetched data. They never update execution checkpoints or send orders. As additional warm-up history becomes available, early inferred levels/signals can change; they are not a backtest or a substitute for execution logs and TradingView comparison. More data increases chart-load time.
+
+Enable **Measure**, then click two chart points or drag between them. The ruler reports signed USDT price change, percentage from the start price, candle intervals and elapsed time; endpoints stay attached to their price/time coordinates while panning. **Clear measurement** removes it. This is a chart price measurement, excluding leverage, fees, funding, liquidation and realized trade performance. It does not select trading symbols or submit orders.

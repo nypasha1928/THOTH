@@ -81,3 +81,13 @@ function updateCandleCountdown(){
  $('candleCountdown').textContent='Current '+($('tf').value==='D'?'Daily':'1m')+' candle closes in '+text+' · UTC';
 }
 setInterval(updateCandleCountdown,1000);
+
+let rulerMode=false,chartMeasurement=null,rulerPointer=null;
+function measurementStats(start,end,rows){
+ const delta=end.price-start.price,percent=start.price?delta/start.price*100:0;
+ const a=rows.findIndex(r=>r.time===start.time),b=rows.findIndex(r=>r.time===end.time);
+ return {delta,percent,bars:a>=0&&b>=0?Math.abs(b-a):null,seconds:Math.abs(end.time-start.time)};
+}
+$('measureChart').onclick=()=>{rulerMode=!rulerMode;rulerPointer=null;$('measureChart').setAttribute('aria-pressed',String(rulerMode));$('measureChart').textContent=rulerMode?'Measure: ON':'Measure';draw()};
+$('clearMeasurement').onclick=()=>{chartMeasurement=null;rulerPointer=null;draw()};
+$('oldest').onclick=()=>{chartOffset=Math.max(0,chartRows.length-visibleBars);chartPriceShift=0;chartPriceZoom=1;draw()};

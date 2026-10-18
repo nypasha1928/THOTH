@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   payloads['live']['enabled_on_server']=True
   payloads['live']['unverified_live_allowed']=True
   rows=[];bars=[];sma=[]
-  for i in range(600):
+  for i in range(1000):
    stamp=1792300000+i*60;value=2400+math.sin(i/9)*8+i*.02
    rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
@@ -30,13 +30,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_daily=copy.deepcopy(chart)
   for array in ('candles','analysis','sma'):
    for i,row in enumerate(chart_daily[array]):
-    row['time']=1740009600+i*86400
+    row['time']=1700006400+i*86400
     if array=='analysis':
-     for level in row['levels'].values():level['pivot_time']=1740009600+max(0,(i//100)*100-20)*86400
+     for level in row['levels'].values():level['pivot_time']=1700006400+max(0,(i//100)*100-20)*86400
+  chart_older=copy.deepcopy(chart)
+  old_rows=[];old_bars=[];old_sma=[]
+  for i in range(-1000,0):
+   stamp=chart['candles'][0]['time']+i*60
+   old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
+   old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
+  chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   writes=[];activation=[];errors=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
-   if path.startswith('chart/'):result=chart_daily if 'interval=D' in url else chart
+   if path.startswith('chart/'):result=chart_daily if 'interval=D' in url else chart_older if 'lookback=2000' in url else chart
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live' if 'environment=live' in url else 'testnet' if 'environment=testnet' in url else 'paper'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -114,6 +121,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#resetChartView');expect(page.locator('#zoom')).to_have_value('70')
    assert page.evaluate('() => chartPriceShift')==0
    expect(page.locator('#latest')).to_be_disabled()
+   # Ruler is display-only: a drag shows signed price/percentage, intervals and time.
+   page.click('#measureChart');page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.25;sy=box['y']+box['height']*.3
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx+80,sy-30,steps=6);page.mouse.up()
+   expect(page.locator('[data-measurement]')).to_have_count(1)
+   expect(page.locator('#measurementReadout')).to_contain_text('Price move:')
+   expect(page.locator('#measurementReadout')).to_contain_text('candle intervals')
+   stats=page.evaluate('() => measurementStats({time:0,price:100},{time:120,price:105},[{time:0},{time:60},{time:120}])')
+   assert stats==dict(delta=5,percent=5,bars=2,seconds=120),stats
+   page.click('#clearMeasurement');expect(page.locator('[data-measurement]')).to_have_count(0)
+   page.locator('#chart').click(position={'x':90,'y':80});expect(page.locator('#measurementReadout')).to_contain_text('First point set')
+   page.locator('#chart').click(position={'x':180,'y':120});expect(page.locator('#measurementReadout')).to_contain_text('Price move:')
+   page.click('#clearMeasurement')
+   page.click('#measureChart');expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
    # Price-axis zoom changes only price span, not candle count or symbol settings.
    page.locator('#chart').scroll_into_view_if_needed();box=page.locator('#chart').bounding_box()
    ax=box['x']+box['width']-25;ay=box['y']+box['height']*.5
@@ -246,6 +267,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.screenshot(path=str(root/'docs/mobile-interactive-chart-fixture.png'))
    page.click('#maximizeChart')
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
+   page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)
+   page.click('#oldest');expect(page.locator('#older')).to_be_disabled()
+   assert page.evaluate('() => chartRows.length')==2000
+   expect(page.locator('#historyStatus')).to_contain_text('Historical replay')
+   page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    page.select_option('#viewMode','testnet');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
    page.select_option('#viewMode','paper');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
    page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")
@@ -255,6 +281,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
