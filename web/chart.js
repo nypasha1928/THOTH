@@ -1,8 +1,9 @@
 let inspectedCandle=null;
 function draw(){
- const svg=$('chart');svg.replaceChildren();
+ const svg=$('chart');svg.replaceChildren();svg.style.backgroundColor=chartStyle.background;
+ const rgb=chartStyle.background.slice(1).match(/../g).map(v=>parseInt(v,16)),light=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]>160,axisText=light?'#314138':'#a9bbb0',gridColor=light?'#d5ddd8':'#263c32';
  const expanded=$('chartCard').classList.contains('chart-expanded');
- const W=Math.max(410,Math.min(1800,svg.clientWidth||800)),H=expanded?Math.max(330,window.innerHeight-270):(W<600?370:460),L=12,R=W-112,T=30,B=H-55,P=R-L;
+ const W=Math.max(410,Math.min(1800,svg.clientWidth||800)),H=expanded?Math.max(330,window.innerHeight-270):(W<600?370:460),L=12,R=W-112,T=30,axisBottom=H-55,volumeHeight=chartStyle.showVolume?Math.max(65,Math.min(130,H*.2)):0,B=axisBottom-volumeHeight-(chartStyle.showVolume?22:0),P=R-L;
  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
  const ns='http://www.w3.org/2000/svg';
  function shape(tag,attrs,parent=svg){const node=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);parent.append(node);return node}
@@ -10,27 +11,28 @@ function draw(){
  $('chartNavigationStatus').textContent=chartOffset>0||chartPriceShift!==0||chartPriceZoom!==1?'Exploring chart · auto refresh paused. Latest candle returns to the live edge and auto scale.':'Wheel over candles: time zoom · Drag/wheel on right price scale: price zoom · Double-click price scale: auto scale';
  $('title').textContent=$('symbol').value+' · '+$('tf').selectedOptions[0].textContent;
  $('older').disabled=chartOffset>=Math.max(0,chartRows.length-visibleBars);$('newer').disabled=chartOffset===0;$('latest').disabled=chartOffset===0&&chartPriceShift===0&&chartPriceZoom===1;
- if(!rows.length){$('candleInfo').textContent='No candles available for this chart.';return}
- const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+12),x=i=>L+(i+.5)*step;
+ if(!rows.length){chartGeometry=null;for(const key of ['onpointerdown','onpointermove','onpointerup','onpointercancel','onclick','ondblclick'])svg[key]=null;$('candleInfo').textContent=chartLoading?'Loading candles…':'No candles available for this chart.';return}
+ const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+chartStyle.rightGap),x=i=>L+(i+.5)*step;
  const levelSnapshot=analysis.filter(b=>b.time<=finish).at(-1);
  const family=key=>(key.startsWith('long_')?'long_':'short_')+(key.endsWith('_major')?'major':'minor');
+ const sma7=displayAverage(chartRows,7,'close'),volumeMA=displayAverage(chartRows,20,'volume');
  const byTime=new Map(analysis.map(b=>[b.time,b])),smaByTime=new Map(smaRows.map(s=>[s.time,s.value]));
  const settings=current().settings,showLevels=$('showLevels').checked,showSma=$('showSma').checked&&settings.sma_enabled;
  const enabled=key=>(!key.endsWith('_major')||settings.major)&&(!key.endsWith('_minor')||settings.minor)&&chartStyle[family(key)]?.visible;
  const active=rows.map(r=>byTime.get(r.time)).filter(Boolean),positions=current().positions.filter(p=>p.symbol===$('symbol').value);
  const stop=p=>Number(p.stop)>0?Number(p.stop):p.entry+(p.side==='Long'?-1:1)*p.stop_dollars/p.qty;
  const values=rows.flatMap(r=>[Number(r.low),Number(r.high)]);
- if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);if(showSma)for(const r of rows){const v=smaByTime.get(r.time);if(Number.isFinite(v))values.push(v)}for(const p of positions)values.push(p.entry,stop(p))}
+ if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);if(showSma)for(const r of rows){const v=smaByTime.get(r.time);if(Number.isFinite(v))values.push(v)}if(chartStyle.showSma7)for(const r of rows){const v=sma7.get(r.time);if(Number.isFinite(v))values.push(v)}for(const p of positions)values.push(p.entry,stop(p))}
  const bottom=Math.min(...values),top=Math.max(...values),pad=Math.max((top-bottom)*.12,Math.abs(top)*.00002,.000001),center=(bottom+top)/2+chartPriceShift,half=((top-bottom)/2+pad)*chartPriceZoom,min=center-half,max=center+half;
  chartGeometry={W,H,L,R,T,B,P,step,firstIndex:Math.max(0,end-visibleBars),pricePerPixel:(max-min)/(B-T)*H/svg.getBoundingClientRect().height};
  const y=p=>B-(Number(p)-min)/(max-min)*(B-T),price=marketPrice;
- const axis=shape('rect',{x:R+2,y:T-14,width:W-R-2,height:B-T+28,fill:'#14221c','data-price-axis':'true'});shape('title',{},axis).textContent='Drag up/down or scroll to scale prices. Double-click for auto scale.';
- for(let i=0;i<6;i++){const value=min+(max-min)*i/5,yy=y(value);shape('path',{d:`M${L} ${yy} H${R}`,stroke:'#263c32','stroke-dasharray':'2 4'});shape('text',{x:R+8,y:yy+4,fill:'#a9bbb0','font-size':11,'data-price-tick':value}).textContent=price(value)}
+ const axis=shape('rect',{x:R+2,y:T-14,width:W-R-2,height:B-T+28,fill:chartStyle.background,'data-price-axis':'true'});shape('title',{},axis).textContent='Drag up/down or scroll to scale prices. Double-click for auto scale.';
+ for(let i=0;i<6;i++){const value=min+(max-min)*i/5,yy=y(value);shape('path',{d:`M${L} ${yy} H${R}`,stroke:gridColor,'stroke-dasharray':'2 4'});shape('text',{x:R+8,y:yy+4,fill:axisText,'font-size':11,'data-price-tick':value}).textContent=price(value)}
  const defs=shape('defs',{}),clip=shape('clipPath',{id:'plotClip'},defs);shape('rect',{x:L,y:T-10,width:P,height:B-T+20},clip);
  const plot=shape('g',{'clip-path':'url(#plotClip)'});
  const daily=$('tf').value==='D',labelWidth=daily?94:45,labelEvery=Math.max(1,Math.ceil(labelWidth/step));
- rows.forEach((r,i)=>{shape('path',{d:`M${x(i)} ${B} v5`,stroke:'#62776b','data-time-tick':r.time});if(i%labelEvery===0){const stamp=new Date(r.time*1000).toISOString();shape('path',{d:`M${x(i)} ${T} V${B}`,stroke:'#20352c'});shape('text',{x:x(i),y:H-22,fill:'#b3c6b9','font-size':10,'text-anchor':i===0?'start':'middle','data-time-label':r.time}).textContent=daily?stamp.slice(0,10):stamp.slice(11,16)}});
- shape('text',{x:R+8,y:H-22,fill:'#849b8b','font-size':10}).textContent='UTC';
+ rows.forEach((r,i)=>{shape('path',{d:`M${x(i)} ${axisBottom} v5`,stroke:axisText,'data-time-tick':r.time});if(i%labelEvery===0){const stamp=new Date(r.time*1000).toISOString();shape('path',{d:`M${x(i)} ${T} V${B}`,stroke:gridColor});shape('text',{x:x(i),y:H-22,fill:axisText,'font-size':10,'text-anchor':i===0?'start':'middle','data-time-label':r.time}).textContent=daily?stamp.slice(0,10):stamp.slice(11,16)}});
+ shape('text',{x:R+8,y:H-22,fill:axisText,'font-size':10}).textContent='UTC';
  if(showLevels){for(const [key,level]of Object.entries(levelSnapshot?.levels||{})){
   if(!enabled(key)||!Number.isFinite(level.value))continue;
   const style=chartStyle[family(key)],color=style[key.includes('_support_')?'support':'resistance'];
@@ -46,16 +48,24 @@ function draw(){
   shape('title',{},ray).textContent=key.replaceAll('_',' ')+' · '+price(level.value)+' · active at '+new Date(levelSnapshot.time*1000).toISOString();
  }}
  if(showSma){let d='',connected=false;rows.forEach((r,i)=>{const value=smaByTime.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});shape('path',{d,fill:'none',stroke:chartStyle.sma,'stroke-width':2},plot)}
+ if(chartStyle.showSma7){let d='',connected=false;rows.forEach((r,i)=>{const value=sma7.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});shape('path',{d,fill:'none',stroke:'#ffffff','stroke-width':1.6,'data-sma7':'true'},plot)}
+ if(chartStyle.showVolume){const volumeTop=B+25,volumeBottom=axisBottom,validVolumes=rows.filter(r=>Number.isFinite(r.volume)&&r.volume>=0),maxVolume=Math.max(1,...validVolumes.map(r=>r.volume),...rows.map(r=>volumeMA.get(r.time)||0)),vy=v=>volumeBottom-(v/maxVolume)*(volumeBottom-volumeTop-18);
+  shape('path',{d:`M${L} ${B+13} H${R}`,stroke:'#344b3d'});
+  shape('text',{x:L,y:volumeTop+8,fill:axisText,'font-size':10,'data-volume-heading':'true'}).textContent='Volume · MA 20'+(validVolumes.length?'':' · unavailable');
+  for(const [i,r]of rows.entries()){if(!Number.isFinite(r.volume)||r.volume<0)continue;shape('rect',{x:x(i)-Math.max(.7,step*.3),y:vy(r.volume),width:Math.max(1.4,step*.6),height:volumeBottom-vy(r.volume),fill:r.close>=r.open?chartStyle.bull:chartStyle.bear,opacity:.7,'data-volume-bar':r.time})}
+  let d='',connected=false;rows.forEach((r,i)=>{const value=volumeMA.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${vy(value)}`;connected=true});shape('path',{d,fill:'none',stroke:'#f2b84b','stroke-width':1.5,'data-volume-ma':'20'});
+  shape('text',{x:R+8,y:volumeTop+22,fill:axisText,'font-size':10}).textContent=marketPrice(maxVolume);
+ }
  rows.forEach((r,i)=>{const color=r.close>=r.open?chartStyle.bull:chartStyle.bear;shape('path',{d:`M${x(i)} ${y(r.high)} V${y(r.low)}`,stroke:color,'stroke-width':1.2},plot);shape('rect',{x:x(i)-Math.max(.7,step*.3),y:Math.min(y(r.open),y(r.close)),width:Math.max(1.4,step*.6),height:Math.max(1.5,Math.abs(y(r.open)-y(r.close))),fill:color,rx:.5,'data-candle':r.close>=r.open?'bull':'bear'},plot);const bar=byTime.get(r.time);if($('showSignals').checked&&bar?.signal)shape('text',{x:x(i),y:y(bar.signal==='Long'?r.low:r.high)+(bar.signal==='Long'?chartStyle.signalSize:-9),fill:bar.signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':bar.signal},plot).textContent=bar.signal==='Long'?'▲':'▼'});
- function line(value,color,label,dash=''){const yy=y(value);if(yy<T||yy>B)return;shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':dash},plot);shape('text',{x:L+5,y:yy-5,fill:color,'font-size':11},plot).textContent=label+' '+price(value)}
+ function line(value,color,label,dash=''){const yy=y(value);if(yy<T||yy>B)return;shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':dash,'data-price-line':label},plot);shape('text',{x:L+5,y:yy-5,fill:color,'font-size':11},plot).textContent=label+' '+price(value)}
  for(const p of positions){line(p.entry,'#edf3e8','Entry '+p.side,'6 4');line(stop(p),'#ff9b91',Number(p.stop)>0?'Exchange stop':'Estimated dollar stop','3 4')}
- const last=rows.at(-1);line(last.close,'#62deb0','Last close','2 4');
+ const last=rows.at(-1);
  const axisLabelPositions=[];
- function axisLabel(value,label,color){const yy=y(value),onScale=yy>=T&&yy<=B,base=Math.max(T+10,Math.min(B-10,yy));let at=base;for(const other of axisLabelPositions)if(Math.abs(at-other)<22)at=other+22<=B-10?other+22:other-22;axisLabelPositions.push(at);const group=shape('g',{'data-extreme':label});if(onScale)shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':'2 5',opacity:.65},plot);shape('rect',{x:R+4,y:at-10,width:W-R-6,height:20,fill:color,rx:3},group);shape('text',{x:R+9,y:at+4,fill:'#f5f7ff','font-size':10},group).textContent=label+' '+price(value)+(onScale?'':yy<T?' ↑':' ↓')}
+ function axisLabel(value,label,color){const yy=y(value),onScale=yy>=T&&yy<=B,base=Math.max(T+10,Math.min(B-10,yy));let at=base;for(const other of axisLabelPositions)if(Math.abs(at-other)<22)at=other+22<=B-10?other+22:other-22;axisLabelPositions.push(at);const group=shape('g',{'data-extreme':label});if(onScale&&label!=='Now')shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':'2 5',opacity:.65},plot);shape('rect',{x:R+4,y:at-10,width:W-R-6,height:20,fill:color,rx:3},group);shape('text',{x:R+9,y:at+4,fill:label==='Now'?'#181b12':'#f5f7ff','font-size':10},group).textContent=label+' '+price(value)+(onScale?'':yy<T?' ↑':' ↓')}
  const visibleHigh=Math.max(...rows.map(r=>Number(r.high))),visibleLow=Math.min(...rows.map(r=>Number(r.low)));
  axisLabel(visibleHigh,'High','#234578');axisLabel(visibleLow,'Low','#234578');
  const freshQuote=currentQuote&&currentQuote.symbol===$('symbol').value&&currentQuote.environment===mode&&Date.now()/1000-currentQuote.observed_at<20;
- if(freshQuote){axisLabel(currentQuote.price,'Now','#276c55');line(currentQuote.price,'#63d3a2','Current price','3 4')}
+ if(freshQuote&&chartStyle.showLastPrice){axisLabel(currentQuote.price,'Now','#ffdf00');line(currentQuote.price,'#ffdf00','Current price','2 4')}
 
  for(const trade of current().trades.filter(t=>t.symbol===$('symbol').value))for(const [stamp,label,color]of [[trade.opened_at,'E','#d7f7ca'],[trade.closed_at,'X','#ffaaa1']]){const t=typeof stamp==='number'?(stamp>1e12?stamp/1000:stamp):Date.parse(stamp)/1000;const i=rows.findIndex((r,j)=>t>=r.time&&t<(rows[j+1]?.time??r.time+($('tf').value==='1'?60:86400)));if(i>=0)shape('text',{x:x(i),y:20,fill:color,'font-size':12,'text-anchor':'middle'}).textContent=label}
  const cross=shape('path',{d:'',stroke:'#d8e5dd','stroke-dasharray':'3 4',opacity:.5,'pointer-events':'none'},plot);
@@ -91,9 +101,9 @@ $('chart').addEventListener('wheel',e=>{
  if(!chartRows.length||!chartGeometry||!Number.isFinite(e.deltaY)||e.deltaY===0)return;
  e.preventDefault();
  const g=chartGeometry,rect=$('chart').getBoundingClientRect();if((e.clientX-rect.left)/rect.width*g.W>=g.R){chartPriceZoom=Math.max(.05,Math.min(30,chartPriceZoom*(e.deltaY<0?.85:1/.85)));draw();return;}const fraction=Math.max(0,Math.min(1,((e.clientX-rect.left)/rect.width*g.W-g.L)/g.P));
- const oldCount=Math.min(visibleBars,chartRows.length),anchor=g.firstIndex+fraction*(oldCount+12)-.5;
+ const oldCount=Math.min(visibleBars,chartRows.length),anchor=g.firstIndex+fraction*(oldCount+chartStyle.rightGap)-.5;
  const next=Math.max(20,Math.min(500,Math.round(visibleBars*(e.deltaY<0?.85:1/.85))));
- const count=Math.min(next,chartRows.length),first=anchor-fraction*(count+12)+.5;
+ const count=Math.min(next,chartRows.length),first=anchor-fraction*(count+chartStyle.rightGap)+.5;
  visibleBars=next;$('zoom').value=String(next);chartOffset=Math.max(0,Math.min(Math.max(0,chartRows.length-next),Math.round(chartRows.length-count-first)));
  inspectedCandle=null;draw();
 },{passive:false});
