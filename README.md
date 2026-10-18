@@ -129,3 +129,13 @@ The saved trading-symbol summary is separate from the chart symbol. Search, sele
 The responsive chart supports hover/tap OHLC inspection, a crosshair, candle zoom, history navigation, latest-candle return, and independent S/R, SMA and breakout display toggles. These toggles do not change strategy settings. Candle-based scaling keeps price action visible; **Fit all levels** includes distant overlays/stops. Where available, positions show the exchange-reported stop instead of an estimate.
 
 Optional browser validation: install Playwright in your development environment and provide Chromium at `/usr/bin/chromium`, then run `python tools/browser_smoke.py`. It uses isolated temporary state, simulated API routes and no credentials/orders. The screenshots `docs/desktop-watchlist-fixture.png` and `docs/mobile-watchlist-fixture.png` are synthetic browser fixtures, not real trading results.
+
+### Interactive chart appearance
+
+Use **Search symbol** beside the chart dropdown, or click a symbol name in the trading list, to view a chart without changing allowed trading symbols. Checkboxes still control trading selection and require Save. Drag candles horizontally with the mouse to pan; **Latest candle** returns to the live edge. **Maximize chart** expands to the browser viewport and **Restore chart** returns to the dashboard.
+
+The **Appearance** side panel changes bullish/bearish candle and signal colors, signal size, SMA color, and each long/short major/minor S/R family (support/resistance colors, solid/dotted/dashed styles, width and visibility). Display preferences persist on that browser/device, with a reset to the supplied Pine styles; they never change the trading configuration.
+
+S/R drawing now uses horizontal rays from the pivot anchors, showing the latest confirmed levels available at the rightmost viewed candle, with room to their right. This matches the original Pine drawing style rather than connecting historical levels with vertical stair steps. Rays are drawn retrospectively back to pivots only for display; this does not backdate signals or certify matching TradingView values. Long-term major defaults to solid width 4, long-term minor dotted width 2, short-term major dashed width 3 and short-term minor dashed width 1. The colors come from the original supplied Pine.
+
+Updated synthetic previews: [desktop chart](docs/desktop-interactive-chart-fixture.png), [mobile chart](docs/mobile-interactive-chart-fixture.png). They demonstrate browser rendering and controls, not actual account results.
