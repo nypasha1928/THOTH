@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   rows=[];bars=[];sma=[]
   for i in range(600):
    stamp=1792300000+i*60;value=2400+math.sin(i/9)*8+i*.02
-   rows.append(dict(time=stamp,open=value-1,close=value+1,high=value+3,low=value-3))
+   rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
   chart=dict(source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
@@ -137,15 +137,41 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-crosshair-time]')).to_contain_text('UTC')
    page.select_option('#tf','D');expect(page.locator('#title')).to_contain_text('1D')
    expect(page.locator('[data-time-label]').first).to_contain_text('2026-')
+   expect(page.locator('[data-time-tick]')).to_have_count(70)
+   expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
    assert all(b-a==86400 for a,b in zip(ticks,ticks[1:]))
    page.select_option('#tf','1');expect(page.locator('#title')).to_contain_text('1m')
+   # Display-only overlays use pre-viewport warmup and independent volume scale.
+   expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#ffffff')
+   expect(page.locator('[data-volume-bar]')).to_have_count(70)
+   expect(page.locator('[data-volume-ma]')).to_have_attribute('stroke','#f2b84b')
+   expect(page.locator('[data-extreme="Now"] rect')).to_have_attribute('fill','#ffdf00')
+   expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
+   average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
+   assert average==[22,155,False],average
    rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
    major=page.locator('[data-sr-key="long_resistance_major"]')
    expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
    assert ' V' not in major.get_attribute('d')
    expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
    page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
+   candle=page.locator('[data-candle]').last
+   before_x=float(candle.get_attribute('x'))
+   page.get_by_label('Chart background',exact=True).fill('#f1f5f2')
+   expect(page.locator('#chart')).to_have_css('background-color','rgb(241, 245, 242)')
+   page.get_by_label('Show current price line and label',exact=True).uncheck()
+   expect(page.locator('[data-extreme="Now"]')).to_have_count(0)
+   expect(page.locator('[data-price-line="Current price"]')).to_have_count(0)
+   page.get_by_label('Show current price line and label',exact=True).check()
+   expect(page.locator('[data-extreme="Now"]')).to_have_count(1)
+   page.get_by_label('Chart background',exact=True).fill('#16202b')
+   page.get_by_label('Right spacing (bars)',exact=True).fill('48')
+   assert float(page.locator('[data-candle]').last.get_attribute('x'))<before_x
+   page.get_by_label('Volume with MA 20',exact=True).uncheck();expect(page.locator('[data-volume-bar]')).to_have_count(0)
+   page.get_by_label('Volume with MA 20',exact=True).check();expect(page.locator('[data-volume-bar]')).to_have_count(70)
+   page.get_by_label('SMA 7 (white)',exact=True).uncheck();expect(page.locator('[data-sma7]')).to_have_count(0)
+   page.get_by_label('SMA 7 (white)',exact=True).check();expect(page.locator('[data-sma7]')).to_have_count(1)
    page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
    expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
    page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
@@ -169,6 +195,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#clearSymbols')).to_be_enabled(timeout=10000)
    page.set_viewport_size({'width':390,'height':844});page.reload()
    assert page.evaluate('() => chartStyle.bull')=='#12abcd'
+   assert page.evaluate('() => chartStyle.background')=='#16202b'
    page.click('#appearanceToggle');page.click('#resetAppearance')
    assert page.evaluate('() => chartStyle.bull')=='#26a69a'
    page.click('#closeAppearance')
@@ -194,6 +221,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
