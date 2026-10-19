@@ -135,12 +135,14 @@ class TestnetIntegration(unittest.TestCase):
     def test_failed_protection_requests_emergency_reduce_only_close(self):
         self.activate();self.signal(self.now[0]-60,None);self.now[0]+=60;self.signal(self.now[0]-60)
         link=next(iter(self.exchange.orders));self.exchange.fill(link)
+        self.exchange.active['BTCUSDT']['stopLoss']='0'
         self.exchange.fail_stop=True
         self.service.monitor()
         closes=[o for o in self.exchange.orders.values() if o['reduceOnly']]
         self.assertEqual(len(closes),1)
         self.assertEqual(closes[0]['side'],'Sell')
-        self.assertFalse(self.service.snapshot()['entries'])
+        self.assertTrue(self.service.snapshot()['entries'])
+        self.assertIn('BTCUSDT',self.service.state['blocked_symbols'])
         self.fill_closes()
         self.assertEqual(self.exchange.active,{})
 
@@ -166,6 +168,67 @@ class TestnetIntegration(unittest.TestCase):
         with self.assertRaises(ValueError):self.activate()
         self.assertFalse(any(c[0]=='POST' for c in self.exchange.calls))
 
+
+    def test_opposite_exit_survives_account_lock_and_wallet_failure(self):
+        from unittest.mock import patch
+        self.enter()
+        self.service._lock('safety_lock','Fixture account failure')
+        self.now[0]+=60
+        with patch.object(self.service,'wallet',side_effect=TimeoutError()):
+            self.signal(self.now[0]-60,'Short')
+        closes=[o for o in self.exchange.orders.values() if o['reduceOnly']]
+        self.assertEqual(len(closes),1)
+        self.assertEqual(closes[0]['side'],'Sell')
+        self.assertFalse(self.service.state['entries'])
+        self.assertEqual(len([o for o in self.exchange.orders.values() if not o['reduceOnly']]),1)
+
+    def test_symbol_protection_failure_does_not_disable_other_symbol(self):
+        self.enter()
+        self.exchange.active['BTCUSDT']['stopLoss']='0'
+        self.service.monitor()
+        self.assertTrue(self.service.state['entries'])
+        self.fill_closes()
+        self.signal(self.now[0]-60,None,'ETHUSDT')
+        self.now[0]+=60;self.signal(self.now[0]-60,'Long','ETHUSDT')
+        self.assertTrue(any(o['symbol']=='ETHUSDT' and not o['reduceOnly'] for o in self.exchange.orders.values()))
+
+
+    def test_opposite_exit_intent_retries_after_position_read_failure(self):
+        from unittest.mock import patch
+        self.enter();self.now[0]+=60
+        with patch.object(self.service,'positions',side_effect=TimeoutError()):
+            self.signal(self.now[0]-60,'Short')
+        self.assertEqual(self.service.load()['owned']['BTCUSDT']['signal_exit'],'Opposite breakout')
+        self.assertFalse(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.service.monitor()
+        self.assertEqual(len([o for o in self.exchange.orders.values() if o['reduceOnly']]),1)
+        self.assertFalse(self.service.state['entries'])
+
+    def test_stale_opposite_signal_does_not_close_during_lock(self):
+        self.enter();self.service._lock('safety_lock','Fixture')
+        self.now[0]+=1000
+        self.signal(self.now[0]-500,'Short')
+        self.assertFalse(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+
+    def test_changed_ownership_is_never_closed_by_opposite_signal(self):
+        self.enter();self.exchange.active['BTCUSDT']['side']='Sell'
+        self.now[0]+=60;self.signal(self.now[0]-60,'Short')
+        self.assertFalse(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.assertFalse(self.service.state['entries'])
+
+    def test_other_owned_symbol_can_exit_while_failed_symbol_closes(self):
+        self.enter()
+        self.signal(self.now[0]-60,None,'ETHUSDT')
+        self.now[0]+=60;self.signal(self.now[0]-60,'Long','ETHUSDT')
+        eth=next(k for k,o in self.exchange.orders.items() if o['symbol']=='ETHUSDT' and not o['reduceOnly'])
+        self.exchange.fill(eth);self.service.monitor()
+        self.exchange.active['BTCUSDT']['stopLoss']='0'
+        self.service.monitor()
+        self.assertTrue(self.service.state['entries'])
+        self.assertFalse(any(o['symbol']=='ETHUSDT' and o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.now[0]+=60;self.signal(self.now[0]-60,'Short','ETHUSDT')
+        self.assertEqual({o['symbol'] for o in self.exchange.orders.values() if o['reduceOnly']},{'BTCUSDT','ETHUSDT'})
+        self.assertNotIn('ETHUSDT',self.service.state['blocked_symbols'])
 
 class TestnetRecovery(unittest.TestCase):
     setUp=TestnetIntegration.setUp

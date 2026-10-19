@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 
 from .bybit_testnet import AmbiguousOrder, BybitError, dec, stop_price
+from .diagnostics import failure_details
 
 
 class ExecutionJournal:
@@ -46,6 +47,9 @@ class ExecutionJournal:
     def update(self,link,phase,result=None):
         # Results are curated local metadata, never a raw upstream account response.
         with self.db() as db:
+            previous=db.execute('SELECT result FROM execution WHERE link=?',(link,)).fetchone()
+            result=dict(result or {})
+            if previous and 'protection_error' in json.loads(previous[0]):result.setdefault('protection_error',json.loads(previous[0])['protection_error'])
             db.execute('UPDATE execution SET phase=?, result=? WHERE link=?',
                        (phase,json.dumps(result or {}),link))
         return self.get(link)
@@ -121,6 +125,7 @@ class ExecutionJournal:
                 return self.update(link,'closed',{'exchange_status':status,'filled_qty':str(qty)})
             if len(active)!=1 or active[0].get('side')!=payload['side'] or active[0].get('positionIdx')!=0 or dec(active[0]['size'])!=qty:
                 return self.update(link,'mismatch',{'reason':'Position differs from owned one-way fill; manual reconciliation required'})
+            stage='validate_protection'
             try:
                 entry=dec(active[0]['avgPrice'])
                 if not entry.is_finite() or entry<=0:raise ValueError()
@@ -131,14 +136,25 @@ class ExecutionJournal:
                 liquidation=dec(active[0].get('liqPrice') or '0')
                 if liquidation>0 and ((payload['side']=='Buy' and expected_stop<=liquidation) or (payload['side']=='Sell' and expected_stop>=liquidation)):
                     raise ValueError('Stop is beyond liquidation')
-                self.client.attach_stop(symbol,'Long' if payload['side']=='Buy' else 'Short',
-                    entry,qty,record['stop_dollars'],record['instrument'])
+                # Initial entries already attach a stop. Verify it before
+                # attempting an update; unchanged stops are not a failure.
+                if dec(active[0].get('stopLoss','0'))==expected_stop:
+                    return self.update(link,'protected',{'exchange_status':status,'filled_qty':str(qty),'protection_source':'existing_exchange_stop'})
+                stage='attach_protection'
+                try:
+                    self.client.attach_stop(symbol,'Long' if payload['side']=='Buy' else 'Short',
+                        entry,qty,record['stop_dollars'],record['instrument'])
+                except BybitError as exc:
+                    if exc.code!=34040:raise
+                    # Not-modified acknowledgement is accepted only after the
+                    # owned position's stop is verified by a separate read.
+                stage='verify_protection'
                 # Re-read after acknowledgement: verify the exchange actually reports a stop.
                 confirmed=self.client.request('GET','/v5/position/list',dict(category='linear',symbol=symbol),private=True)['list']
                 matching=[p for p in confirmed if p.get('positionIdx')==0 and p.get('side')==payload['side'] and dec(p.get('size','0'))==qty]
                 expected=dec(stop_price('Long' if payload['side']=='Buy' else 'Short',entry,qty,record['stop_dollars'],record['instrument']['priceFilter']['tickSize']))
                 if len(matching)!=1 or dec(matching[0].get('stopLoss','0'))!=expected:
                     raise ValueError('Expected stop not confirmed')
-            except Exception:
-                return self.update(link,'stop_error',{'reason':'Protective stop unconfirmed; block new submissions and investigate immediately'})
+            except Exception as exc:
+                return self.update(link,'stop_error',{'reason':'Protective stop unconfirmed; block new submissions and investigate immediately','protection_error':failure_details(exc,stage)})
             return self.update(link,'protected',{'exchange_status':status,'filled_qty':str(qty)})
