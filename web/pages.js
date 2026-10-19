@@ -40,10 +40,10 @@ async function loadHistory(){
  try{
   const data=await api('live/history?limit=50&offset='+historyOffset+(symbol?'&symbol='+encodeURIComponent(symbol):''));if(request!==historyRequest)return;
   historyTotal=data.total;$('historyRows').replaceChildren();
-  for(const trade of data.items){const row=document.createElement('tr');row.classList.toggle('trade-loss',Number(trade.pnl)<0);
+  for(const trade of data.items){const row=document.createElement('tr');row.classList.toggle('trade-loss',Number(trade.pnl)<0);row.classList.toggle('trade-win',Number(trade.pnl)>0);
    const symbolButton=document.createElement('button');symbolButton.type='button';symbolButton.textContent=trade.symbol;symbolButton.onclick=()=>openChartSymbol(trade.symbol);
    const cells=[new Date(trade.closed_at*1000).toLocaleString(),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),trade.reason||'—',trade.strategy==='sma_cross'?'SMA 7/200':trade.strategy==='sr_breakout'?'S/R Breakout':'Legacy'];
-   for(const [index,value] of cells.entries()){const cell=document.createElement('td');if(index===4&&Number(trade.pnl)<0)cell.classList.add('pnl-loss');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
+   for(const [index,value] of cells.entries()){const cell=document.createElement('td');if(index===4){if(Number(trade.pnl)<0)cell.classList.add('pnl-loss');else if(Number(trade.pnl)>0)cell.classList.add('pnl-win');}if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
   }
   $('tradeHistoryStatus').textContent=data.total?(historyOffset+1)+'–'+Math.min(historyOffset+data.items.length,data.total)+' of '+data.total+' closed trades':'No confirmed closed trades'+(symbol?' for '+symbol:'')+'.';
   $('historyPrevious').disabled=historyOffset===0;$('historyNext').disabled=historyOffset+50>=data.total;
@@ -62,10 +62,10 @@ async function loadAnalysis(){
   const params=new URLSearchParams();if(symbol)params.set('symbol',symbol);if(strategy)params.set('strategy',strategy);
   const data=await api('live/analysis?'+params);if(request!==analysisRequest)return;
   $('analysisSummary').replaceChildren();
-  for(const [label,value] of [['Closed trades',data.totals.trades],['Realized P&L',money(data.totals.realized_pnl)],['Win rate',data.totals.win_rate==null?'—':data.totals.win_rate.toFixed(1)+'%']]){const card=document.createElement('div');card.className='card';const title=document.createElement('small'),number=document.createElement('div');title.textContent=label;number.textContent=value;number.className='value';if(label==='Realized P&L'&&data.totals.realized_pnl<0)number.classList.add('pnl-loss');card.append(title,number);$('analysisSummary').append(card)}
+  for(const [label,value] of [['Closed trades',data.totals.trades],['Realized P&L',money(data.totals.realized_pnl)],['Win rate',data.totals.win_rate==null?'—':data.totals.win_rate.toFixed(1)+'%']]){const card=document.createElement('div');card.className='card';const title=document.createElement('small'),number=document.createElement('div');title.textContent=label;number.textContent=value;number.className='value';if(label==='Realized P&L'){if(data.totals.realized_pnl<0)number.classList.add('pnl-loss');else if(data.totals.realized_pnl>0)number.classList.add('pnl-win');}card.append(title,number);$('analysisSummary').append(card)}
   const percent=value=>value==null?'—':value.toFixed(1)+'%',factor=value=>value==null?'—':value.toFixed(2);
   for(const [id,records,combined] of [['coinAnalysis',data.by_symbol,false],['strategyAnalysis',data.by_symbol_strategy,true]]){
-   $(id).replaceChildren();for(const record of records){const row=document.createElement('tr');row.classList.toggle('trade-loss',record.realized_pnl<0);
+   $(id).replaceChildren();for(const record of records){const row=document.createElement('tr');row.classList.toggle('trade-loss',record.realized_pnl<0);row.classList.toggle('trade-win',record.realized_pnl>0);
     const values=combined?[record.symbol,strategyName(record.strategy),record.trades,percent(record.win_rate),money(record.realized_pnl),factor(record.profit_factor)]:[record.symbol,record.trades,record.wins+' / '+record.losses+' / '+record.breakeven,percent(record.win_rate),money(record.realized_pnl),money(record.average_pnl),factor(record.profit_factor)];
     for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}$(id).append(row);
    }

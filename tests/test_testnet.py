@@ -315,6 +315,24 @@ class TestnetIntegration(unittest.TestCase):
         self.assertEqual(result[2]['pnl'],-.3)
         self.assertEqual(self.create().history()['items'],result)
 
+    def test_blocked_reversal_activity_identifies_pause_reason(self):
+        self.enter();self.service.pause();self.now[0]+=60
+        self.signal(self.now[0]-60,'Short')
+        messages=[e['message'] for e in self.service.state['events'] if 'replacement entry blocked:' in e['message']]
+        self.assertEqual(len(messages),1)
+        self.assertIn('paused',messages[0])
+        self.assertIn('new entries disabled',messages[0])
+        self.assertEqual(len([o for o in self.exchange.orders.values() if not o['reduceOnly']]),1)
+        self.assertEqual(len([o for o in self.exchange.orders.values() if o['reduceOnly']]),1)
+
+    def test_block_reason_distinguishes_cooldown_and_symbol_restriction(self):
+        self.service.state.update(entries=True,status='cooldown',reason='Consecutive-loss pause; stops remain managed')
+        self.assertIn('Consecutive-loss pause',self.service._reversal_block_reason('BTCUSDT'))
+        self.service.state.update(status='running',reason='')
+        self.service.state['blocked_symbols']['BTCUSDT']='Trailing stop update unconfirmed'
+        self.assertEqual(self.service._reversal_block_reason('BTCUSDT'),'symbol blocked: Trailing stop update unconfirmed')
+        self.assertEqual(self.service._reversal_block_reason('ETHUSDT'),'')
+
 class TestnetRecovery(unittest.TestCase):
     setUp=TestnetIntegration.setUp
     tearDown=TestnetIntegration.tearDown

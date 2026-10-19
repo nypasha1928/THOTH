@@ -536,6 +536,15 @@ class TestnetSupervisor:
             self.save()
         return self.snapshot()
 
+    def _reversal_block_reason(self,symbol):
+        reasons=[]
+        if symbol in self.state['blocked_symbols']:
+            reasons.append('symbol blocked: '+self.state['blocked_symbols'][symbol])
+        if self.state['status']!='running':
+            reasons.append(self.state['status'].replace('_',' ')+(': '+self.state['reason'] if self.state['reason'] else ''))
+        if not self.state['entries']:reasons.append('new entries disabled')
+        return '; '.join(reasons)
+
     def apply_signals(self,cfg,observations):
         with self.lock:
             if not self.client or not self.state['management']:return
@@ -561,7 +570,7 @@ class TestnetSupervisor:
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
-                        self.event(symbol+': opposite-signal exit requested; replacement entry blocked by account/risk state')
+                        self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
                     self.save()  # Retain exit obligation if a position read fails.
                     try:
                         p=self.positions().get(symbol)
