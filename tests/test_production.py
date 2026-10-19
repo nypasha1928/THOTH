@@ -15,7 +15,7 @@ class ProductionGateTests(unittest.TestCase):
             factory.assert_not_called();credentials.assert_not_called()
             self.assertFalse(service.snapshot()['entries'])
 
-    def test_live_requires_reference_and_actual_testnet_acceptance(self):
+    def test_live_requires_reference_unless_explicitly_opted_out(self):
         with tempfile.TemporaryDirectory() as d:
             factory=Mock();credentials=Mock()
             service=ProductionSupervisor(Path(d)/'live.sqlite',enabled=True,password_configured=True,client_factory=factory,credentials=credentials)
@@ -74,11 +74,8 @@ class ProductionLifecycleTests(unittest.TestCase):
             receipt=dict(format=1,source_fingerprint=source_fingerprint(),strategy_fingerprint=strategy_fingerprint(cfg),mismatch_count=0,bars=600,
                 coverage={'long_signals':2,'short_signals':2,'level_types':[f+'_'+s+'_'+k for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')]})
             (root/'validation'/'fixture.json').write_text(json.dumps(receipt))
-            # Synthetic local guard fixture, never an actual acceptance claim.
-            (root/'testnet-acceptance.json').write_text(json.dumps(dict(environment='testnet',source_fingerprint=source_fingerprint(),strategy_fingerprint=strategy_fingerprint(cfg),execution_fingerprint=execution_fingerprint(),protected_and_closed=1,unresolved_orders=0,real_exchange=True)))
             if unverified:
                 (root/'validation'/'fixture.json').unlink()
-                (root/'testnet-acceptance.json').unlink()
             def create():return ProductionSupervisor(root/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**kw:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0],allow_unverified=unverified)
             service=create();service.configure(cfg)
             with self.assertRaises(ValueError):service.activate('ENABLE TESTNET ORDERS')
@@ -88,7 +85,7 @@ class ProductionLifecycleTests(unittest.TestCase):
             now[0]+=60;service.apply_signals(settings,{'BTCUSDT':dict(time=now[0]-60,signal='Long',mark=100)})
             exchange.fill(next(iter(exchange.orders)));service.monitor()
             self.assertTrue(service.snapshot()['management'])
-            (root/'validation'/'fixture.json').unlink(missing_ok=True);(root/'testnet-acceptance.json').unlink(missing_ok=True)
+            (root/'validation'/'fixture.json').unlink(missing_ok=True)
             restarted=create();restarted.activate('ENABLE LIVE ORDERS',recovery=True)
             self.assertFalse(restarted.snapshot()['entries'])
             exchange.prices['BTCUSDT']=98;restarted.monitor()

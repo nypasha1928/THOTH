@@ -35,4 +35,4 @@ docker compose config --quiet
 docker compose up --build -d --wait --wait-timeout 90
 printf '%s\n' 'THOTH deployment started. Verify DNS, HTTPS and login before using it.'
 printf '%s\n' 'The dashboard password is stored privately at /etc/thoth/dashboard-password.'
-printf '%s\n' 'No exchange credentials or testnet execution were enabled.'
+printf '%s\n' 'No exchange credentials or live entries were enabled.'

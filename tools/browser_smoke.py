@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     urllib.request.urlopen(base+'/healthz');break
    except Exception:time.sleep(.1)
   def get(path):return json.load(urllib.request.urlopen(base+'/api/'+path))
-  payloads={path:get(path) for path in ['state','testnet','live','watchlist','runner','readiness']}
+  payloads={path:get(path) for path in ['live','watchlist','runner','readiness']}
   payloads['live']['enabled_on_server']=True
   payloads['live']['unverified_live_allowed']=True
   rows=[];bars=[];sma=[]
@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     chart_queries.append(url)
     result=chart_daily if 'interval=D' in url else chart_older if 'lookback=2000' in url else chart
    elif path.startswith('quote/'):
-    symbol=path.split('/')[1];environment='live' if 'environment=live' in url else 'testnet' if 'environment=testnet' in url else 'paper'
+    symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:result=payloads[path]
@@ -62,7 +62,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page=browser.new_page(viewport={'width':1440,'height':1080})
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
-   page.select_option('#viewMode','live');page.select_option('#symbol','ETHUSDT')
+   page.select_option('#symbol','ETHUSDT')
    expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    expect(page.locator('#chartScope')).to_contain_text('Included in saved trading list')
    page.click('#onlyChart');expect(page.locator('#selectedSymbols button')).to_have_count(1)
@@ -249,7 +249,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','false')
    page.click('#closeAppearance')
    page.screenshot(path=str(root/'docs/desktop-watchlist-fixture.png'),full_page=True)
-   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#testnetDialog')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#testnetDialog')).not_to_be_visible()
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#liveDialog')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#liveDialog')).not_to_be_visible()
    # Poll update locks every mutation without discarding the form draft.
    payloads['live']['entries']=True
    expect(page.locator('#clearSymbols')).to_be_disabled(timeout=10000)
@@ -262,7 +262,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#appearanceToggle');page.click('#resetAppearance')
    assert page.evaluate('() => chartStyle.bull')=='#26a69a'
    page.click('#closeAppearance')
-   page.select_option('#viewMode','live');expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    page.select_option('#symbol','ETHUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
    page.locator('#chart').click(position={'x':130,'y':120});expect(page.locator('#candleInfo')).to_contain_text(' O ')
@@ -301,15 +301,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    expect(page.locator('#historyStatus')).to_contain_text('1000 candles loaded')
    assert page.evaluate('() => chartLookback')==1000
-   page.select_option('#viewMode','testnet');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
-   page.select_option('#viewMode','paper');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+   expect(page.locator('#viewMode')).to_have_count(0)
+   expect(page.locator('#paperPanel')).to_have_count(0)
    page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")
-   page.reload();expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+   page.reload();expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
    assert page.evaluate('() => chartStyle.bull')=='#26a69a'
    assert page.evaluate('() => chartStyle.long_major.width')==4
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, mode separation, no JS errors/overflow, no activation requests')
+  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, live-only controls, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()

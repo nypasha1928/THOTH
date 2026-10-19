@@ -1,10 +1,10 @@
 # THOTH
 
-Self-hosted mobile trading desk for Bybit USDT perpetual support/resistance breakouts. Includes paper simulation, opt-in testnet execution, and separately gated live execution. **No exchange account is connected and live trading is disabled in the prepared environment.** This is a release candidate awaiting external acceptance, not a claim of profitability or production safety.
+Self-hosted mobile trading desk for Bybit USDT perpetual support/resistance breakouts. The app runs **live trading only**. Orders use real funds; account checks and explicit activation are required. The S/R strategy comparison remains unverified and passing software tests do not establish profitability.
 
-## Start the app
+## Development
 
-Python 3.12+, one process per data directory:
+Python 3.12+, one application process per data directory:
 
 ```bash
 python -m venv .venv
@@ -13,114 +13,43 @@ python -m venv .venv
 .venv/bin/python -m uvicorn thoth.app:app --host 127.0.0.1 --port 8080 --workers 1
 ```
 
-Open it in a local browser. For a phone, deploy behind HTTPS using [the deployment guide](deploy/README.md). A public server/domain has not been purchased or provisioned. Local mode is passwordless unless a password is configured; never expose that mode publicly.
+Without private credentials and the live server flag, the dashboard can show public market data but cannot activate trading. Configure authentication before public hosting. See [deployment](deploy/README.md). Local tests use simulated exchange transports; these are development fixtures, not selectable app modes or real exchange verification.
 
-The **Funds view** selects Paper, Testnet or Live. Settings, balances, positions, histories and databases are separate. Merely selecting a view does not enable orders. Start/Pause/Close-all acts on the selected mode.
+## Strategy and risk
 
-## Strategy
+Resistance breakout enters long; support breakdown enters short. Major/minor levels use long/short pivot periods (defaults 21/5) with an optional SMA 200 filter. Only confirmed candles generate entry signals. Opposite signals request same-symbol reduce-only exits; reversing into a new position waits for flat status, realized-P&L reconciliation and all entry gates. First observation warms up rather than replaying an old signal.
 
-- Resistance breakout → long; support breakdown → short.
-- Major and minor levels from long/short pivot periods, default 21 and 5.
-- SMA filter, default length 200: long close above it; short close below it.
-- Only confirmed candles enter. Pivot levels become available after their confirmation delay, never backdated into tradable signals.
-- Daily and 1-minute timeframes.
-- No bounce/rejection entries, volume filters, standalone SMA crossover entries or SMA exits.
-- Opposite valid signal closes the same symbol, waits for flat position and realized-P&L reconciliation, then reverses while the signal is still fresh.
+Default size is $50 notional at 20×, approximately $2.50 initial margin, with a $1 per-position stop. Other defaults: three concurrent positions, 3% daily account loss, three consecutive losses and a 60-minute pause. All strategy/risk values remain editable. Exchange quantity steps round down; unsupported orders are skipped. Isolated margin, one-way mode and a dedicated USDT-only UTA 2.0 account are required by the selected configuration. The bot checks account margin mode rather than silently changing it.
 
-The Python major/minor state machine is derived from the supplied TFlab Pine source under MPL-2.0. The reference, license, generator and comparison tools are included. **Actual TradingView parity remains unverified.** Causal tests and restart/pruning equivalence are not a substitute for reference data.
+Daily loss closes every managed position, including winners. The optional overall stop counts losing P&L only, against the chosen margin basis, and requires manual restart. Fees, funding, slippage and outages can cause losses beyond the configured dollar threshold. Unused account funds do not automatically support isolated positions; review Bybit auto-margin replenishment separately.
 
-## Editable sizing and risk
+A stop failure closes and blocks the affected symbol. Healthy symbols retain management; new submissions wait while execution outcomes remain unresolved. Account-wide monitoring failures block new entries, while fresh opposite-signal exits still attempt reduce-only closes after ownership checks. Explicit activation can clear a settled symbol block. Daily risk and account ownership checks continue to apply.
 
-Defaults are $50 estimated notional at 20× (about $2.50 initial margin), $1 per-position stop, three concurrent positions, 3% daily equity loss, and three consecutive losing closes causing a 60-minute entry pause. Bybit quantity steps round down; unsupported/minimum-size orders are skipped, never silently enlarged. Actual market fills/fees can change the final notional and loss.
+## Fill and stop confirmation
 
-- Daily limit: close all THOTH positions, including winners, and cancel pending THOTH entries. Transfer-in/out cash flows are neutralized so deposits do not hide trading losses. A current-day daily stop cannot be manually bypassed.
-- Resume next UTC day is editable. Paper defaults to automatic; exchange modes default to manual re-enable. Server restart always pauses exchange entries while recovering exit obligations.
-- Individual dollar stops freeze at entry. They are submitted with the order, adjusted to actual fills, verified on the exchange, and monitored. Missing/failed protection triggers a reduce-only close attempt and locks entries.
-- Optional overall position-loss stop defaults off, with 20% selected. Winning gains do not offset losses. Choose denominator: losing positions' initial margin, or all open positions' initial margin. It closes all managed positions and requires a flat, settled account before manual restart.
-- Max positions, leverage, size, loss percentages, loss streak, pause duration, timeframe, pivots, level families and SMA settings are editable. Pause exchange entries before edits. Existing positions retain original size/stop.
+Activity first records “live breakout order submitted; awaiting fill/protection.” Once the fill is owned and the current exchange position reports the expected stop, a separate event records **“position filled; Bybit stop loss verified.”** It is emitted once per trade and persists across restarts. It confirms a readback at that time, not a guarantee of future execution. Missing/incorrect stops never generate the verification event. Historical activity messages are retained.
 
-Isolated margin is the selected default, as requested. The bot verifies the account setting and does not change account-wide margin mode automatically. Only dedicated, USDT-only UTA 2.0 accounts in one-way position mode are supported. Existing unrelated positions/orders block activation.
+## Connection and activation
 
-## Chart and mobile interface
+Private API key/secret files stay on the server. **Check connection / refresh balance** is read-only and cannot enable trading. Balance snapshots expire after five minutes. Use an IP-bound key with contract order/position permissions and withdrawals disabled. The app checks account identity, dedicated-account conditions, margin mode, outstanding orders and risk before activation.
 
-Candlesticks, causal major/minor overlays, SMA, breakout arrows, position entry/stop lines and recorded exits; zoom/history navigation and tap-to-inspect OHLC. Automatic refresh runs every 15 seconds at the latest bars and pauses while browsing older history. Testnet uses testnet prices; paper and live use Bybit public production prices. Unavailable data shows an error, never fake prices.
+Live requires server opt-in, dashboard authentication, private live credentials and the phrase `ENABLE LIVE ORDERS`. By default an indicator reference comparison is required; the existing `compose.live-unverified.yaml` override explicitly allows an unverified strategy. There is no testnet receipt or simulation prerequisite. Neither compose file automatically enables entries.
 
-PWA manifest/icons and a network-only service worker support installation where the phone/browser permits it. Offline controls are unavailable and orders are never queued. Phone-specific installation and push notifications have not been validated/implemented respectively. Browser screenshots labeled `fixture` use synthetic visual-test data, not real trades.
+## Persistence and upgrades
 
-Uploaded watchlist: 234 entries, 224 Bybit perpetual candidates. Other exchange/type entries are retained but disabled. Every selected exchange order still requires current instrument/quantity/leverage checks; the imported list is not a verified current exchange listing.
+Existing **live.sqlite**, execution journals and candle/checkpoint databases remain in the same volume and paths. `THOTH_DB` is retained as a compatibility locator: its parent selects the data directory; no simulation database is opened. Old simulation/testnet files are left untouched, but their workers and API routes are no longer present. Do not delete or recreate the data volume during an upgrade.
 
-## Account connection and activation
+After restart, recorded exit obligations recover and new entries stay paused until manual activation. Exactly one application process is required. Durable order IDs prevent blind resubmission after ambiguous outcomes. Account monitoring runs roughly every two seconds between complete cycles; public market requests are paced. Exchange-side stops remain essential during outages.
 
-Credentials are provisioned as private server files, never through the dashboard, chat, Git or image builds. The read-only connection check exposes status only, not keys/account IDs/upstream response bodies.
+Daily baselines use UTC. A missed midnight baseline requires a flat-account review; current-day daily locks cannot be manually reset. Private backups can be created with `tools/backup_data.py` and restored only after exchange reconciliation. HTTPS, private file mounts, login sessions, origin/host checks and a network-only PWA service worker are included. Offline orders are never queued.
 
-Testnet requires private testnet key/secret files, dashboard authentication, a server-side flag, a dedicated-account acknowledgement, matching isolated margin, contract order/position permissions, and withdrawals disabled. The operator must type `ENABLE TESTNET ORDERS` in the app. See `compose.testnet.yaml` and `compose.execution.yaml`. No credentials are configured here, so actual testnet acceptance is blocked.
+## Indicator reference and software checks
 
-Live uses separate files and `compose.live.yaml`. It additionally requires:
+The supplied Pine source and its MPL-2.0 license are retained. Generate a comparison export with `python tools/reference_export.py /tmp/thoth-export.pine`, then use `tools/compare_indicator.py` with matching symbol/timeframe/inputs. Reference receipts bind indicator source and strategy; no parity claim is inferred from unit tests.
 
-1. A matching TradingView reference receipt with at least 500 bars, both signal directions and all level types.
-2. A real-exchange testnet trade that was protected, closed and reconciled for this code/strategy, with no unresolved orders. Simulator records cannot generate the receipt.
-3. A live API key bound to the server egress IP, contract permissions and withdrawals disabled.
-4. Explicit server enabling and the authenticated phrase `ENABLE LIVE ORDERS`.
+CI runs unit/API tests, JavaScript syntax, indicator generation and release packaging. `python tools/browser_smoke.py` exercises desktop/mobile controls with synthetic fixtures and no exchange orders. Some shared execution modules retain historical internal names; live code reuses those tested components without creating a testnet service. `thoth/engine.py` remains an offline risk-test helper and is not imported or started by the app.
 
-There is no automatic testnet-to-live switch. Live execution has not been tested against an actual account. After code changes/restarts, exit management can recover for the bound account with entries paused; re-enabling live entries requires current validation receipts again.
-
-## Validation receipts
-
-Generate a TradingView export copy without changing the original:
-
-```bash
-python tools/reference_export.py /tmp/thoth-export.pine
-```
-
-Use matching symbol/timeframe/inputs, export chart data including indicator columns, then compare:
-
-```bash
-python tools/compare_indicator.py exported.csv --settings matching-settings.json --report data/validation/reference.json
-```
-
-All exported bars are compared; mismatches return nonzero. Receipts bind the exact indicator code and strategy. Empty or insufficient coverage does not establish readiness. No actual reference receipt has been generated here.
-
-After actual testnet testing, pause entries and fully close/reconcile the account:
-
-```bash
-python tools/accept_testnet.py data/testnet.sqlite data/testnet-acceptance.json
-```
-
-This refuses simulator-only results and does not activate live mode. `/api/readiness` reports current validation/configuration state; it is not a safety certification.
-
-## Persistence, monitoring and recovery
-
-`data/` contains separate paper/testnet/live state, execution journals and candle databases. `THOTH_DB` changes the paper database location; exchange databases live beside it. Exactly one application process is required. Intent is committed before sending an order; timeouts/duplicate identities are reconciled instead of blindly resubmitted. Accepted, filled, protected and flat are separate states. Partial fills cancel the remainder before final protection/ownership checks. Unknown orders block new entries. Close-all remains active until pending cancellations, late fills, close orders and realized results settle. A stop that closes before the first poll is reconciled rather than treated as a new unowned trade.
-
-Exchange monitoring runs roughly every two seconds between complete cycles, with network latency affecting timing. The candle feed allows four in-flight requests with up to eight request starts/sec. Unavailable unheld symbols are skipped independently; missing held-symbol feed data blocks new entries. Exchange-side stops remain important during server/network failure. Daily/aggregate loss limits cannot execute without exchange connectivity and may overshoot.
-
-Incremental indicator checkpoints survive restarts and retain bounded pivot/window state. Tests compare checkpointed/pruned replay against 6,000 bars of unpruned replay. Up to 5,001 raw bars and 1,001 analysis bars per configuration are retained; gaps beyond the API window fail closed instead of fabricating continuity. Charts and feed share history/checkpoints. Source/history start differences versus TradingView still require comparison.
-
-Exchange daily baselines begin on first activation and sample the new UTC day within a 30-second boundary window. If a midnight sample is missed, entries lock until an operator establishes a new day's baseline while flat. Initial activation mid-day does not reconstruct losses earlier that day. This is sampled risk monitoring, not tick-level protection.
-
-Paper starts with $250 simulated cash; fees/funding, liquidation and executable bid/ask are not modeled. Never use paper results alone as profitability or liquidation evidence.
-
-## Security and backups
-
-Private file mounts, HTTPS proxy, HttpOnly/SameSite cookies, logout revocation, restart session invalidation, login throttling, host/origin checks and a restrictive script policy are included. Backups contain trading data: keep them private. Stop the app for an application-consistent point in time, then use `tools/backup_data.py`; restore into a new directory and verify before switching volumes. See deployment guide.
-
-## Release
-
-GitHub Actions checks tests, JavaScript, source generation and bundle creation. CI has not yet been observed on GitHub. Build a secret/database-free bundle with:
-
-```bash
-python tools/package_release.py dist/thoth-release.tar.gz
-```
-
-The archive contains a file manifest and an adjacent SHA-256 checksum. Public hosting, actual exchange acceptance, and real-phone installation remain external checks. No real account or credentials have been supplied in this workspace. Bybit production access here returned a country restriction; no VPN or alternate-host bypass is configured.
-
-### Optional unverified live activation
-
-Live normally requires matching TradingView and actual testnet receipts. An explicit server-side override now permits skipping both, while keeping account checks and real-funds confirmation. See [deployment instructions](deploy/README.md#explicit-unverified-live-option). This does not mean indicator behavior or real exchange execution has been verified.
-
-### Read-only balance display
-
-In LIVE or testnet view, **Check connection / refresh balance** reads USDT wallet balance, equity and account unrealized P&L without enabling orders. The display is a timestamped snapshot, valid for five minutes, not the combined value of all account coins. Non-USDT assets or borrowing are reported separately as a trading restriction; they do not hide the balance. Wallet read failures preserve successful API verification but show balance unavailable. Changing credentials or restarting invalidates the cached reading.
+Build a secret/database-free release using `python tools/package_release.py dist/thoth-release.tar.gz`. Workspace checks do not deploy changes to a running VPS or place real trades.
 
 ### Chart and trading watchlist
 

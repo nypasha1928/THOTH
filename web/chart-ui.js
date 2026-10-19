@@ -39,13 +39,13 @@ $('resetAppearance').onclick=()=>{chartStyle=copyStyle();renderAppearance();pers
 // A CSS-expanded view works in Android PWAs as well as desktop browsers.
 function expandChart(expanded){const card=$('chartCard');card.classList.toggle('chart-expanded',expanded);document.body.classList.toggle('chart-is-expanded',expanded);$('maximizeChart').textContent=expanded?'Restore chart':'Maximize chart';$('maximizeChart').setAttribute('aria-expanded',String(expanded));if(state)draw();$('maximizeChart').focus()}
 $('maximizeChart').onclick=()=>expandChart(!$('chartCard').classList.contains('chart-expanded'));
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('chartSearchDialog').open&&!$('testnetDialog').open){if(!$('chartAppearance').hidden)toggleAppearance(false);else if($('chartCard').classList.contains('chart-expanded'))expandChart(false)}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('chartSearchDialog').open&&!$('liveDialog').open){if(!$('chartAppearance').hidden)toggleAppearance(false);else if($('chartCard').classList.contains('chart-expanded'))expandChart(false)}});
 renderAppearance();
 
 // Keep keyboard focus within the expanded chart; background trading controls
 // must not be reachable by tabbing behind this view.
 document.addEventListener('keydown',e=>{
- if(e.key!=='Tab'||!$('chartCard').classList.contains('chart-expanded')||$('chartSearchDialog').open||$('testnetDialog').open)return;
+ if(e.key!=='Tab'||!$('chartCard').classList.contains('chart-expanded')||$('chartSearchDialog').open||$('liveDialog').open)return;
  const controls=[...$('chartCard').querySelectorAll('button,input,select,[tabindex="0"]')].filter(n=>!n.disabled&&n.getClientRects().length);
  const first=controls[0],last=controls.at(-1);if(!first)return;
  if(!$('chartCard').contains(document.activeElement)){e.preventDefault();first.focus()}

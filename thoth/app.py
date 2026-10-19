@@ -9,11 +9,9 @@ from contextlib import asynccontextmanager
 from .runner import Runner
 from .auth import guard, PUBLIC_HOST, PASSWORD
 from .connection import Connection
-from .testnet import TestnetSupervisor
 from .production import ProductionSupervisor,ProductionClient
 from .testnet_feed import FeedAdapter
 from .verification import reference_status
-from .bybit_testnet import TestnetClient
 from .indicator import evaluate
 from urllib.error import URLError
 
@@ -21,47 +19,34 @@ from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .engine import Engine
 from .market import candles, sma, quote, chart_history
-from .models import Settings, PaperOrder, Marks, TestnetSettings, TestnetActivation
+from .models import Settings, TestnetSettings, TestnetActivation
 
 ROOT = Path(__file__).resolve().parent.parent
-runner = None
-testnet_feed = None
 live_feed = None
-connection = Connection()
 live_connection = Connection(ProductionClient,environment='live')
 
 
 @asynccontextmanager
 async def lifespan(app):
-    global runner, testnet_feed, live_feed
-    runner = Runner(engine)
-    testnet.start()
-    adapter = FeedAdapter(testnet)
-    testnet_feed = Runner(adapter,fetch=adapter.fetch)
-    testnet_feed.start()
+    global live_feed
     live.start()
-    live_adapter=FeedAdapter(live)
-    live_feed=Runner(live_adapter,fetch=live_adapter.fetch)
+    adapter=FeedAdapter(live)
+    live_feed=Runner(adapter,fetch=adapter.fetch)
     live_feed.start()
-    runner.start()
     try:
         yield
     finally:
-        runner.stop()
-        testnet_feed.stop()
-        testnet.stop()
         live_feed.stop()
         live.stop()
 
 
-app = FastAPI(title='THOTH paper trading desk', version='0.3.0', lifespan=lifespan)
+app = FastAPI(title='THOTH live trading desk', version='0.4.0', lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=['localhost', '127.0.0.1', '[::1]', 'testserver'] + ([PUBLIC_HOST] if PUBLIC_HOST else []))
-engine = Engine(os.environ.get('THOTH_DB', str(ROOT / 'data' / 'paper.sqlite')))
-testnet = TestnetSupervisor(Path(engine.path).with_name('testnet.sqlite'),
-    enabled=os.environ.get('THOTH_ENABLE_TESTNET')=='1',password_configured=bool(PASSWORD))
-live = ProductionSupervisor(Path(engine.path).with_name('live.sqlite'),enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD),allow_unverified=os.environ.get('THOTH_ALLOW_UNVERIFIED_LIVE')=='1')
+# Preserve the existing live.sqlite location and journals on upgrades.
+# THOTH_DB remains a compatibility locator; no simulation database is opened.
+DATA = Path(os.environ.get('THOTH_DB',str(ROOT/'data'/'live.sqlite'))).parent
+live = ProductionSupervisor(DATA/'live.sqlite',enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD),allow_unverified=os.environ.get('THOTH_ALLOW_UNVERIFIED_LIVE')=='1')
 
 
 @app.middleware('http')
@@ -98,113 +83,70 @@ async def invalid(request, exc):
 
 @app.get('/healthz')
 def health():
-    return {'status':'ok','version':'0.3.0'}
-
-
-@app.get('/api/state')
-def state():
-    return engine.snapshot()
-
-
-@app.put('/api/settings')
-def settings(config: Settings):
-    return engine.configure(config)
-
-
-@app.post('/api/control/{action}')
-def control(action: str):
-    return engine.control(action)
-
-
-@app.post('/api/paper/orders')
-def order(order: PaperOrder):
-    return engine.order(order)
-
-
-@app.post('/api/paper/marks')
-def marks(marks: Marks):
-    return engine.marks(marks.prices)
+    return {'status':'ok','version':'0.4.0'}
 
 
 @app.get('/api/readiness')
 def readiness():
-    paper_cfg=engine.snapshot()['settings']
-    testnet_state=testnet.snapshot()
-    account=connection.status()
     live_state=live.snapshot()
-    live_reference=reference_status(live_state['config'],Path(engine.path).parent/'validation')
-    live_healthy=bool(live_state['last_monitor'] and __import__('time').time()-live_state['last_monitor']<15)
-    return {'paper_available':True,'live_ready':bool(live_state['entries'] and live_state['status']=='running' and live_healthy and (live_reference['verified'] or live.allow_unverified)), 'unverified_live_allowed':live.allow_unverified, 'live_reference':live_reference,'live_reason':('Unverified live opt-in enabled; account checks and explicit activation still required' if live.allow_unverified else 'Live activation requires reference comparison, actual testnet acceptance, secure credentials and explicit server/operator activation'),
-        'public_host_configured':bool(PUBLIC_HOST),'authentication_configured':bool(PASSWORD),
-        'testnet_server_enabled':testnet.enabled,'testnet_credentials_configured':account['configured'],
-        'testnet_last_monitor':testnet_state['last_monitor'],
-        'paper_reference':reference_status(paper_cfg,Path(engine.path).parent/'validation'),
-        'testnet_reference':reference_status(testnet_state['config'],Path(engine.path).parent/'validation')}
+    reference=reference_status(live_state['config'],DATA/'validation')
+    healthy=bool(live_state['last_monitor'] and __import__('time').time()-live_state['last_monitor']<15)
+    return {'live_ready':bool(live_state['entries'] and live_state['status']=='running' and healthy and (reference['verified'] or live.allow_unverified)),
+        'unverified_live_allowed':live.allow_unverified,'live_reference':reference,
+        'public_host_configured':bool(PUBLIC_HOST),'authentication_configured':bool(PASSWORD)}
 
 
-def selected_exchange(request):
-    return live if request.url.path.startswith('/api/live') else testnet
-
-
-@app.get('/api/testnet')
 @app.get('/api/live')
 def exchange_status(request: Request):
-    selected=selected_exchange(request)
-    result=selected.snapshot()
-    feed=live_feed if selected is live else testnet_feed
-    result['feed_health']=feed.health if feed else None
+    result=live.snapshot()
+    result['feed_health']=live_feed.health if live_feed else None
     return result
 
 
-@app.put('/api/testnet/settings')
 @app.put('/api/live/settings')
 def exchange_settings(request: Request,config: TestnetSettings):
-    return selected_exchange(request).configure(config)
+    return live.configure(config)
 
 
-@app.post('/api/testnet/activate')
 @app.post('/api/live/activate')
 def exchange_activate(request: Request,activation: TestnetActivation):
-    try:return selected_exchange(request).activate(activation.confirmation)
+    try:return live.activate(activation.confirmation)
     except ValueError:raise
     except Exception:raise HTTPException(502,'Account preflight unavailable; inspect networking and credential configuration') from None
 
 
-@app.post('/api/testnet/pause')
 @app.post('/api/live/pause')
 def exchange_pause(request: Request):
-    return selected_exchange(request).pause()
+    return live.pause()
 
 
-@app.post('/api/testnet/close-all')
 @app.post('/api/live/close-all')
 def exchange_close_all(request: Request):
-    try:return selected_exchange(request).close_all()
+    try:return live.close_all()
     except ValueError:raise
     except Exception:raise HTTPException(502,'Close operation unavailable; check Bybit and reconcile positions') from None
 
 
-@app.post('/api/testnet/baseline')
 @app.post('/api/live/baseline')
 def exchange_baseline(request: Request):
-    return selected_exchange(request).establish_baseline()
+    return live.establish_baseline()
 
 
 @app.get('/api/connection')
-def account_connection(environment: str='testnet'):
-    if environment not in ('testnet','live'):raise HTTPException(422,'Unsupported connection environment')
-    return (live_connection if environment=='live' else connection).status()
+def account_connection(environment: str='live'):
+    if environment!='live':raise HTTPException(422,'Unsupported connection environment')
+    return live_connection.status()
 
 
 @app.post('/api/connection/verify')
-def verify_connection(environment: str='testnet'):
-    if environment not in ('testnet','live'):raise HTTPException(422,'Unsupported connection environment')
-    return (live_connection if environment=='live' else connection).verify()
+def verify_connection(environment: str='live'):
+    if environment!='live':raise HTTPException(422,'Unsupported connection environment')
+    return live_connection.verify()
 
 
 @app.get('/api/runner')
 def runner_status():
-    return runner.health if runner else {'status': 'not_started'}
+    return live_feed.health if live_feed else {'status': 'not_started'}
 
 
 @app.get('/api/watchlist')
@@ -213,31 +155,31 @@ def watchlist():
 
 
 @app.get('/api/quote/{symbol}')
-def current_quote(symbol: str, environment: str = 'paper'):
+def current_quote(symbol: str, environment: str = 'live'):
     import re
-    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT',symbol) or environment not in ('paper','testnet','live'):
+    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT',symbol) or environment!='live':
         raise HTTPException(422,'Unsupported symbol or environment')
     try:return quote(symbol,environment)
     except Exception:raise HTTPException(502,'Current Bybit price unavailable') from None
 
 
 @app.get('/api/chart/{symbol}')
-def chart(symbol: str, interval: str = '1', environment: str = 'paper', lookback: int = Query(1000,ge=1000,le=5000)):
+def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback: int = Query(1000,ge=1000,le=5000)):
     import re
-    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in ('1', 'D') or environment not in ('paper','testnet','live'):
+    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in ('1', 'D') or environment!='live':
         raise HTTPException(422, 'Unsupported symbol or interval')
     try:
-        rows = chart_history(symbol,interval,lookback,environment) if lookback>1000 else TestnetClient().candles(symbol, interval) if environment=='testnet' else candles(symbol, interval)
+        rows = chart_history(symbol,interval,lookback,'live') if lookback>1000 else candles(symbol, interval)
     except (URLError, TimeoutError, ValueError, KeyError) as exc:
         raise HTTPException(502, 'Bybit market data unavailable; no synthetic fallback used') from exc
-    cfg = (testnet if environment=='testnet' else live).snapshot()['config'] if environment in ('testnet','live') else engine.snapshot()['settings']
-    history_runner = (testnet_feed if environment=='testnet' else live_feed if environment=='live' else runner) if lookback==1000 else None
+    cfg = live.snapshot()['config']
+    history_runner = live_feed if lookback==1000 else None
     history = history_runner.history(symbol, interval, rows) if history_runner else rows
     # Chart timeframe is independent from the execution setting.
     chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'timeframe': interval})
     analysis = [b for b in (history_runner.analysis(symbol,chart_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,chart_cfg)) if b['time'] >= rows[0]['time']]
     averages = [b for b in sma(history, cfg['sma_length']) if b['time'] >= rows[0]['time']]
-    return {'source': 'Bybit TESTNET public API' if environment=='testnet' else 'Bybit LIVE market data' if environment=='live' else 'Bybit public API', 'candles': rows, 'sma': averages,
+    return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
             'analysis': analysis,
             'indicator_status': 'Experimental S/R port; TradingView parity verification pending',
             'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
