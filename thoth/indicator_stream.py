@@ -43,6 +43,8 @@ def prune(machine):
 
 class IndicatorState:
     def __init__(self,cfg,checkpoint=None):
+        from .sma_cross import SMACross
+        self.cross=SMACross(checkpoint.get('cross') if checkpoint else None)
         self.cfg=cfg
         self.buffer=[];self.total=0.;self.count=0;self.previous={};self.last_time=None
         self.machines=[ZigZag(),ZigZag()]
@@ -57,13 +59,17 @@ class IndicatorState:
                 machine.arrays=[PineArray(a) for a in machine.arrays]
 
     def checkpoint(self):
-        return encode(dict(version=1,buffer=self.buffer,total=self.total,count=self.count,previous=self.previous,
+        return encode(dict(version=1,cross=self.cross.checkpoint(),buffer=self.buffer,total=self.total,count=self.count,previous=self.previous,
             last_time=self.last_time,high_info=self.high_info,low_info=self.low_info,machines=[m.__dict__ for m in self.machines]))
 
     def step(self,row):
         validate(row)
         cfg=self.cfg;duration=60 if cfg.timeframe=='1' else 86400
         if self.last_time is not None and row['time']<=self.last_time:raise ValueError('Candle checkpoint must advance')
+        if cfg.strategy=='sma_cross':
+            result=self.cross.step(row,duration)
+            self.count+=1;self.last_time=row['time']
+            return result
         self.buffer.append(row);i=len(self.buffer)-1
         self.total+=row['close']
         if self.count>=cfg.sma_length:self.total-=self.buffer[-cfg.sma_length-1]['close']

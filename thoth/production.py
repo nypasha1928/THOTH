@@ -44,7 +44,7 @@ class ProductionSupervisor(TestnetSupervisor):
             if not reference['verified']:raise ValueError('Live orders require a passing TradingView reference comparison for these settings')
         cfg=super()._preflight()
         if not recovery and self.allow_unverified:
-            self.event("Operator acknowledged live trading with an unverified S/R strategy")
+            self.event("Operator acknowledged live trading with an unverified strategy")
         if not recovery:
             info=self.client.request('GET','/v5/user/query-api',{},private=True)
             ips=info.get('ips')

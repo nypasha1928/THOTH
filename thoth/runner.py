@@ -111,7 +111,7 @@ class Runner:
                     raise ValueError('Stale or future market data')
                 history = self.history(symbol, cfg.timeframe, rows)
                 result,count = self.analysis(symbol,cfg,history,now)
-                if count < max(cfg.sma_length if cfg.sma_enabled else 1, 2*cfg.pivot_long+1):
+                if count < (201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
                 observations[symbol] = dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
@@ -127,7 +127,7 @@ class Runner:
         self.engine.market_cycle(cfg.model_dump(), observations)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),
-                       'note': 'Experimental paper port; TradingView parity unverified'}
+                       'note': 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

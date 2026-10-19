@@ -7,3 +7,9 @@ Live state, account binding, journals, candle history and exit obligations retai
 Activity distinguishes order submission from owned-fill/stop verification. Verification is emitted once per trade only after the reported exchange stop matches the expected dollar stop. Symbol-level protection failures remain contained; account-wide risk and monitoring locks still apply.
 
 Actual TradingView S/R comparison remains unverified. Local tests and synthetic chart screenshots do not establish strategy profitability or guarantee exchange execution. This workspace does not hold the VPS credentials or deploy changes to the user's running server.
+
+## Strategy and navigation update
+
+Entry logic is selectable between S/R breakout and confirmed SMA 7/200 crossover. Opposite signals can reverse or close only; account checks and risk limits still govern replacement entries. Strategy changes require closed/reconciled managed exposure.
+
+The PWA now has separate Chart, Live positions, History and Settings pages. Closed trades persist in a deduplicated history ledger with symbol filtering/pagination; retained legacy records are imported without inventing missing trade details. Per-coin performance analysis is planned separately.

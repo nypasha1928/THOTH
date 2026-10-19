@@ -15,9 +15,19 @@ python -m venv .venv
 
 Without private credentials and the live server flag, the dashboard can show public market data but cannot activate trading. Configure authentication before public hosting. See [deployment](deploy/README.md). Local tests use simulated exchange transports; these are development fixtures, not selectable app modes or real exchange verification.
 
+## Pages and strategy selection
+
+Use the PWA navigation for **Chart**, **Live positions**, **History** and **Settings**. Each is a separate bookmarkable page (`#chart`, `#positions`, `#history`, `#settings`) with browser Back support. Opening pages or charts never activates orders. Trading-symbol selection and risk configuration live on Settings.
+
+**Entry logic** offers the original S/R breakout strategy or **SMA 7 crosses SMA 200**. The SMA strategy enters Long when the confirmed fast average moves from at/below the slow average to above it; the reverse crossing enters Short. It requires 200 bars for averages and a subsequent bar to detect a crossover. It uses no S/R or separate SMA filter, does not repeatedly enter merely because SMA 7 stays above/below, and excludes forming candles. Average windows restart after a data gap; the live feed still rejects missing market history. Existing saved strategy selection is preserved; changing strategy requires no open managed exposure or unresolved orders.
+
+**Opposite signal action** is separate from the entry strategy: **Reverse** closes the old same-symbol position, waits for exchange flat/realized-result confirmation, and submits the opposite entry while the signal is fresh and entry/risk limits allow it. **Close only** retains the exit without a replacement order. These are one-way position reversals, not simultaneous hedge positions. An account/risk lock may permit an exit while blocking the new entry.
+
+History records confirmed closed trades in an append-only SQLite ledger, keyed by the owned entry identity. Retained older closures are imported once on upgrade; trades already pruned from older versions cannot be reconstructed. New records include side, entry, quantity, strategy, realized P&L, reason and times; missing legacy fields are shown as unknown. Filter by complete symbol and page through records. This prepares durable input for future per-coin analysis; analysis is not implemented in this release.
+
 ## Strategy and risk
 
-Resistance breakout enters long; support breakdown enters short. Major/minor levels use long/short pivot periods (defaults 21/5) with an optional SMA 200 filter. Only confirmed candles generate entry signals. Opposite signals request same-symbol reduce-only exits; reversing into a new position waits for flat status, realized-P&L reconciliation and all entry gates. First observation warms up rather than replaying an old signal.
+In S/R mode, resistance breakout enters long; support breakdown enters short. Major/minor levels use long/short pivot periods (defaults 21/5) with an optional SMA 200 filter. Only confirmed candles generate entry signals. Opposite signals request same-symbol reduce-only exits; reversing into a new position waits for flat status, realized-P&L reconciliation and all entry gates. First observation warms up rather than replaying an old signal.
 
 Default size is $50 notional at 20×, approximately $2.50 initial margin, with a $1 per-position stop. Other defaults: three concurrent positions, 3% daily account loss, three consecutive losses and a 60-minute pause. All strategy/risk values remain editable. Exchange quantity steps round down; unsupported orders are skipped. Isolated margin, one-way mode and a dedicated USDT-only UTA 2.0 account are required by the selected configuration. The bot checks account margin mode rather than silently changing it.
 

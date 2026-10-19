@@ -43,6 +43,7 @@ function renderSettings(){
  ['pause_minutes','Pause duration (minutes)',{max:'10080'}],['pivot_long','Long pivot period',{max:'100'}],['pivot_short','Short pivot period',{max:'100'}],['sma_length','SMA length',{max:'500'}]])
  $('fields').append(field(label,id,c[id],'number',attrs));
  for(const [id,label]of [['major','Major levels'],['minor','Minor levels'],['sma_enabled','SMA filter'],['portfolio_loss_enabled','Enable overall position loss stop'],['daily_resume_automatic','Resume after next UTC day']])$('fields').append(field(label,id,c[id],'checkbox'));
+ $('strategyLogic').value=c.strategy;$('oppositeAction').value=c.opposite_action;renderStrategyDescription();
  $('strategyTf').value=c.timeframe;$('portfolioBasis').value=c.portfolio_loss_basis;$('marginMode').value=selectedAccount().config.margin_mode;$('dedicated').checked=selectedAccount().config.dedicated_account;
  $('settingsTitle').textContent='LIVE strategy & risk';
  $('settingsGroup').disabled=tn.entries;
@@ -95,7 +96,7 @@ function render(){
  $('liveModeNote').textContent=tn.enabled_on_server?'Live server enabled. Account checks, risk controls and manual activation apply.':'Live execution is disabled on the server.';
  $('positionNote').textContent='Bot-managed LIVE positions. Dollar loss limits can be exceeded by fees, slippage or outages. Exchange stop verification is reported in Activity.';
  $('positions').replaceChildren();
- for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,money(p.value)+' / '+p.leverage+'×',money(p.pnl)]){const td=document.createElement('td');td.textContent=value;row.append(td)}row.onclick=()=>{$('symbol').value=p.symbol;renderWatchlist();loadChart()};$('positions').append(row)}
+ for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,money(p.value)+' / '+p.leverage+'×',money(p.pnl)]){const td=document.createElement('td');td.textContent=value;row.append(td)}row.onclick=()=>{location.hash='#chart';showPage();$('symbol').value=p.symbol;renderWatchlist();loadChart()};$('positions').append(row)}
  $('events').replaceChildren();for(const event of [...s.events].reverse().slice(0,12)){const li=document.createElement('li');li.textContent=new Date(event.time).toLocaleTimeString()+' · '+event.message;$('events').append(li)}
  $('execution').replaceChildren();for(const record of tn.execution.filter(r=>!['closed','cancelled','rejected'].includes(r.phase))){const li=document.createElement('li');li.textContent=record.symbol+' · '+record.phase+(record.reason?' · '+record.reason:'');$('execution').append(li)}
  $('baseline').disabled=!(tn.risk.baseline_required&&tn.management);
@@ -104,9 +105,10 @@ function render(){
  syncSymbolLock();
  draw();
 }
-function collect(){const cfg={...formDraft,timeframe:$('strategyTf').value,portfolio_loss_basis:$('portfolioBasis').value};for(const id of fieldIds){const input=$(id);cfg[id]=input.type==='checkbox'?input.checked:Number(input.value)}cfg.automatic_paper=false;
+function collect(){const cfg={...formDraft,strategy:$('strategyLogic').value,opposite_action:$('oppositeAction').value,timeframe:$('strategyTf').value,portfolio_loss_basis:$('portfolioBasis').value};for(const id of fieldIds){const input=$(id);cfg[id]=input.type==='checkbox'?input.checked:Number(input.value)}cfg.automatic_paper=false;
  cfg.margin_mode=$('marginMode').value;cfg.dedicated_account=$('dedicated').checked;return cfg}
-$('settings').oninput=()=>{dirty=true};
+function renderStrategyDescription(){const cross=$('strategyLogic').value==='sma_cross';$('strategyDescription').textContent=cross?'Confirmed candle: SMA 7 crossing above SMA 200 opens Long; crossing below opens Short. S/R levels and its SMA filter do not affect this strategy.':'Confirmed resistance breakout opens Long; confirmed support break opens Short. Major/minor and the SMA filter apply.';for(const id of ['pivot_long','pivot_short','sma_length','major','minor','sma_enabled'])if($(id))$(id).closest('label').hidden=cross;}
+$('settings').oninput=()=>{dirty=true;renderStrategyDescription()};
 async function saveSettings(){try{const cfg=collect();updateAccount(await api('live/settings','PUT',cfg));if(cfg.symbols.length===1&&watchlist.some(x=>x.selectable&&x.symbol===cfg.symbols[0]))$('symbol').value=cfg.symbols[0];renderSettings();render();message('Settings saved. Existing positions keep their original size and dollar stop.');$('symbolSaveMessage').textContent='Saved trading symbols: '+current().settings.symbols.join(', ');loadChart()}catch(e){message(e.message);$('symbolSaveMessage').textContent=e.message}}
 $('settings').onsubmit=e=>{e.preventDefault();saveSettings()};
 $('saveSymbols').onclick=saveSettings;
@@ -115,8 +117,8 @@ $('selectedOnly').onchange=renderWatchlist;
 $('selectVisible').onclick=()=>setDraftSymbols([...formDraft.symbols,...watchlist.filter(matchesSearch).map(x=>x.symbol)]);
 $('clearSymbols').onclick=()=>setDraftSymbols([]);
 $('onlyChart').onclick=()=>setDraftSymbols([$('symbol').value]);
-$('editSymbols').onclick=()=>{$('symbolPanel').scrollIntoView({behavior:'smooth',block:'start'});$('search').focus({preventScroll:true})};
-$('start').onclick=async()=>{try{if(dirty){$('symbolSaveMessage').textContent='Save your strategy and trading symbols before activation.';$('symbolPanel').scrollIntoView({behavior:'smooth'});return;}$('activationSymbols').textContent='Saved trading symbols: '+current().settings.symbols.join(', ')+' · '+current().settings.timeframe+' timeframe · '+money(current().settings.position_value)+' position value · '+current().settings.leverage+'× leverage';$('livePhrase').value='';$('activationError').textContent='';$('liveDialog').showModal()}catch(e){message(e.message)}};
+$('editSymbols').onclick=()=>{location.hash='#settings';showPage();$('symbolPanel').scrollIntoView({behavior:'smooth',block:'start'});$('search').focus({preventScroll:true})};
+$('start').onclick=async()=>{try{if(dirty){$('symbolSaveMessage').textContent='Save your strategy and trading symbols before activation.';location.hash='#settings';showPage();$('symbolPanel').scrollIntoView({behavior:'smooth'});return;}$('activationSymbols').textContent='Saved trading symbols: '+current().settings.symbols.join(', ')+' · '+current().settings.timeframe+' timeframe · '+money(current().settings.position_value)+' position value · '+current().settings.leverage+'× leverage · '+(current().settings.strategy==='sma_cross'?'SMA 7/200 crossover':'S/R breakout')+' · '+(current().settings.opposite_action==='close_only'?'Close only on opposite signal':'Reverse on opposite signal');$('livePhrase').value='';$('activationError').textContent='';$('liveDialog').showModal()}catch(e){message(e.message)}};
 $('pause').onclick=async()=>{try{updateAccount(await api('live/pause','POST'));render()}catch(e){message(e.message)}};
 $('close').onclick=async()=>{if(!confirm('Close all LIVE REAL-FUNDS managed positions and block new entries?'))return;try{updateAccount(await api('live/close-all','POST'));render()}catch(e){message(e.message)}};
 $('activateLive').onclick=async()=>{try{updateAccount(await api('live/activate','POST',{confirmation:$('livePhrase').value}));$('liveDialog').close();$('livePhrase').value='';render();showReadiness();message('Account checks completed. Watch live account and execution status.')}catch(e){$('activationError').textContent=e.message}};
@@ -142,7 +144,7 @@ $('symbol').onchange=()=>{renderWatchlist();loadChart()};$('tf').onchange=()=>lo
 async function connectionStatus(verify=false){try{const environment='live';const status=await api((verify?'connection/verify':'connection')+'?environment='+environment,verify?'POST':'GET');accountReadings[environment]=status;$('accountBalance').textContent=status.balance?'USDT wallet: '+money(status.balance.wallet_balance)+' · USDT equity: '+money(status.balance.equity)+' · Account unrealized P&L: '+money(status.balance.unrealised_pnl)+' · Snapshot '+new Date(status.balance.checked_at*1000).toLocaleTimeString()+' · '+status.balance_reason:status.balance_reason;render();$('accountStatus').textContent=environment.toUpperCase()+' read access: '+(status.verified?'verified':status.configured?'not verified':'not configured')+' · '+status.reason}catch(e){$('accountStatus').textContent='Connection check unavailable: '+e.message}}
 $('verifyAccount').onclick=()=>connectionStatus(true);
 $('logout').onclick=async()=>{try{await api('logout','POST');location.href='/login'}catch(e){message(e.message)}};
-async function init(){try{[lv,watchlist]=await Promise.all([api('live'),api('watchlist')]);state=lv;for(const item of watchlist.filter(x=>x.selectable)){const option=document.createElement('option');option.value=item.symbol;option.textContent=item.symbol;$('symbol').append(option)}renderSettings();render();loadChart();connectionStatus();showReadiness();
+async function init(){try{[lv,watchlist]=await Promise.all([api('live'),api('watchlist')]);state=lv;for(const item of watchlist.filter(x=>x.selectable)){const option=document.createElement('option');option.value=item.symbol;option.textContent=item.symbol;$('symbol').append(option)}renderSettings();render();loadChart();connectionStatus();showReadiness();showPage();
  setInterval(async()=>{if(polling)return;polling=true;try{updateAccount(await api('live'));const health=lv.feed_health;$('runnerHealth').textContent='Market worker: '+(health?.status||'idle');render()}catch{$('status').textContent='Connection lost · last displayed data may be stale'}finally{polling=false}},5000);
  }catch(e){message(e.message)}}
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
@@ -150,7 +152,7 @@ window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.return
 window.addEventListener('load',init);
 setInterval(()=>{if(state&&$('autoChart').checked)loadChart(true)},15000);
 
-async function showReadiness(){try{const r=await api('readiness');$('readinessMessage').textContent=(r.live_ready?'Live entries active':'Live entries paused or inactive')+' · '+(r.live_reference.verified?'S/R reference comparison verified':'S/R strategy comparison remains unverified')}catch{$('readinessMessage').textContent='Readiness status unavailable'}}
+async function showReadiness(){try{const r=await api('readiness');$('readinessMessage').textContent=(r.live_ready?'Live entries active':'Live entries paused or inactive')+' · '+(r.live_reference.verified?'Strategy reference comparison verified':'Strategy comparison remains unverified')}catch{$('readinessMessage').textContent='Readiness status unavailable'}}
 $('checkReadiness').onclick=showReadiness;
 
 setInterval(refreshQuote,5000);

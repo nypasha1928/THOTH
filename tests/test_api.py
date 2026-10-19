@@ -100,6 +100,20 @@ class ApiTests(unittest.TestCase):
         self.assertFalse((directory/'paper.candles.sqlite').exists())
         self.assertFalse((directory/'testnet.candles.sqlite').exists())
 
+    def test_history_api_paginates_filters_and_has_no_trading_side_effect(self):
+        import thoth.app as module
+        for i in range(205):
+            module.live._record_trade(str(i),dict(symbol='ETHUSDT' if i%2 else 'BTCUSDT',closed_at=i,pnl=i/10,reason='Fixture'))
+        result=self.client.get('/api/live/history?symbol=ETHUSDT&limit=2&offset=1')
+        self.assertEqual(result.status_code,200)
+        data=result.json()
+        self.assertEqual(data['total'],102)
+        self.assertEqual(len(data['items']),2)
+        self.assertGreater(data['items'][0]['closed_at'],data['items'][1]['closed_at'])
+        self.assertIsNone(module.live.client)
+        self.assertEqual(self.client.get('/api/live/history?limit=101').status_code,422)
+        self.assertEqual(self.client.get('/api/live/history?offset=-1').status_code,422)
+
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
         self.assertEqual(len(entries), 234)

@@ -246,6 +246,60 @@ class TestnetIntegration(unittest.TestCase):
         self.service.monitor()
         self.assertFalse(any('stop loss verified' in e['message'] for e in self.service.state['events']))
 
+    def test_close_only_option_never_opens_reverse_order(self):
+        self.cfg=self.cfg.model_copy(update={'opposite_action':'close_only'})
+        self.service.configure(self.cfg)
+        self.enter();self.now[0]+=60;self.signal(self.now[0]-60,'Short')
+        self.fill_closes()
+        self.assertEqual(len([o for o in self.exchange.orders.values() if not o['reduceOnly']]),1)
+        self.assertEqual(self.service.state['reversals'],{})
+
+    def test_strategy_cannot_change_with_open_position(self):
+        self.enter();self.service.pause()
+        with self.assertRaisesRegex(ValueError,'Close managed positions'):
+            self.service.configure(self.cfg.model_copy(update={'strategy':'sma_cross'}))
+
+    def test_history_retains_trade_details_and_deduplicates_restart(self):
+        self.enter();self.now[0]+=60;self.signal(self.now[0]-60,'Short');self.fill_closes()
+        result=self.service.history()
+        self.assertEqual(result['total'],1)
+        self.assertEqual(result['items'][0]['symbol'],'BTCUSDT')
+        self.assertEqual(result['items'][0]['side'],'Long')
+        self.assertEqual(result['items'][0]['strategy'],'sr_breakout')
+        self.assertGreater(result['items'][0]['qty'],0)
+        self.assertEqual(self.create().history()['total'],1)
+        self.assertEqual(self.service.history('ETHUSDT')['total'],0)
+
+    def test_sma_signal_to_live_engine_reversal_and_stop_protection(self):
+        from thoth.indicator import evaluate
+        self.cfg=self.cfg.model_copy(update={'strategy':'sma_cross'})
+        self.service.configure(self.cfg);self.activate()
+        origin=self.now[0]-201*60
+        prices=[100.]*200+[110.]*10+[80.]*10
+        rows=[dict(time=origin+i*60,open=p,high=p+1,low=p-1,close=p,volume=10) for i,p in enumerate(prices)]
+        output=evaluate(rows,self.cfg,now=rows[-1]['time']+60)
+        self.signal(output[199]['time'],None)
+        self.signal(output[200]['time'],output[200]['signal'])
+        entry=next(iter(self.exchange.orders));self.exchange.fill(entry);self.service.monitor()
+        short=next(bar for bar in output if bar['signal']=='Short')
+        self.now[0]=short['time']+60;self.signal(short['time'],'Short')
+        self.fill_closes()
+        reversals=[(link,o) for link,o in self.exchange.orders.items() if o['side']=='Sell' and not o['reduceOnly']]
+        self.assertEqual(len(reversals),1)
+        self.exchange.fill(reversals[0][0]);self.service.monitor()
+        self.assertEqual(self.exchange.active['BTCUSDT']['side'],'Sell')
+        self.assertNotEqual(self.exchange.active['BTCUSDT']['stopLoss'],'0')
+        self.assertEqual(self.service.history()['items'][0]['strategy'],'sma_cross')
+
+    def test_legacy_history_import_is_idempotent_and_missing_fields_stay_unknown(self):
+        self.service.state['closures']=[dict(symbol='ETHUSDT',closed_at=self.now[0],pnl=-.12,reason='Old close')]
+        self.service.save()
+        self.assertEqual(self.create().history()['total'],1)
+        history=self.create().history()
+        self.assertEqual(history['total'],1)
+        self.assertNotIn('side',history['items'][0])
+        self.assertEqual(history['items'][0]['pnl'],-.12)
+
 class TestnetRecovery(unittest.TestCase):
     setUp=TestnetIntegration.setUp
     tearDown=TestnetIntegration.tearDown

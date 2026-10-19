@@ -3,6 +3,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross)$')
     automatic_paper: bool = False
     portfolio_loss_enabled: bool = False
     portfolio_loss_pct: float = Field(default=20, gt=0, le=100, allow_inf_nan=False)
@@ -31,7 +33,7 @@ class Settings(BaseModel):
             raise ValueError('Duplicate symbols')
         if any(not re.fullmatch(r'[A-Z0-9]{2,30}USDT', s) for s in self.symbols):
             raise ValueError('Expected Bybit USDT symbol names')
-        if not (self.major or self.minor):
+        if self.strategy=='sr_breakout' and not (self.major or self.minor):
             raise ValueError('Enable at least one level family')
         return self
 
