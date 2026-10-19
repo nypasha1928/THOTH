@@ -230,6 +230,22 @@ class TestnetIntegration(unittest.TestCase):
         self.assertEqual({o['symbol'] for o in self.exchange.orders.values() if o['reduceOnly']},{'BTCUSDT','ETHUSDT'})
         self.assertNotIn('ETHUSDT',self.service.state['blocked_symbols'])
 
+    def test_protection_verified_event_is_once_per_owned_trade_and_survives_restart(self):
+        self.enter()
+        message='BTCUSDT: position filled; Bybit stop loss verified'
+        self.assertEqual(sum(e['message']==message for e in self.service.state['events']),1)
+        self.service.monitor();self.service.monitor()
+        restarted=self.create();restarted.activate('ENABLE TESTNET ORDERS',recovery=True)
+        self.assertEqual(sum(e['message']==message for e in restarted.state['events']),1)
+
+    def test_missing_stop_never_announces_verified(self):
+        self.activate();self.signal(self.now[0]-60,None)
+        self.now[0]+=60;self.signal(self.now[0]-60)
+        self.exchange.fill(next(iter(self.exchange.orders)))
+        self.exchange.active['BTCUSDT']['stopLoss']='0';self.exchange.fail_stop=True
+        self.service.monitor()
+        self.assertFalse(any('stop loss verified' in e['message'] for e in self.service.state['events']))
+
 class TestnetRecovery(unittest.TestCase):
     setUp=TestnetIntegration.setUp
     tearDown=TestnetIntegration.tearDown

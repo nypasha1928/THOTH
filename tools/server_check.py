@@ -29,18 +29,17 @@ def check(base,password):
         with opener.open(req,timeout=15) as response:return json.load(response)
     if request('/healthz').get('status')!='ok':raise ValueError('Server health check failed')
     try:
-        request('/api/state')
+        request('/api/live')
         raise ValueError('Account state is accessible without login')
     except HTTPError as error:
         if error.code!=401:raise ValueError('Unexpected unauthenticated response') from None
     request('/api/login',{'password':password})
-    state=request('/api/state');readiness=request('/api/readiness')
-    live=request('/api/live');testnet=request('/api/testnet')
+    live=request('/api/live');readiness=request('/api/readiness')
     result=dict(https=parts.scheme=='https',unauthenticated_state_blocked=True,login_verified=True,
-                paper_mode=state.get('mode')=='paper',live_entries=live['entries'],testnet_entries=testnet['entries'],
+                live_entries=live['entries'],
                 reference_verified=readiness['live_reference']['verified'])
     request('/api/logout',{})
-    try:request('/api/state');raise ValueError('Logout did not remove authenticated access')
+    try:request('/api/live');raise ValueError('Logout did not remove authenticated access')
     except HTTPError as error:
         if error.code!=401:raise ValueError('Unexpected logout response') from None
     return result

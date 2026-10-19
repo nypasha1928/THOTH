@@ -368,6 +368,10 @@ class TestnetSupervisor:
                         if dec(p.get('stopLoss','0'))!=dec(desired):
                             self._protection_failure(symbol,record,'Protective stop changed or missing')
                             self._close(symbol,p,'Protective stop missing')
+                        elif not owner.get('protection_announced'):
+                            owner.update(protection_confirmed=True,protection_announced=True)
+                            self.event(symbol+': position filled; Bybit stop loss verified')
+                            self.save()
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)

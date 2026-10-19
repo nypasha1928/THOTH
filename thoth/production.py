@@ -5,13 +5,12 @@ the server flag, supply separate credentials, satisfy verification (or explicitl
 opt into unverified live trading), and receive the live
 confirmation phrase from the authenticated operator.
 """
-import json
 from pathlib import Path
 
 from .bybit_testnet import TestnetClient
 from .credentials import runtime_secret
 from .testnet import TestnetSupervisor
-from .verification import reference_status, source_fingerprint, strategy_fingerprint, execution_fingerprint
+from .verification import reference_status
 
 
 class ProductionClient(TestnetClient):
@@ -43,16 +42,9 @@ class ProductionSupervisor(TestnetSupervisor):
         if not recovery and not self.allow_unverified:
             reference=reference_status(cfg,directory/'validation')
             if not reference['verified']:raise ValueError('Live orders require a passing TradingView reference comparison for these settings')
-            try:
-                receipt=json.loads((directory/'testnet-acceptance.json').read_text())
-                valid=(receipt.get('environment')=='testnet' and receipt.get('source_fingerprint')==source_fingerprint()
-                       and receipt.get('strategy_fingerprint')==strategy_fingerprint(cfg) and receipt.get('execution_fingerprint')==execution_fingerprint() and receipt.get('protected_and_closed',0)>=1
-                       and receipt.get('unresolved_orders',1)==0 and receipt.get('real_exchange') is True)
-            except (OSError,ValueError):valid=False
-            if not valid:raise ValueError('Live orders require completed real-exchange testnet acceptance for the current strategy')
         cfg=super()._preflight()
         if not recovery and self.allow_unverified:
-            self.event("Operator opted into LIVE orders without TradingView or testnet acceptance; strategy remains unverified")
+            self.event("Operator acknowledged live trading with an unverified S/R strategy")
         if not recovery:
             info=self.client.request('GET','/v5/user/query-api',{},private=True)
             ips=info.get('ips')

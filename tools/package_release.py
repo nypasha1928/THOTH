@@ -12,7 +12,7 @@ import tarfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-ROOT_FILES=('README.md','Dockerfile','compose.yaml','compose.testnet.yaml','compose.execution.yaml','compose.live.yaml','compose.live-unverified.yaml','requirements.txt','requirements-dev.txt','.dockerignore','.gitignore','.gitattributes')
+ROOT_FILES=('README.md','Dockerfile','compose.yaml','compose.live.yaml','compose.live-unverified.yaml','requirements.txt','requirements-dev.txt','.dockerignore','.gitignore','.gitattributes')
 DIRECTORIES=('thoth','web','tools','reference','deploy','tests')
 EXTENSIONS={'.css','.py','.js','.html','.json','.webmanifest','.pine','.svg','.png','.md','.yaml','.sh','.txt'}
 

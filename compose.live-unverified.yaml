@@ -1,4 +1,4 @@
-# Optional REAL-FUNDS override: skips only TradingView/testnet acceptance.
+# Optional REAL-FUNDS override: skips only indicator reference comparison.
 # Use with compose.yaml and compose.live.yaml. Never activates entries itself.
 services:
   app:

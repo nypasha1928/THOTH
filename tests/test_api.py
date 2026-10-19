@@ -6,13 +6,13 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from thoth.app import app
-from thoth.engine import Engine
+from thoth.production import ProductionSupervisor
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.patch = patch('thoth.app.engine', Engine(Path(self.tmp.name) / 'api.sqlite'))
+        self.patch = patch('thoth.app.live', ProductionSupervisor(Path(self.tmp.name) / 'live.sqlite'))
         self.patch.start()
         self.client = TestClient(app)
 
@@ -21,20 +21,25 @@ class ApiTests(unittest.TestCase):
         self.patch.stop()
         self.tmp.cleanup()
 
-    def test_order_mark_stop_roundtrip(self):
-        self.assertEqual(self.client.get('/').status_code, 200)
-        self.assertEqual(self.client.post('/api/control/start').status_code, 200)
-        result = self.client.post('/api/paper/orders', json={
-            'symbol': 'BTCUSDT', 'side': 'Long', 'price': 100, 'signal_id': 'api-test'})
-        self.assertEqual(result.status_code, 200)
-        self.assertEqual(result.json()['positions'][0]['qty'], .5)
-        result = self.client.post('/api/paper/marks', json={'prices': {'BTCUSDT': 97}})
-        self.assertEqual(result.json()['positions'], [])
-        self.assertEqual(result.json()['balance'], 248.5)
+    def test_removed_modes_and_controls_are_unavailable(self):
+        self.assertEqual(self.client.get('/').status_code,200)
+        routes={r.path for r in app.routes}
+        for path in ('/api/state','/api/settings','/api/control/{action}','/api/paper/orders','/api/paper/marks','/api/testnet','/api/testnet/activate'):
+            self.assertNotIn(path,routes)
+        for path in ('/api/paper/orders','/api/testnet/activate','/api/control/start'):
+            self.assertIn(self.client.post(path,json={}).status_code,(404,405))
+        for environment in ('paper','testnet'):
+            self.assertEqual(self.client.get('/api/chart/ETHUSDT?environment='+environment).status_code,422)
+            self.assertEqual(self.client.get('/api/quote/ETHUSDT?environment='+environment).status_code,422)
+            self.assertEqual(self.client.post('/api/connection/verify?environment='+environment).status_code,422)
+        html=self.client.get('/').text
+        for removed in ('viewMode','paperPanel','testnetDialog','Paper simulation','Bybit testnet'):
+            self.assertNotIn(removed,html)
+        self.assertIn('LIVE · REAL FUNDS',html)
 
     def test_validation_and_origin(self):
-        self.assertEqual(self.client.put('/api/settings', json={'daily_loss_pct': -1}).status_code, 422)
-        self.assertEqual(self.client.post('/api/control/start', headers={'Origin': 'https://attacker.example'}).status_code, 403)
+        self.assertEqual(self.client.put('/api/live/settings', json={'daily_loss_pct': -1}).status_code, 422)
+        self.assertEqual(self.client.post('/api/live/activate', headers={'Origin': 'https://attacker.example'}).status_code, 403)
         self.assertEqual(self.client.get('/', headers={'Host': 'attacker.example'}).status_code, 400)
 
     def test_chart_contract_and_outage(self):
@@ -64,14 +69,36 @@ class ApiTests(unittest.TestCase):
         from unittest.mock import Mock
         rows=[dict(time=i*60,open=100,high=101,low=99,close=100,volume=5) for i in range(2000)]
         worker=Mock()
-        with patch('thoth.app.chart_history',return_value=rows) as fetch,patch('thoth.app.runner',worker):
+        with patch('thoth.app.chart_history',return_value=rows) as fetch,patch('thoth.app.live_feed',worker):
             result=self.client.get('/api/chart/ETHUSDT?lookback=2000')
             self.assertEqual(result.status_code,200)
             self.assertEqual(len(result.json()['candles']),2000)
             self.assertTrue(result.json()['historical_replay'])
-            fetch.assert_called_once_with('ETHUSDT','1',2000,'paper')
+            fetch.assert_called_once_with('ETHUSDT','1',2000,'live')
             worker.history.assert_not_called();worker.analysis.assert_not_called()
         self.assertEqual(self.client.get('/api/chart/ETHUSDT?lookback=5001').status_code,422)
+
+    def test_lifespan_runs_only_live_worker_and_preserves_historical_files(self):
+        import thoth.app as module
+        from thoth.models import TestnetSettings
+        directory=Path(self.tmp.name)
+        historical={directory/'paper.sqlite':b'old simulation archive',directory/'testnet.sqlite':b'old exchange archive'}
+        for path,data in historical.items():path.write_bytes(data)
+        module.live.configure(TestnetSettings(symbols=['HBARUSDT'],position_value=45,dedicated_account=True))
+        with TestClient(app) as client:
+            result=client.get('/api/live').json()
+            self.assertEqual(result['config']['symbols'],['HBARUSDT'])
+            self.assertEqual(result['config']['position_value'],45)
+            self.assertFalse(result['entries'])
+            self.assertIs(module.live_feed.engine.supervisor,module.live)
+            self.assertEqual(module.live_feed.history_path,str(directory/'live.candles.sqlite'))
+            self.assertFalse(hasattr(module,'testnet'))
+            self.assertFalse(hasattr(module,'engine'))
+        self.assertFalse(module.live_feed.thread.is_alive())
+        self.assertFalse(module.live.thread.is_alive())
+        for path,data in historical.items():self.assertEqual(path.read_bytes(),data)
+        self.assertFalse((directory/'paper.candles.sqlite').exists())
+        self.assertFalse((directory/'testnet.candles.sqlite').exists())
 
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
@@ -79,26 +106,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(sum(item['selectable'] for item in entries), 224)
 
 
-class TestnetApiTests(unittest.TestCase):
+class LiveApiTests(unittest.TestCase):
     def setUp(self):
-        from thoth.testnet import TestnetSupervisor
+        from thoth.production import ProductionSupervisor
         self.temp=tempfile.TemporaryDirectory()
-        self.patch=patch('thoth.app.testnet',TestnetSupervisor(Path(self.temp.name)/'testnet.sqlite'))
+        self.patch=patch('thoth.app.live',ProductionSupervisor(Path(self.temp.name)/'live.sqlite'))
         self.patch.start();self.client=TestClient(app)
 
     def tearDown(self):
         self.client.close();self.patch.stop();self.temp.cleanup()
 
     def test_exchange_activation_disabled_without_server_flag(self):
-        self.assertFalse(self.client.get('/api/testnet').json()['enabled_on_server'])
-        response=self.client.post('/api/testnet/activate',json={'confirmation':'ENABLE TESTNET ORDERS'})
+        self.assertFalse(self.client.get('/api/live').json()['enabled_on_server'])
+        response=self.client.post('/api/live/activate',json={'confirmation':'ENABLE LIVE ORDERS'})
         self.assertEqual(response.status_code,409)
         self.assertIn('disabled',response.json()['detail'])
-        self.assertFalse(self.client.get('/api/testnet').json()['entries'])
+        self.assertFalse(self.client.get('/api/live').json()['entries'])
 
     def test_isolated_default_and_private_internal_fields(self):
-        response=self.client.get('/api/testnet').json()
+        response=self.client.get('/api/live').json()
         self.assertEqual(response['config']['margin_mode'],'isolated')
         self.assertNotIn('account_binding',response)
         self.assertNotIn('seen_closures',response['risk'])
-        self.assertFalse(response['live_supported'])
+        self.assertTrue(response['live_supported'])
