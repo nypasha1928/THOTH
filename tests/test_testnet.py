@@ -333,6 +333,97 @@ class TestnetIntegration(unittest.TestCase):
         self.assertEqual(self.service._reversal_block_reason('BTCUSDT'),'symbol blocked: Trailing stop update unconfirmed')
         self.assertEqual(self.service._reversal_block_reason('ETHUSDT'),'')
 
+    def test_per_coin_pause_does_not_block_other_symbol_reversal(self):
+        self.enter('ETHUSDT')
+        from thoth.account_risk import closure
+        for i in range(3):closure(self.service.state['risk'],'fixture-loss-'+str(i),-1,self.cfg,self.now[0],'BTCUSDT')
+        self.service.save();self.service.monitor()
+        self.assertEqual(self.service.state['status'],'running')
+        self.now[0]+=60;self.signal(self.now[0]-60,'Short','ETHUSDT')
+        self.fill_closes()
+        self.assertTrue(any(o['symbol']=='ETHUSDT' and o['side']=='Sell' and not o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.signal(self.now[0]-60,None,'BTCUSDT');self.now[0]+=60;self.signal(self.now[0]-60,'Long','BTCUSDT')
+        self.assertFalse(any(o['symbol']=='BTCUSDT' and not o['reduceOnly'] for o in self.exchange.orders.values()))
+
+    def test_coin_cooldown_still_allows_exit_but_no_same_coin_replacement(self):
+        self.enter()
+        from thoth.account_risk import closure
+        for i in range(3):closure(self.service.state['risk'],'fixture-loss-'+str(i),-1,self.cfg,self.now[0],'BTCUSDT')
+        self.service.save();self.now[0]+=60;self.signal(self.now[0]-60,'Short')
+        self.assertTrue(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.fill_closes()
+        self.assertEqual(len([o for o in self.exchange.orders.values() if not o['reduceOnly']]),1)
+        self.assertTrue(self.service.state['entries'])
+        self.assertTrue(any('per-coin consecutive-loss cooldown' in e['message'] for e in self.service.state['events']))
+
+    def test_latched_daily_limit_can_be_manually_reviewed_after_flat_and_revised_allowance(self):
+        self.enter();self.exchange.prices['BTCUSDT']=90;self.service.monitor();self.fill_closes()
+        baseline=self.service.state['risk']['baseline'];peak=self.service.state['risk']['peak']
+        self.assertTrue(self.service.state['risk']['daily_stop'])
+        with self.assertRaisesRegex(ValueError,'allowance is exhausted'):self.activate()
+        self.cfg=self.cfg.model_copy(update={'daily_loss_pct':10})
+        self.service.configure(self.cfg)
+        self.assertTrue(self.service.state['risk']['daily_stop'])
+        self.activate()
+        self.assertFalse(self.service.state['risk']['daily_stop'])
+        self.assertEqual(self.service.state['risk']['baseline'],baseline)
+        self.assertEqual(self.service.state['risk']['peak'],peak)
+        self.assertTrue(self.service.state['entries'])
+
+    def test_daily_peak_budget_and_coin_cooldown_survive_restart(self):
+        self.enter();self.exchange.prices['BTCUSDT']=110;self.service.monitor()
+        from thoth.account_risk import closure
+        for i in range(3):closure(self.service.state['risk'],'fixture-loss-'+str(i),-1,self.cfg,self.now[0],'ETHUSDT')
+        self.service.save()
+        old=self.service.snapshot()['risk']
+        restarted=self.create();restarted.activate('ENABLE TESTNET ORDERS',recovery=True)
+        new=restarted.snapshot()['risk']
+        self.assertEqual(new['peak'],old['peak'])
+        self.assertEqual(new['loss_allowance'],old['loss_allowance'])
+        self.assertEqual(new['symbols']['ETHUSDT']['pause_until'],old['symbols']['ETHUSDT']['pause_until'])
+        self.assertFalse(restarted.state['entries'])
+
+    def test_legacy_global_cooldown_does_not_become_all_coin_pause_after_migration(self):
+        self.enter('ETHUSDT')
+        self.service.state['config'].pop('loss_streak_scope')
+        self.service.state['risk'].pop('symbols',None)
+        self.service.state['risk'].update(streak=3,pause_until=self.now[0]+3600)
+        self.service.save()
+        restarted=self.create();restarted.activate('ENABLE TESTNET ORDERS',recovery=True)
+        self.assertFalse(restarted.state['entries'])
+        self.assertEqual(restarted.state['config']['loss_streak_scope'],'per_coin')
+        restarted.activate('ENABLE TESTNET ORDERS')
+        self.assertTrue(restarted.state['entries'])
+        self.assertEqual(restarted.state['status'],'running')
+        self.assertEqual(restarted.state['risk']['symbols'],{})
+
+    def test_peak_daily_protection_closes_winning_positions_without_expanding_budget(self):
+        self.cfg=self.cfg.model_copy(update={'daily_loss_pct':5})
+        self.service.configure(self.cfg)
+        self.enter('BTCUSDT')
+        self.signal(self.now[0]-60,None,'ETHUSDT');self.now[0]+=60;self.signal(self.now[0]-60,'Long','ETHUSDT')
+        eth=next(k for k,o in self.exchange.orders.items() if o['symbol']=='ETHUSDT' and not o['reduceOnly'])
+        self.exchange.fill(eth);self.service.monitor()
+        self.exchange.prices.update(BTCUSDT=200,ETHUSDT=102);self.service.monitor()
+        self.assertEqual(self.service.state['risk']['peak'],151)
+        self.assertEqual(self.service.state['risk']['loss_allowance'],5)
+        self.assertEqual(self.service.state['risk']['stop_equity'],146)
+        self.exchange.prices['BTCUSDT']=190;self.service.monitor()
+        closes=[o for o in self.exchange.orders.values() if o['reduceOnly']]
+        self.assertEqual({o['symbol'] for o in closes},{'BTCUSDT','ETHUSDT'})
+        self.assertEqual(self.service.state['status'],'daily_stop')
+        self.fill_closes()
+        self.assertEqual(self.exchange.balance,146)
+        self.assertFalse(self.service.state['entries'])
+
+    def test_increasing_daily_limit_does_not_unlock_before_positions_settle(self):
+        self.enter();self.exchange.prices['BTCUSDT']=90;self.service.monitor()
+        self.cfg=self.cfg.model_copy(update={'daily_loss_pct':10});self.service.configure(self.cfg)
+        with self.assertRaisesRegex(ValueError,'close and reconcile'):
+            self.activate()
+        self.assertTrue(self.service.state['risk']['daily_stop'])
+        self.assertFalse(self.service.state['entries'])
+
 class TestnetRecovery(unittest.TestCase):
     setUp=TestnetIntegration.setUp
     tearDown=TestnetIntegration.tearDown
@@ -351,7 +442,7 @@ class TestnetRecovery(unittest.TestCase):
         self.assertEqual(len(closes),1)
 
     def test_three_losses_pause_and_cannot_be_manually_bypassed(self):
-        self.cfg=TestnetSettings(dedicated_account=True,daily_loss_pct=20)
+        self.cfg=TestnetSettings(dedicated_account=True,daily_loss_pct=20,loss_streak_scope='account')
         self.service.configure(self.cfg)
         for i in range(3):
             self.exchange.prices['BTCUSDT']=100

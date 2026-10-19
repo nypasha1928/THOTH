@@ -20,6 +20,7 @@ class Settings(BaseModel):
     trailing_distance_basis: str = Field(default='price',pattern=r'^(price|margin)$')
     daily_loss_pct: float = Field(default=3, gt=0, le=100, allow_inf_nan=False)
     max_positions: int = Field(default=3, ge=1, le=100)
+    loss_streak_scope: str = Field(default='per_coin',pattern=r'^(per_coin|account)$')
     consecutive_losses: int = Field(default=3, ge=1, le=100)
     pause_minutes: int = Field(default=60, ge=1, le=10080)
     timeframe: str = Field(default='1', pattern=r'^(1|D)$')

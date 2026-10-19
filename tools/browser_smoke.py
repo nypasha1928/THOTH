@@ -23,6 +23,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   payloads={path:get(path) for path in ['live','watchlist','runner','readiness']}
   payloads['live']['enabled_on_server']=True
   payloads['live']['unverified_live_allowed']=True
+  payloads['live']['config']['daily_loss_pct']=5
   rows=[];bars=[];sma=[]
   for i in range(1000):
    stamp=1792300000+i*60;value=2400+math.sin(i/9)*8+i*.02
@@ -60,7 +61,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
     result=analyze(records)
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
-   elif path in payloads:result=payloads[path]
+   elif path in payloads:
+    result=payloads[path]
+    if path=='live':result={**result,'server_time':time.time()}
    elif path.endswith('/settings') and method=='PUT':
     target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;writes.append((target,cfg));result=payloads[target]
    elif path.endswith('/activate'):
@@ -72,6 +75,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page=browser.new_page(viewport={'width':1440,'height':1080})
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   # Read-only risk displays use the server clock and never activate orders.
+   payloads['live']['risk'].update(baseline=100,peak=150,loss_allowance=5,loss_used=2,remaining=3,remaining_pct=3,stop_equity=145,loss_pct=2,symbols={'XVGUSDT':dict(streak=3,pause_until=time.time()+125)})
+   payloads['live']['events']=[dict(time=time.time()-40+i,message='Synthetic activity '+str(i)) for i in range(40)]
+   page.evaluate('(data)=>{updateAccount(data);render();}',copy.deepcopy(payloads['live']))
+   expect(page.locator('#dailyBudget')).to_contain_text('$3.00')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('Allowance: $5.00')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('stop threshold: $145.00')
+   expect(page.locator('#coinCooldowns')).to_contain_text('XVGUSDT')
+   first_timer=page.locator('#coinCooldowns').inner_text();page.wait_for_timeout(1200)
+   assert page.locator('#coinCooldowns').inner_text()!=first_timer
+   expect(page.locator('#events li')).to_have_count(30)
+   expect(page.locator('#events li').first).to_contain_text('Synthetic activity 39')
+   expect(page.locator('#events li').last).to_contain_text('Synthetic activity 10')
+   expect(page.locator('#events')).to_have_css('overflow-y','auto')
    page.select_option('#symbol','ETHUSDT')
    expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    expect(page.locator('#chartScope')).to_contain_text('Included in saved trading list')
@@ -260,7 +277,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','false')
    page.click('#closeAppearance')
    page.screenshot(path=str(root/'docs/desktop-watchlist-fixture.png'),full_page=True)
-   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#liveDialog')).to_be_visible();page.keyboard.press('Escape');expect(page.locator('#liveDialog')).not_to_be_visible()
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#liveDialog')).to_be_visible();page.click('#activateLive');expect(page.locator('#activationError')).to_contain_text('Type ENABLE LIVE ORDERS exactly');assert not activation;page.keyboard.press('Escape');expect(page.locator('#liveDialog')).not_to_be_visible()
    # Poll update locks every mutation without discarding the form draft.
    payloads['live']['entries']=True
    expect(page.locator('#clearSymbols')).to_be_disabled(timeout=10000)
@@ -280,6 +297,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   expect(page.locator('#lossStreakScope')).to_have_value('per_coin')
    page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
    expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')
    page.click('#saveSymbols');page.wait_for_function('() => lv.config.trailing_enabled && lv.config.trailing_activation_pct===12.5')
@@ -384,6 +402,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: separate Chart/Positions/History/Settings pages, bookmark reload, SMA strategy and close-only settings saves, retained trade display, desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, live-only controls, no JS errors/overflow, no activation requests')
+  print('PASS: fixed-dollar daily budget display, per-coin cooldown countdown, 30 scrollable activities, live confirmation validation, separate Chart/Positions/History/Settings pages, bookmark reload, SMA strategy and close-only settings saves, retained trade display, desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, live-only controls, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()
