@@ -51,6 +51,14 @@ class TestnetSupervisor:
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS trade_history(link TEXT PRIMARY KEY,symbol TEXT NOT NULL,closed_at REAL NOT NULL,payload TEXT NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS history_symbol_time ON trade_history(symbol,closed_at)')
+        # Only S/R existed before strategy-tagged history was introduced.
+        # Repair imported legacy rows without changing explicit strategy tags.
+        with self.db() as db:
+            for link,payload in db.execute("SELECT link,payload FROM trade_history WHERE link LIKE 'legacy:%'").fetchall():
+                trade=json.loads(payload)
+                if 'strategy' not in trade:
+                    trade['strategy']='sr_breakout'
+                    db.execute('UPDATE trade_history SET payload=? WHERE link=?',(json.dumps(trade),link))
         self.state=self.load()
         for trade in self.state['closures']:
             link=trade.get('link') or 'legacy:'+hashlib.sha256(json.dumps(trade,sort_keys=True).encode()).hexdigest()
@@ -93,6 +101,7 @@ class TestnetSupervisor:
     def _record_trade(self,link,trade):
         allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','protection_confirmed')
         record={key:trade[key] for key in allowed if key in trade}
+        if link.startswith('legacy:') and 'strategy' not in record:record['strategy']='sr_breakout'
         with self.db() as db:
             db.execute('INSERT OR IGNORE INTO trade_history VALUES(?,?,?,?)',(link,record['symbol'],record['closed_at'],json.dumps(record)))
 

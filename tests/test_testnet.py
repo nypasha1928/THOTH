@@ -298,7 +298,22 @@ class TestnetIntegration(unittest.TestCase):
         history=self.create().history()
         self.assertEqual(history['total'],1)
         self.assertNotIn('side',history['items'][0])
+        self.assertEqual(history['items'][0]['strategy'],'sr_breakout')
         self.assertEqual(history['items'][0]['pnl'],-.12)
+
+    def test_existing_legacy_history_strategy_is_backfilled_without_overwriting_tags(self):
+        import json
+        trades=[('legacy:old',dict(symbol='ETHUSDT',closed_at=10,pnl=-.3)),
+                ('legacy:tagged',dict(symbol='ETHUSDT',closed_at=20,pnl=.2,strategy='sma_cross')),
+                ('unidentified',dict(symbol='BTCUSDT',closed_at=30,pnl=0))]
+        with self.service.db() as db:
+            db.executemany('INSERT INTO trade_history VALUES(?,?,?,?)',[(link,t['symbol'],t['closed_at'],json.dumps(t)) for link,t in trades])
+        result=self.create().history()['items']
+        self.assertNotIn('strategy',result[0])
+        self.assertEqual(result[1]['strategy'],'sma_cross')
+        self.assertEqual(result[2]['strategy'],'sr_breakout')
+        self.assertEqual(result[2]['pnl'],-.3)
+        self.assertEqual(self.create().history()['items'],result)
 
 class TestnetRecovery(unittest.TestCase):
     setUp=TestnetIntegration.setUp

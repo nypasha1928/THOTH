@@ -49,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
-   elif path=='live/history':result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross')],total=1,offset=0,limit=50)
+   elif path=='live/history':result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='Opposite breakout',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:result=payloads[path]
    elif path.endswith('/settings') and method=='PUT':
@@ -269,6 +269,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=settings]');page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
    page.select_option('#strategyLogic','sma_cross');expect(page.locator('#strategyDescription')).to_contain_text('SMA 7')
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
    page.locator('#page-settings').screenshot(path=str(root/'docs/mobile-settings-fixture.png'))
    page.click('[data-page-link=chart]')
@@ -310,6 +311,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.evaluate('() => chartLookback')==1000
    page.click('[data-page-link=positions]');expect(page.locator('#page-positions')).to_be_visible();expect(page.locator('#page-chart')).not_to_be_visible()
    page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
+   expect(page.locator('#historyRows')).to_contain_text('S/R Breakout')
+   expect(page.locator('#historyRows tr.trade-loss')).to_have_count(1)
+   expect(page.locator('#historyRows tr.trade-loss')).to_contain_text('BTCUSDT')
+   expect(page.locator('#historyRows .pnl-loss')).to_have_text('-$0.31')
+   assert page.locator('#historyRows tr.trade-loss td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(255, 110, 110, 0.15)'
+   expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(1)
    page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
    page.reload();expect(page.locator('#page-history')).to_be_visible()
    page.click('[data-page-link=chart]')
