@@ -17,13 +17,13 @@ Without private credentials and the live server flag, the dashboard can show pub
 
 ## Pages and strategy selection
 
-Use the PWA navigation for **Chart**, **Live positions**, **History** and **Settings**. Each is a separate bookmarkable page (`#chart`, `#positions`, `#history`, `#settings`) with browser Back support. Opening pages or charts never activates orders. Trading-symbol selection and risk configuration live on Settings.
+Use the PWA navigation for **Chart**, **Live positions**, **History**, **Analysis** and **Settings**. Each is a separate bookmarkable page (`#chart`, `#positions`, `#history`, `#analysis`, `#settings`) with browser Back support. Opening pages or charts never activates orders. Trading-symbol selection and risk configuration live on Settings.
 
 **Entry logic** offers the original S/R breakout strategy or **SMA 7 crosses SMA 200**. The SMA strategy enters Long when the confirmed fast average moves from at/below the slow average to above it; the reverse crossing enters Short. It requires 200 bars for averages and a subsequent bar to detect a crossover. It uses no S/R or separate SMA filter, does not repeatedly enter merely because SMA 7 stays above/below, and excludes forming candles. Average windows restart after a data gap; the live feed still rejects missing market history. Existing saved strategy selection is preserved; changing strategy requires no open managed exposure or unresolved orders.
 
 **Opposite signal action** is separate from the entry strategy: **Reverse** closes the old same-symbol position, waits for exchange flat/realized-result confirmation, and submits the opposite entry while the signal is fresh and entry/risk limits allow it. **Close only** retains the exit without a replacement order. These are one-way position reversals, not simultaneous hedge positions. An account/risk lock may permit an exit while blocking the new entry.
 
-History records confirmed closed trades in an append-only SQLite ledger, keyed by the owned entry identity. Retained older closures are imported once on upgrade; trades already pruned from older versions cannot be reconstructed. New records include side, entry, quantity, strategy, realized P&L, reason and times; missing legacy fields are shown as unknown. Pre-strategy imported records are identified as S/R Breakout because S/R was the sole strategy in that schema; explicit strategy tags are preserved. Losing history rows have a light red background and red P&L. Filter by complete symbol and page through records. This prepares durable input for future per-coin analysis; analysis is not implemented in this release.
+History records confirmed closed trades in an append-only SQLite ledger, keyed by the owned entry identity. Retained older closures are imported once on upgrade; trades already pruned from older versions cannot be reconstructed. New records include side, entry, quantity, strategy, realized P&L, reason and times; missing legacy fields are shown as unknown. Pre-strategy imported records are identified as S/R Breakout because S/R was the sole strategy in that schema; explicit strategy tags are preserved. Losing history rows have a light red background and red P&L. Filter by complete symbol and page through records. The Analysis page summarizes this ledger by coin and strategy.
 
 ## Strategy and risk
 
@@ -38,6 +38,24 @@ A stop failure closes and blocks the affected symbol. Healthy symbols retain man
 ## Fill and stop confirmation
 
 Activity first records “live breakout order submitted; awaiting fill/protection.” Once the fill is owned and the current exchange position reports the expected stop, a separate event records **“position filled; Bybit stop loss verified.”** It is emitted once per trade and persists across restarts. It confirms a readback at that time, not a guarantee of future execution. Missing/incorrect stops never generate the verification event. Historical activity messages are retained.
+
+## Configurable trailing stops
+
+Trailing is disabled by default. Settings supplies **Trailing activation (%)**, **Trailing stop execute (%)**, and editable percentage bases. The selected defaults are activation from profit / original margin, and trailing distance from the best favorable mark price. With $2.50 margin, 10% activation means $0.25 unrealized mark-price profit before fees. At 20× this is roughly a 0.5% favorable entry-price move. A 1% execute distance follows the best observed price by 1%, independently of leverage. Alternate price-based activation and initial-margin-based distance are selectable.
+
+Once activated, long trades track higher marks and short trades lower marks. The resulting price is rounded toward protection to the instrument tick and combined with the original dollar stop, so it never loosens protection. A narrow distance below one tick is rejected at entry. Activation does not guarantee a profitable exit. Order sizing, risk limits and signal reversals remain in force.
+
+**THOTH samples marks on its risk-monitor loop and places each tightened fixed stop on Bybit**, with mandatory readback. This is not Bybit’s native continuously moving trailing order. Peaks between samples or while offline are not reconstructed. During a server/network outage the last verified fixed stop remains on Bybit, but does not continue trailing; actual losses can exceed thresholds because of gaps, fees or outages. A crossed sampled stop requests a reduce-only exit. An unconfirmed update closes/blocks the affected symbol; account-wide monitoring failures still block new entries.
+
+Trailing settings are frozen into each new entry’s durable intent and remain attached to that trade after settings edits/restarts. Existing trades from before this feature stay unmodified. Favorable peaks, pending stop updates and confirmed stops persist; a timeout is reconciled against the exchange before any retry, without reverting a tightened stop to the old dollar stop. Restart never restores permission to open new entries.
+
+The chart shows a cyan activation line and a purple active trailing exchange-stop line when in view. **Fit all levels** includes these levels in scaling. Live Positions shows waiting/active trailing state. Chart interaction never changes stop settings or places orders.
+
+## Mobile gestures and analysis
+
+On the chart, one finger pans horizontally and vertically; two fingers pinch to zoom time around their midpoint. The right price axis still supports price scaling, and Reset/Latest restores the view. Native page scrolling is available outside the chart. Gesture cancellation and redraws release touch state; auto candle refresh pauses during a gesture. Navigation fits the mobile viewport.
+
+Analysis filters by coin and strategy and uses every retained ledger record, not just the visible history page or the latest 200 closures. It reports closed trades, wins/losses/breakeven, realized P&L, win rate, average trade P&L and profit factor, including a per-coin S/R-versus-SMA comparison. Win rate is wins divided by all closed trades, including breakeven; profit factor is gross winning P&L divided by gross losing P&L and is unavailable without losses. Empty samples and unavailable legacy fields are not fabricated. Open P&L, other account trades and previously pruned history are excluded. Small historical samples do not predict future performance.
 
 ## Connection and activation
 
@@ -81,7 +99,7 @@ Updated synthetic previews: [desktop chart](docs/desktop-interactive-chart-fixtu
 
 ### Mouse chart navigation and saving one symbol
 
-Saving a strategy with exactly one allowed trading symbol now opens that symbol's chart after the save succeeds. With multiple symbols, chart selection remains independent. Mouse wheel over the chart zooms around the pointer; holding the left mouse button and dragging moves both time and price. Touch dragging remains horizontal so vertical page scrolling still works on mobile. **Latest candle** clears manual price/time panning; **Reset view** also restores the default candle zoom. Automatic candle refresh pauses during manual time/price exploration and resumes at the live edge. These controls do not change strategy settings or enable orders.
+Saving a strategy with exactly one allowed trading symbol now opens that symbol's chart after the save succeeds. With multiple symbols, chart selection remains independent. Mouse wheel over the chart zooms around the pointer; holding the left mouse button and dragging moves both time and price. One-finger touch dragging moves time and price; two-finger pinch zooms candle count. Scroll outside the chart to move the page. **Latest candle** clears manual price/time panning; **Reset view** also restores the default candle zoom. Automatic candle refresh pauses during manual time/price exploration and resumes at the live edge. These controls do not change strategy settings or enable orders.
 
 ### Price scale, extrema, exact candle times and current quote
 

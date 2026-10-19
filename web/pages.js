@@ -1,10 +1,10 @@
 // Separate, bookmarkable PWA pages; navigation never changes trading settings.
-const pageIds=['chart','positions','history','settings'];
+const pageIds=['chart','positions','history','analysis','settings'];
 let historyOffset=0,historyTotal=0,historyRequest=0;
 function buildPages(){
  const grid=document.querySelector('.grid'),nav=document.createElement('nav');
  nav.className='page-nav';nav.setAttribute('aria-label','Trading desk pages');
- for(const [id,label] of [['chart','Chart'],['positions','Live positions'],['history','History'],['settings','Settings']]){
+ for(const [id,label] of [['chart','Chart'],['positions','Live positions'],['history','History'],['analysis','Analysis'],['settings','Settings']]){
   const link=document.createElement('a');link.href='#'+id;link.textContent=label;link.dataset.pageLink=id;nav.append(link);
  }
  document.querySelector('main').prepend(nav);
@@ -14,11 +14,14 @@ function buildPages(){
  pages.settings.append(settings,$('symbolPanel'));
  pages.positions.append(positions,account);
  pages.history.innerHTML='<section class="card"><h2>Closed trade history</h2><p class="note">Confirmed Bybit realized P&amp;L for THOTH-managed trades. History includes retained older records; previously pruned records are unavailable. Fees and funding follow Bybit’s closed-P&amp;L reporting.</p><label>Filter by symbol<input id="historySymbol" type="search" placeholder="ETHUSDT" aria-label="History symbol"></label><p id="tradeHistoryStatus" role="status"></p><div class="table-scroll"><table><thead><tr><th>Close confirmed</th><th>Symbol</th><th>Side</th><th>Entry / quantity</th><th>Realized P&amp;L</th><th>Reason</th><th>Strategy</th></tr></thead><tbody id="historyRows"></tbody></table></div><div class="row"><button id="historyPrevious">← Newer</button><button id="historyRefresh">Refresh history</button><button id="historyNext">Older →</button></div></section>';
+ pages.analysis.innerHTML='<section class="card"><h2>Trade analysis</h2><p class="note">Based only on THOTH’s stored, confirmed closed trades. Includes retained older S/R records; previously pruned records and open P&amp;L are excluded. Win rate includes breakeven trades in the total. P&amp;L follows Bybit closed-P&amp;L reporting.</p><div class="analysis-filters"><label>Coin<input id="analysisSymbol" type="search" placeholder="All coins or ETHUSDT" aria-label="Analysis symbol"></label><label>Strategy<select id="analysisStrategy"><option value="">All strategies</option><option value="sr_breakout">S/R Breakout</option><option value="sma_cross">SMA 7/200</option><option value="unknown">Unknown</option></select></label><button id="refreshAnalysis">Refresh analysis</button></div><p id="analysisStatus" role="status"></p><div id="analysisSummary" class="stats"></div><h3>Per coin</h3><div class="table-scroll"><table><thead><tr><th>Coin</th><th>Trades</th><th>Wins / losses / flat</th><th>Win rate</th><th>Realized P&amp;L</th><th>Average P&amp;L</th><th>Profit factor</th></tr></thead><tbody id="coinAnalysis"></tbody></table></div><h3>Strategy comparison per coin</h3><div class="table-scroll"><table><thead><tr><th>Coin</th><th>Strategy</th><th>Trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Profit factor</th></tr></thead><tbody id="strategyAnalysis"></tbody></table></div><p class="note">Profit factor = gross winning P&amp;L divided by absolute gross losing P&amp;L; shown as — when there are no losing trades. Small samples do not establish future performance.</p></section>';
  grid.classList.add('paged-desk');grid.replaceChildren(...pageIds.map(id=>pages[id]));
  $('historyPrevious').onclick=()=>{historyOffset=Math.max(0,historyOffset-50);loadHistory()};
  $('historyNext').onclick=()=>{historyOffset+=50;loadHistory()};
  $('historyRefresh').onclick=()=>{historyOffset=0;loadHistory()};
  let filterTimer;$('historySymbol').oninput=()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>{historyOffset=0;loadHistory()},300)};
+ $('refreshAnalysis').onclick=loadAnalysis;$('analysisStrategy').onchange=loadAnalysis;
+ let analysisTimer;$('analysisSymbol').oninput=()=>{clearTimeout(analysisTimer);analysisTimer=setTimeout(loadAnalysis,300)};
  showPage();
 }
 function showPage(){
@@ -27,6 +30,7 @@ function showPage(){
  for(const link of document.querySelectorAll('[data-page-link]')){if(link.dataset.pageLink===id)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}
  window.scrollTo({top:0});
  if(id==='history'&&state)loadHistory();
+ if(id==='analysis'&&state)loadAnalysis();
  if(id==='chart'&&state)draw();
 }
 async function loadHistory(){
@@ -47,3 +51,25 @@ async function loadHistory(){
 }
 window.addEventListener('hashchange',showPage);
 buildPages();
+
+let analysisRequest=0;
+const strategyName=id=>id==='sma_cross'?'SMA 7/200':id==='sr_breakout'?'S/R Breakout':'Unknown';
+async function loadAnalysis(){
+ const request=++analysisRequest,symbol=$('analysisSymbol').value.trim().toUpperCase(),strategy=$('analysisStrategy').value;
+ if(symbol&&!/^[A-Z0-9]{2,30}USDT$/.test(symbol)){$('analysisStatus').textContent='Enter a complete symbol such as ETHUSDT.';return}
+ $('analysisStatus').textContent='Loading recorded trade analysis…';
+ try{
+  const params=new URLSearchParams();if(symbol)params.set('symbol',symbol);if(strategy)params.set('strategy',strategy);
+  const data=await api('live/analysis?'+params);if(request!==analysisRequest)return;
+  $('analysisSummary').replaceChildren();
+  for(const [label,value] of [['Closed trades',data.totals.trades],['Realized P&L',money(data.totals.realized_pnl)],['Win rate',data.totals.win_rate==null?'—':data.totals.win_rate.toFixed(1)+'%']]){const card=document.createElement('div');card.className='card';const title=document.createElement('small'),number=document.createElement('div');title.textContent=label;number.textContent=value;number.className='value';if(label==='Realized P&L'&&data.totals.realized_pnl<0)number.classList.add('pnl-loss');card.append(title,number);$('analysisSummary').append(card)}
+  const percent=value=>value==null?'—':value.toFixed(1)+'%',factor=value=>value==null?'—':value.toFixed(2);
+  for(const [id,records,combined] of [['coinAnalysis',data.by_symbol,false],['strategyAnalysis',data.by_symbol_strategy,true]]){
+   $(id).replaceChildren();for(const record of records){const row=document.createElement('tr');row.classList.toggle('trade-loss',record.realized_pnl<0);
+    const values=combined?[record.symbol,strategyName(record.strategy),record.trades,percent(record.win_rate),money(record.realized_pnl),factor(record.profit_factor)]:[record.symbol,record.trades,record.wins+' / '+record.losses+' / '+record.breakeven,percent(record.win_rate),money(record.realized_pnl),money(record.average_pnl),factor(record.profit_factor)];
+    for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}$(id).append(row);
+   }
+  }
+  $('analysisStatus').textContent=data.totals.trades?data.totals.trades+' confirmed closed trades in this selection':'No recorded closed trades in this selection.';
+ }catch(e){if(request===analysisRequest)$('analysisStatus').textContent='Analysis unavailable: '+e.message}
+}

@@ -114,6 +114,19 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live/history?limit=101').status_code,422)
         self.assertEqual(self.client.get('/api/live/history?offset=-1').status_code,422)
 
+    def test_analysis_uses_all_history_and_filters_without_exchange_requests(self):
+        import thoth.app as module
+        for i in range(205):
+            module.live._record_trade(str(i),dict(symbol='ETHUSDT',strategy='sr_breakout' if i%2 else 'sma_cross',closed_at=i,pnl=1 if i%2 else -1))
+        module.live._record_trade('other',dict(symbol='BTCUSDT',strategy='sr_breakout',closed_at=300,pnl=5))
+        data=self.client.get('/api/live/analysis?symbol=ETHUSDT&strategy=sr_breakout').json()
+        self.assertEqual(data['totals']['trades'],102)
+        self.assertEqual(data['totals']['realized_pnl'],102)
+        self.assertIsNone(module.live.client)
+        self.assertEqual(self.client.get('/api/live/analysis').json()['totals']['trades'],206)
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=bad').status_code,422)
+        self.assertEqual(self.client.get('/api/live/analysis?symbol=bad').status_code,422)
+
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
         self.assertEqual(len(entries), 234)

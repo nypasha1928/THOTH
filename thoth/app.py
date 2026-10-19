@@ -108,6 +108,11 @@ def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$
     return live.history(symbol,limit,offset)
 
 
+@app.get('/api/live/analysis')
+def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|unknown)$')):
+    return live.analysis(symbol,strategy)
+
+
 @app.put('/api/live/settings')
 def exchange_settings(request: Request,config: TestnetSettings):
     return live.configure(config)

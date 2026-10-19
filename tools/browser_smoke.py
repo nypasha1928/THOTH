@@ -2,10 +2,13 @@
 Run: python tools/browser_smoke.py (requires Playwright and /usr/bin/chromium).
 No credentials or exchange execution are used. Writes labelled fixture previews.
 """
-import os,subprocess,tempfile,time,json,math,urllib.request,copy
+import os,subprocess,tempfile,time,json,math,urllib.request,copy,sys
+from urllib.parse import parse_qs
 from pathlib import Path
 from playwright.sync_api import sync_playwright,expect
 root=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root))
+from thoth.analytics import analyze
 with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
  env={k:v for k,v in os.environ.items() if not k.startswith('THOTH_')};env['THOTH_DB']=d+'/paper.sqlite'
  log=open(d+'/server.log','w')
@@ -50,6 +53,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
    elif path=='live/history':result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='Opposite breakout',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
+   elif path=='live/analysis':
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    records=[dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24),dict(symbol='BTCUSDT',strategy='sr_breakout',pnl=-.31),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0)]
+    if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
+    if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
+    result=analyze(records)
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:result=payloads[path]
    elif path.endswith('/settings') and method=='PUT':
@@ -271,6 +280,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
+   expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')
+   page.click('#saveSymbols');page.wait_for_function('() => lv.config.trailing_enabled && lv.config.trailing_activation_pct===12.5')
+   assert writes[-1][1]['trailing_distance_pct']==.8
    page.locator('#page-settings').screenshot(path=str(root/'docs/mobile-settings-fixture.png'))
    page.click('[data-page-link=chart]')
    page.locator('#chart').click(position={'x':130,'y':120});expect(page.locator('#candleInfo')).to_contain_text(' O ')
@@ -299,6 +312,33 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#measurementReadout')).to_contain_text('First point set')
    page.click('#measureChart');expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
    expect(page.locator('[data-measurement]')).to_have_count(0)
+   page.click('#resetChartView');page.locator('#chart').evaluate("el=>el.scrollIntoView({block:'center'})")
+   box=page.locator('#chart').bounding_box();tx=box['x']+box['width']*.3;ty=box['y']+box['height']*.4
+   scroll=page.evaluate('scrollY')
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':tx,'y':ty}]})
+   for i in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':tx+i*8,'y':ty+i*4}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+   assert page.evaluate('() => chartOffset')>0
+   assert page.evaluate('() => chartPriceShift')!=0
+   assert abs(page.evaluate('scrollY')-scroll)<2
+   touch.send('Emulation.setTouchEmulationEnabled',{'enabled':True,'maxTouchPoints':2})
+   before=page.evaluate('() => visibleBars');cx=box['x']+box['width']*.4
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':cx-25,'y':ty,'id':0},{'x':cx+25,'y':ty,'id':1}]})
+   queries=len(chart_queries);page.evaluate('async () => await loadChart(true)');assert len(chart_queries)==queries
+   for i in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':cx-25-i*5,'y':ty,'id':0},{'x':cx+25+i*5,'y':ty,'id':1}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+   assert page.evaluate('() => visibleBars')<before
+   assert page.evaluate('() => chartTouches.size')==0
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':cx-25,'y':ty,'id':0},{'x':cx+25,'y':ty,'id':1}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchCancel','touchPoints':[]})
+   assert page.evaluate('() => chartTouches.size===0 && chartPinch===null')
+   page.click('#resetChartView')
+   # Display-only trailing overlays use the managed position's frozen settings.
+   page.evaluate("() => {lv.positions=[{symbol:$('symbol').value,side:'Long',qty:'.02',entry:'2410',mark:'2420',pnl:.2,stop:'2415',stop_dollars:1,trailing:{enabled:true,active:true,activation_price:'2412',stop:'2415'}}];draw();}")
+   expect(page.locator('[data-price-line="Trailing exchange stop"]')).to_have_count(1)
+   expect(page.locator('[data-price-line="Trailing activated"]')).to_have_count(1)
+   page.locator('#chartCard').screenshot(path=str(root/'docs/mobile-trailing-fixture.png'))
+   page.evaluate('() => {lv.positions=[];draw();}')
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
    page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)
    page.click('#oldest');expect(page.locator('#older')).to_be_disabled()
@@ -318,6 +358,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.locator('#historyRows tr.trade-loss td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(255, 110, 110, 0.15)'
    expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(1)
    page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
+   page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   expect(page.locator('#coinAnalysis')).to_contain_text('BTCUSDT');expect(page.locator('#strategyAnalysis')).to_contain_text('SMA 7/200')
+   page.fill('#analysisSymbol','ETHUSDT');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')
+   expect(page.locator('#coinAnalysis tr')).to_have_count(1);expect(page.locator('#coinAnalysis')).to_contain_text('$0.24')
+   page.select_option('#analysisStrategy','sr_breakout');expect(page.locator('#analysisStatus')).to_contain_text('No recorded')
+   page.fill('#analysisSymbol','');page.select_option('#analysisStrategy','');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   page.locator('#page-analysis').screenshot(path=str(root/'docs/mobile-analysis-fixture.png'))
+   page.reload();expect(page.locator('#page-analysis')).to_be_visible()
+   page.click('[data-page-link=history]')
    page.reload();expect(page.locator('#page-history')).to_be_visible()
    page.click('[data-page-link=chart]')
    expect(page.locator('#viewMode')).to_have_count(0)
