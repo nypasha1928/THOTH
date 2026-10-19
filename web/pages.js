@@ -38,7 +38,7 @@ async function loadHistory(){
   historyTotal=data.total;$('historyRows').replaceChildren();
   for(const trade of data.items){const row=document.createElement('tr');
    const symbolButton=document.createElement('button');symbolButton.type='button';symbolButton.textContent=trade.symbol;symbolButton.onclick=()=>openChartSymbol(trade.symbol);
-   const cells=[new Date(trade.closed_at*1000).toLocaleString(),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),trade.reason||'—',trade.strategy==='sma_cross'?'SMA 7/200':trade.strategy==='sr_breakout'?'S/R breakout':'Legacy'];
+   const cells=[new Date(trade.closed_at*1000).toLocaleString(),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),trade.reason||'—',trade.strategy==='sma_cross'?'SMA 7/200':trade.strategy==='sr_breakout'?'S/R':'Legacy'];
    for(const value of cells){const cell=document.createElement('td');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
   }
   $('tradeHistoryStatus').textContent=data.total?(historyOffset+1)+'–'+Math.min(historyOffset+data.items.length,data.total)+' of '+data.total+' closed trades':'No confirmed closed trades'+(symbol?' for '+symbol:'')+'.';
