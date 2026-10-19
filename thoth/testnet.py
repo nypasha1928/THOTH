@@ -17,6 +17,7 @@ from .account_risk import new_risk, sample, closure, day
 from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
 from .credentials import runtime_secret
 from .execution import ExecutionJournal
+from .diagnostics import failure_details, failure_summary
 from .models import TestnetSettings, Settings
 
 
@@ -61,6 +62,7 @@ class TestnetSupervisor:
     def load(self):
         with self.db() as db:state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
         state.setdefault('pending_signals',{})
+        state.setdefault('blocked_symbols',{})
         state['config']={**TestnetSettings().model_dump(),**state['config']}
         state['risk'].setdefault('portfolio_stop',False)
         state.setdefault('daily_resume_intent',False)
@@ -77,6 +79,7 @@ class TestnetSupervisor:
     def snapshot(self):
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
+            'blocked_symbols':s.get('blocked_symbols',{}),'monitor_error':s.get('monitor_error'),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','loss_pct','streak','pause_until','daily_stop','baseline_required','portfolio_stop')},
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
@@ -222,6 +225,11 @@ class TestnetSupervisor:
             except Exception:
                 self._lock('safety_lock','Testnet monitoring failed; new entries disabled, inspect the account')
                 raise ValueError('Testnet monitoring unavailable; entries remain disabled') from None
+            if not recovery and self.state['entries'] and self.state['status']=='running':
+                for symbol in list(self.state['blocked_symbols']):
+                    if symbol not in self.state['owned'] and not any(r['payload']['symbol']==symbol and r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records()):
+                        del self.state['blocked_symbols'][symbol]
+                        self.event(symbol+': symbol block cleared by explicit activation after settlement')
             self.event('Testnet risk management recovered' if recovery else 'Testnet entries enabled')
             self.save()
         return self.snapshot()
@@ -314,6 +322,21 @@ class TestnetSupervisor:
         self.save()
         return True
 
+    def _protection_failure(self,symbol,record,reason):
+        details=record['result'].get('protection_error',{})
+        message=reason+(' · '+failure_summary(details) if details else '')
+        if symbol not in self.state['blocked_symbols']:
+            self.event(symbol+': '+message+'; symbol blocked, closing its exposure')
+        self.state['blocked_symbols'][symbol]=message
+        self.state['pending_signals'].pop(symbol,None)
+        self.state['reversals'].pop(symbol,None)
+        self.save()
+
+    def _monitor_failure(self,exc):
+        details=failure_details(exc,'account_monitor')
+        self.state['monitor_error']=details
+        self._lock('safety_lock','Account monitoring unavailable; new entries blocked · '+failure_summary(details))
+
     def monitor(self):
         with self.lock:
             if not self.client or not self.state['management']:return
@@ -338,13 +361,18 @@ class TestnetSupervisor:
                 else:
                     record=self.journal.get(owner['link'])
                     if record['phase']=='stop_error':
-                        self._lock('protection_failure','Protective stop failed; closing managed exposure')
+                        self._protection_failure(symbol,record,'Protective stop failed')
                         self._close(symbol,p,'Protective stop failure')
                     elif record['phase']=='protected' and not owner['close_link']:
                         desired=stop_price('Long' if p['side']=='Buy' else 'Short',p['avgPrice'],p['size'],owner['stop_dollars'],record['instrument']['priceFilter']['tickSize'])
                         if dec(p.get('stopLoss','0'))!=dec(desired):
-                            self._lock('protection_failure','Protective stop changed or missing; closing managed exposure')
+                            self._protection_failure(symbol,record,'Protective stop changed or missing')
                             self._close(symbol,p,'Protective stop missing')
+            # Exit obligations run before wallet/transfer reads, which can fail independently.
+            for symbol,owner in list(self.state['owned'].items()):
+                p=active.get(symbol)
+                if p and (owner.get('signal_exit') or owner['close_link']):
+                    self._close(symbol,p,owner.get('signal_exit') or owner['reason'] or 'Pending close')
             equity=self.wallet()
             risk=sample(self.state['risk'],equity,self.transfers(),cfg,self.clock())
             self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
@@ -421,29 +449,37 @@ class TestnetSupervisor:
             if not self.client or not self.state['management']:return
             current=TestnetSettings(**self.state['config'])
             if cfg!=Settings(**current.model_dump(exclude={'margin_mode','dedicated_account'})).model_dump():return
-            self.monitor()
+            try:self.monitor()
+            except Exception as exc:self._monitor_failure(exc)
             identity=hashlib.sha256(json.dumps(cfg,sort_keys=True).encode()).hexdigest()[:16]
             for symbol,observation in observations.items():
                 key=identity+':'+symbol;stamp=observation['time'];previous=self.state['cursors'].get(key)
                 if previous is not None and stamp<=previous:continue
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
-                if previous is None or not observation.get('signal') or not self.state['entries'] or self.state['status']!='running':continue
-                if self.clock()-stamp>(120 if current.timeframe=='1' else 172800):continue
+                if previous is None or observation.get('signal') not in ('Long','Short'):continue
+                if not 0<=self.clock()-stamp<=(120 if current.timeframe=='1' else 172800):continue
                 side='Buy' if observation['signal']=='Long' else 'Sell'
                 owner=self.state['owned'].get(symbol)
                 if owner:
                     if owner['side']==side:continue
-                    self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
-                    p=self.positions().get(symbol)
-                    if p:self._close(symbol,p,'Opposite breakout')
+                    owner['signal_exit']='Opposite breakout'
+                    if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
+                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
+                    self.save()  # Retain exit obligation if a position read fails.
+                    try:
+                        p=self.positions().get(symbol)
+                        if p:self._close(symbol,p,'Opposite breakout')
+                    except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
-                self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
+                if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
+                    self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
             self._reversals(current)
             self._drain(current)
             self.save()
 
     def _entry(self,symbol,side,stamp,identity,cfg):
+        if symbol in self.state['blocked_symbols']:return
         if self.state['status']!='running' or not self.state['entries']:return
         if len(self.state['owned'])>=cfg.max_positions:return
         if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
@@ -501,8 +537,8 @@ class TestnetSupervisor:
                 elif self.client:self.monitor()
             except ValueError as exc:
                 with self.lock:self._lock('safety_lock',str(exc))
-            except Exception:
-                with self.lock:self._lock('safety_lock','Account monitoring unavailable; new entries blocked, exchange stops may remain active')
+            except Exception as exc:
+                with self.lock:self._monitor_failure(exc)
             self.stop_event.wait(2)
 
     def start(self):

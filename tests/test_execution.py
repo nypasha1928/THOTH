@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
-from thoth.bybit_testnet import AmbiguousOrder, TestnetClient
+from thoth.bybit_testnet import AmbiguousOrder, TestnetClient, BybitError
 from thoth.execution import ExecutionJournal
 
 
@@ -36,7 +36,7 @@ class JournalTests(unittest.TestCase):
         self.client.request.return_value={'list':[position]}
         result=self.journal.poll('fixture-link')
         self.assertEqual(result['phase'],'protected')
-        self.client.attach_stop.assert_called_once()
+        self.client.attach_stop.assert_not_called()
 
     def test_partial_fill_requests_cancel_before_protecting(self):
         self.client.submit.return_value={'state':'accepted_not_filled'};self.submit()
@@ -67,3 +67,26 @@ class JournalTests(unittest.TestCase):
         self.client.request.return_value={'list':[{'size':'1','positionIdx':0,'side':'Buy','avgPrice':'100'}]}
         self.assertEqual(self.journal.poll('fixture-link')['phase'],'mismatch')
         self.client.attach_stop.assert_not_called()
+
+    def test_not_modified_requires_correct_readback(self):
+        for stop,phase in [('98','protected'),('90','stop_error')]:
+            with self.subTest(stop=stop):
+                self.client.submit.return_value={'state':'accepted_not_filled'}
+                payload={**self.payload,'orderLinkId':'readback-'+stop}
+                self.journal.submit(payload,1,self.instrument)
+                self.client.reconcile.return_value={'orderStatus':'Filled','cumExecQty':'.5'}
+                position=dict(size='.5',positionIdx=0,side='Buy',avgPrice='100',stopLoss='0')
+                self.client.request.side_effect=[{'list':[position]},{'list':[{**position,'stopLoss':stop}]}]
+                self.client.attach_stop.side_effect=BybitError('private body',34040)
+                self.assertEqual(self.journal.poll(payload['orderLinkId'])['phase'],phase)
+
+    def test_protection_diagnostics_survive_settlement(self):
+        self.client.submit.return_value={'state':'accepted_not_filled'};self.submit()
+        self.client.reconcile.return_value={'orderStatus':'Filled','cumExecQty':'.5'}
+        self.client.request.return_value={'list':[dict(size='.5',positionIdx=0,side='Buy',avgPrice='100',stopLoss='0')]}
+        self.client.attach_stop.side_effect=BybitError('secret response',10001)
+        result=self.journal.poll('fixture-link')
+        self.assertEqual(result['result']['protection_error']['exchange_code'],10001)
+        result=self.journal.update('fixture-link','closed')
+        self.assertEqual(result['result']['protection_error']['exchange_code'],10001)
+        self.assertNotIn('secret response',str(result))

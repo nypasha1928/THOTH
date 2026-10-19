@@ -79,8 +79,15 @@ class TestnetClient:
                 'X-BAPI-SIGN':hmac.new(self.secret.encode(),message.encode(),hashlib.sha256).hexdigest()})
         url=self.BASE+path+('?' + encoded if method=='GET' and encoded else '')
         req=Request(url,data=encoded.encode() if method=='POST' else None,headers=headers,method=method)
-        with self.transport(req,timeout=10) as response:body=json.load(response)
-        if body.get('retCode')!=0:raise BybitError(f"Bybit rejected request ({body.get('retCode')}): {body.get('retMsg')}",code=body.get('retCode'))
+        try:
+            with self.transport(req,timeout=10) as response:body=json.load(response)
+            if body.get('retCode')!=0:raise BybitError(f"Bybit rejected request ({body.get('retCode')}): {body.get('retMsg')}",code=body.get('retCode'))
+        except Exception as exc:
+            # Keep original exception classes so unknown order outcomes remain
+            # ambiguous; only attach the fixed endpoint, never signed headers.
+            try:exc.thoth_endpoint=path
+            except Exception:pass
+            raise
         return body['result']
 
     def instrument(self,symbol):
