@@ -36,10 +36,10 @@ async function loadHistory(){
  try{
   const data=await api('live/history?limit=50&offset='+historyOffset+(symbol?'&symbol='+encodeURIComponent(symbol):''));if(request!==historyRequest)return;
   historyTotal=data.total;$('historyRows').replaceChildren();
-  for(const trade of data.items){const row=document.createElement('tr');
+  for(const trade of data.items){const row=document.createElement('tr');row.classList.toggle('trade-loss',Number(trade.pnl)<0);
    const symbolButton=document.createElement('button');symbolButton.type='button';symbolButton.textContent=trade.symbol;symbolButton.onclick=()=>openChartSymbol(trade.symbol);
    const cells=[new Date(trade.closed_at*1000).toLocaleString(),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),trade.reason||'—',trade.strategy==='sma_cross'?'SMA 7/200':trade.strategy==='sr_breakout'?'S/R Breakout':'Legacy'];
-   for(const value of cells){const cell=document.createElement('td');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
+   for(const [index,value] of cells.entries()){const cell=document.createElement('td');if(index===4&&Number(trade.pnl)<0)cell.classList.add('pnl-loss');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
   }
   $('tradeHistoryStatus').textContent=data.total?(historyOffset+1)+'–'+Math.min(historyOffset+data.items.length,data.total)+' of '+data.total+' closed trades':'No confirmed closed trades'+(symbol?' for '+symbol:'')+'.';
   $('historyPrevious').disabled=historyOffset===0;$('historyNext').disabled=historyOffset+50>=data.total;
