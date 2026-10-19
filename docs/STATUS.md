@@ -13,3 +13,9 @@ Actual TradingView S/R comparison remains unverified. Local tests and synthetic 
 Entry logic is selectable between S/R breakout and confirmed SMA 7/200 crossover. Opposite signals can reverse or close only; account checks and risk limits still govern replacement entries. Strategy changes require closed/reconciled managed exposure.
 
 The PWA now has separate Chart, Live positions, History and Settings pages. Closed trades persist in a deduplicated history ledger with symbol filtering/pagination; retained legacy records are imported without inventing missing trade details. Per-coin performance analysis is planned separately.
+
+## Trailing, mobile and analysis
+
+Configurable trailing activation and execute distance are frozen per new trade. The selected default bases are initial-margin ROI for activation and best-price percentage for distance; trailing defaults off. THOTH samples mark prices and tightens verified fixed Bybit stops, retaining durable peak/update intent through restart. The last confirmed stop survives server outages but does not keep trailing.
+
+Mobile gestures add one-finger time/price movement and two-finger candle zoom. The Analysis page uses the retained closed-trade ledger for coin and strategy statistics. Biometric login, password reset/change and Google Authenticator remain deferred as requested.

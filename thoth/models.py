@@ -13,6 +13,11 @@ class Settings(BaseModel):
     position_value: float = Field(default=50, gt=0, le=100000, allow_inf_nan=False)
     leverage: int = Field(default=20, ge=1, le=100)
     stop_dollars: float = Field(default=1, gt=0, allow_inf_nan=False)
+    trailing_enabled: bool = False
+    trailing_activation_basis: str = Field(default='margin',pattern=r'^(price|margin)$')
+    trailing_activation_pct: float = Field(default=10,ge=0,le=10000,allow_inf_nan=False)
+    trailing_distance_pct: float = Field(default=1,gt=0,lt=100,allow_inf_nan=False)
+    trailing_distance_basis: str = Field(default='price',pattern=r'^(price|margin)$')
     daily_loss_pct: float = Field(default=3, gt=0, le=100, allow_inf_nan=False)
     max_positions: int = Field(default=3, ge=1, le=100)
     consecutive_losses: int = Field(default=3, ge=1, le=100)
@@ -33,6 +38,8 @@ class Settings(BaseModel):
             raise ValueError('Duplicate symbols')
         if any(not re.fullmatch(r'[A-Z0-9]{2,30}USDT', s) for s in self.symbols):
             raise ValueError('Expected Bybit USDT symbol names')
+        if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
+            raise ValueError('Trailing activation must allow a positive short activation price')
         if self.strategy=='sr_breakout' and not (self.major or self.minor):
             raise ValueError('Enable at least one level family')
         return self

@@ -19,6 +19,7 @@ from .credentials import runtime_secret
 from .execution import ExecutionJournal
 from .diagnostics import failure_details, failure_summary
 from .models import TestnetSettings, Settings
+from .trailing import FIELDS as TRAILING_FIELDS,new_trailing,advance as advance_trailing
 
 
 class TestnetSupervisor:
@@ -112,6 +113,13 @@ class TestnetSupervisor:
             count=db.execute('SELECT COUNT(*) FROM trade_history'+where,params).fetchone()[0]
             rows=db.execute('SELECT payload FROM trade_history'+where+' ORDER BY closed_at DESC,link LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
         return dict(items=[json.loads(row[0]) for row in rows],total=count,limit=limit,offset=offset)
+
+    def analysis(self,symbol=None,strategy=None):
+        from .analytics import analyze
+        with self.db() as db:
+            records=[json.loads(row[0]) for row in db.execute('SELECT payload FROM trade_history'+(' WHERE symbol=?' if symbol else ''),(symbol,) if symbol else ())]
+        if strategy:records=[r for r in records if r.get('strategy','unknown')==strategy]
+        return analyze(records)
 
     def configure(self,cfg):
         with self.lock:
@@ -300,7 +308,7 @@ class TestnetSupervisor:
         leverage=dec((p or {}).get('leverage') or self.state['config']['leverage'])
         self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
             stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
-            close_link=None,close_attempt=0,reason=None,strategy=self.state['config']['strategy'],protection_confirmed=record['phase']=='protected',
+            close_link=None,close_attempt=0,reason=None,strategy=self.state['config']['strategy'],trailing=new_trailing((record.get('instrument') or {}).get('thoth_trailing',{}),entry,filled,entry*filled/leverage,record['payload']['side']),protection_confirmed=record['phase']=='protected',
             source_fingerprint=self.state.get('source_fingerprint'),execution_fingerprint=self.state.get('execution_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
             real_exchange=self.state.get('real_testnet_exchange',False))
         self.save()
@@ -374,6 +382,40 @@ class TestnetSupervisor:
         self.state['monitor_error']=details
         self._lock('safety_lock','Account monitoring unavailable; new entries blocked · '+failure_summary(details))
 
+    def _manage_trailing(self,symbol,owner,p,record,base_stop):
+        trailing=owner.get('trailing',{})
+        if not trailing.get('enabled'):return
+        previous_active=trailing.get('active',False)
+        updated,target=advance_trailing(trailing,owner['side'],owner['entry'],owner['qty'],owner['margin'],p.get('markPrice'),base_stop,record['instrument']['priceFilter']['tickSize'])
+        owner['trailing']=updated
+        if not previous_active and updated.get('active'):self.event(symbol+': trailing activated at '+str(updated['activation_pct'])+('% price gain' if updated.get('activation_basis')=='price' else '% initial-margin P&L'))
+        self.save()  # Keep activation and favorable peak even before any stop write.
+        if target is None:return
+        mark=dec(p['markPrice'])
+        if (owner['side']=='Buy' and mark<=dec(target)) or (owner['side']=='Sell' and mark>=dec(target)):
+            self._close(symbol,p,'Trailing stop retracement');return
+        if dec(target)==dec(p.get('stopLoss','0')):return
+        updated['pending_stop']=target
+        self.save()  # Durable intent: recover an acknowledged or ambiguous stop update.
+        failure=None
+        try:
+            self.client.request('POST','/v5/position/trading-stop',dict(category='linear',symbol=symbol,tpslMode='Full',positionIdx=0,stopLoss=target,slTriggerBy='MarkPrice'),private=True)
+        except Exception as exc:failure=exc
+        # Readback is mandatory even on not-modified or transport timeout responses.
+        rows=self.client.request('GET','/v5/position/list',dict(category='linear',symbol=symbol),private=True)['list']
+        active=[row for row in rows if dec(row.get('size','0'))>0]
+        if not active:return  # Stop may have filled; the next monitor settles the trade.
+        if len(active)!=1 or active[0].get('positionIdx')!=0 or active[0].get('side')!=owner['side'] or dec(active[0]['size'])!=dec(p['size']):
+            self._lock('safety_lock','Position ownership changed during trailing update');return
+        if dec(active[0].get('stopLoss','0'))!=dec(target):
+            details=failure_details(failure or ValueError(),'trailing_protection')
+            self._protection_failure(symbol,{'result':{'protection_error':details}},'Trailing stop update unconfirmed')
+            self._close(symbol,active[0],'Trailing stop verification failure');return
+        updated.update(stop=target,pending_stop=None)
+        p['stopLoss']=target
+        self.save()
+        self.event(symbol+': trailing stop verified on Bybit at '+target)
+
     def monitor(self):
         with self.lock:
             if not self.client or not self.state['management']:return
@@ -402,13 +444,22 @@ class TestnetSupervisor:
                         self._close(symbol,p,'Protective stop failure')
                     elif record['phase']=='protected' and not owner['close_link']:
                         desired=stop_price('Long' if p['side']=='Buy' else 'Short',p['avgPrice'],p['size'],owner['stop_dollars'],record['instrument']['priceFilter']['tickSize'])
-                        if dec(p.get('stopLoss','0'))!=dec(desired):
+                        trailing=owner.get('trailing',{})
+                        pending=trailing.get('pending_stop')
+                        if pending and dec(p.get('stopLoss','0'))==dec(pending):
+                            trailing.update(stop=pending,pending_stop=None)
+                            self.event(symbol+': pending trailing stop verified after reconnect')
+                            self.save()
+                        expected=trailing.get('stop') or desired
+                        if dec(p.get('stopLoss','0'))!=dec(expected):
                             self._protection_failure(symbol,record,'Protective stop changed or missing')
                             self._close(symbol,p,'Protective stop missing')
                         elif not owner.get('protection_announced'):
                             owner.update(protection_confirmed=True,protection_announced=True)
                             self.event(symbol+': position filled; Bybit stop loss verified')
                             self.save()
+                        if not owner['close_link'] and dec(p.get('stopLoss','0'))==dec(expected):
+                            self._manage_trailing(symbol,owner,p,record,desired)
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)
@@ -416,7 +467,7 @@ class TestnetSupervisor:
                     self._close(symbol,p,owner.get('signal_exit') or owner['reason'] or 'Pending close')
             equity=self.wallet()
             risk=sample(self.state['risk'],equity,self.transfers(),cfg,self.clock())
-            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
+            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
             if risk=='daily_stop':
                 if self.state['status']!='daily_stop':self.state['daily_resume_intent']=self.state['entries']
                 self._lock('daily_stop','Daily account loss limit reached; closing all THOTH positions')
@@ -544,12 +595,17 @@ class TestnetSupervisor:
             modes=self.client.request('GET','/v5/position/list',dict(category='linear',symbol=symbol),private=True)['list']
             if any(p.get('positionIdx')!=0 for p in modes):raise ValueError('Symbol must use one-way position mode')
             payload=order_payload(symbol,side,cfg.position_value,price,instrument,identity+':'+symbol+':'+str(stamp))
+            if cfg.trailing_enabled:
+                reference=price if cfg.trailing_distance_basis=='price' else price/cfg.leverage
+                if reference*dec(cfg.trailing_distance_pct)/100<dec(instrument['priceFilter']['tickSize']):
+                    raise ValueError('Trailing distance is smaller than one price tick')
             initial_stop=stop_price(side,price,payload['qty'],cfg.stop_dollars,instrument['priceFilter']['tickSize'])
             payload.update(stopLoss=initial_stop,slTriggerBy='MarkPrice',tpslMode='Full')
             try:self.client.request('POST','/v5/position/set-leverage',dict(category='linear',symbol=symbol,buyLeverage=str(cfg.leverage),sellLeverage=str(cfg.leverage)),private=True)
             except BybitError as exc:
                 if exc.code!=110043:raise
-            self.journal.submit(payload,cfg.stop_dollars,instrument)
+            metadata={**instrument,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            self.journal.submit(payload,cfg.stop_dollars,metadata)
             self.event(symbol+(': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))
         except Exception:self._lock('safety_lock','Testnet entry operation failed; reconcile before enabling entries')
