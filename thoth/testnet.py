@@ -48,7 +48,13 @@ class TestnetSupervisor:
                     management=False,entries=False,status='disabled',reason=self.label+' has not been activated',
                     owned={},risk=new_risk(),equity=None,positions=[],events=[],cursors={},
                     reversals={},pending_signals={},last_monitor=None,closures=[],feed_health=None))
+        with self.db() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS trade_history(link TEXT PRIMARY KEY,symbol TEXT NOT NULL,closed_at REAL NOT NULL,payload TEXT NOT NULL)')
+            db.execute('CREATE INDEX IF NOT EXISTS history_symbol_time ON trade_history(symbol,closed_at)')
         self.state=self.load()
+        for trade in self.state['closures']:
+            link=trade.get('link') or 'legacy:'+hashlib.sha256(json.dumps(trade,sort_keys=True).encode()).hexdigest()
+            self._record_trade(link,trade)
         # Persistence retains exit obligations, never permission to open new orders.
         self.state['entries']=False
         self.state['pending_signals']={}
@@ -84,11 +90,30 @@ class TestnetSupervisor:
             'risk':{k:s['risk'][k] for k in ('day','baseline','loss_pct','streak','pause_until','daily_stop','baseline_required','portfolio_stop')},
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
 
+    def _record_trade(self,link,trade):
+        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','protection_confirmed')
+        record={key:trade[key] for key in allowed if key in trade}
+        with self.db() as db:
+            db.execute('INSERT OR IGNORE INTO trade_history VALUES(?,?,?,?)',(link,record['symbol'],record['closed_at'],json.dumps(record)))
+
+    def history(self,symbol=None,limit=50,offset=0):
+        where=' WHERE symbol=?' if symbol else ''
+        params=(symbol,) if symbol else ()
+        with self.db() as db:
+            count=db.execute('SELECT COUNT(*) FROM trade_history'+where,params).fetchone()[0]
+            rows=db.execute('SELECT payload FROM trade_history'+where+' ORDER BY closed_at DESC,link LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
+        return dict(items=[json.loads(row[0]) for row in rows],total=count,limit=limit,offset=offset)
+
     def configure(self,cfg):
         with self.lock:
             self.state=self.load()
             if self.state['entries']:raise ValueError('Pause testnet entries before editing settings')
             if any(s not in cfg.symbols for s in self.state['owned']):raise ValueError('Close managed positions before removing their symbols')
+            if cfg.strategy!=self.state['config']['strategy']:
+                if self.state['management'] and self.client is None:
+                    raise ValueError('Recover account management before changing strategy')
+                if self.state['owned'] or (self.journal and any(r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records())):
+                    raise ValueError('Close managed positions and reconcile pending orders before changing strategy')
             if self.state['owned'] and cfg.margin_mode!=self.state['config']['margin_mode']:
                 raise ValueError('Cannot change margin mode while positions are open')
             self.state['config']=cfg.model_dump()
@@ -266,7 +291,7 @@ class TestnetSupervisor:
         leverage=dec((p or {}).get('leverage') or self.state['config']['leverage'])
         self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
             stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
-            close_link=None,close_attempt=0,reason=None,protection_confirmed=record['phase']=='protected',
+            close_link=None,close_attempt=0,reason=None,strategy=self.state['config']['strategy'],protection_confirmed=record['phase']=='protected',
             source_fingerprint=self.state.get('source_fingerprint'),execution_fingerprint=self.state.get('execution_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
             real_exchange=self.state.get('real_testnet_exchange',False))
         self.save()
@@ -314,7 +339,10 @@ class TestnetSupervisor:
             return False  # Delay entries until complete realized results are visible.
         pnl=float(sum((dec(r['closedPnl']) for r in unique.values()),dec(0)))
         closure(self.state['risk'],owner['link'],pnl,cfg,self.clock())
-        self.state['closures']=(self.state['closures']+[dict(symbol=symbol,pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))])[-200:]
+        trade=dict(link=owner['link'],symbol=symbol,side='Long' if owner['side']=='Buy' else 'Short',entry=float(owner['entry']),qty=float(owner['qty']),opened_at=owner['opened_ms']/1000,
+            strategy=owner.get('strategy','sr_breakout'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
+        self._record_trade(owner['link'],trade)
+        self.state['closures']=(self.state['closures']+[trade])[-200:]
         # Mark entry terminal so startup does not treat old fills as pending ownership.
         self.journal.update(owner['link'],'closed',{'reason':'Position flat and realized P&L reconciled'})
         del self.state['owned'][symbol]
@@ -467,13 +495,17 @@ class TestnetSupervisor:
                 owner=self.state['owned'].get(symbol)
                 if owner:
                     if owner['side']==side:continue
-                    owner['signal_exit']='Opposite breakout'
-                    if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
+                    reason='Opposite SMA crossover' if current.strategy=='sma_cross' else 'Opposite breakout'
+                    owner['signal_exit']=reason
+                    if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
+                        self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
+                    elif current.opposite_action=='reverse':
+                        self.event(symbol+': opposite-signal exit requested; replacement entry blocked by account/risk state')
                     self.save()  # Retain exit obligation if a position read fails.
                     try:
                         p=self.positions().get(symbol)
-                        if p:self._close(symbol,p,'Opposite breakout')
+                        if p:self._close(symbol,p,reason)
                     except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
                 if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
@@ -509,7 +541,7 @@ class TestnetSupervisor:
             except BybitError as exc:
                 if exc.code!=110043:raise
             self.journal.submit(payload,cfg.stop_dollars,instrument)
-            self.event(symbol+': testnet breakout order submitted; awaiting fill/protection')
+            self.event(symbol+(': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))
         except Exception:self._lock('safety_lock','Testnet entry operation failed; reconcile before enabling entries')
         self.save()
@@ -526,10 +558,14 @@ class TestnetSupervisor:
 
     def _reversals(self,cfg):
         for symbol,reversal in list(self.state['reversals'].items()):
-            if self.clock()-reversal['time']>(120 if cfg.timeframe=='1' else 172800):del self.state['reversals'][symbol];continue
+            if self.clock()-reversal['time']>(120 if cfg.timeframe=='1' else 172800):
+                del self.state['reversals'][symbol]
+                self.event(symbol+': reverse signal expired; no replacement position opened')
+                continue
             if symbol in self.state['owned']:continue
             if self.state['status']!='running' or not self.state['entries']:continue
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
+            if len(self.state['owned'])>=cfg.max_positions:continue
             del self.state['reversals'][symbol]
             self._entry(symbol,reversal['side'],reversal['time'],reversal['identity'],cfg)
 

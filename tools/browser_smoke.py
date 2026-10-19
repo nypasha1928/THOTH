@@ -49,6 +49,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
+   elif path=='live/history':result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross')],total=1,offset=0,limit=50)
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:result=payloads[path]
    elif path.endswith('/settings') and method=='PUT':
@@ -65,25 +66,26 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#symbol','ETHUSDT')
    expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    expect(page.locator('#chartScope')).to_contain_text('Included in saved trading list')
+   page.click('[data-page-link=settings]');expect(page.locator('#page-chart')).not_to_be_visible()
    page.click('#onlyChart');expect(page.locator('#selectedSymbols button')).to_have_count(1)
    expect(page.locator('#selectedSymbols')).to_contain_text('ETHUSDT')
    expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    # Draft edits cannot trigger activation; no order route is reached.
    page.click('#start');expect(page.locator('#symbolSaveMessage')).to_contain_text('Save your strategy')
    assert not activation
-   page.select_option('#symbol','SOLUSDT')
-   page.click('#saveSymbols');expect(page.locator('#savedSymbols')).not_to_contain_text('SOLUSDT')
+   page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT')
+   page.click('[data-page-link=settings]');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).not_to_contain_text('SOLUSDT')
    expect(page.locator('#symbol')).to_have_value('ETHUSDT')
    assert writes[-1][1]['symbols']==['ETHUSDT']
-   page.select_option('#symbol','SOLUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
+   page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    assert writes[-1][1]['symbols']==['ETHUSDT']
-   page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
+   page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
    page.check('#selectedOnly');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','NO_SUCH_SYMBOL');expect(page.locator('#coins')).to_contain_text('No matching symbols')
    page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
    page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
    expect(page.locator('#savedSymbols')).to_contain_text('Saved trading symbols (1): SOLUSDT')
-   page.click('#older');expect(page.locator('#latest')).to_be_enabled();page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   page.click('[data-page-link=chart]');page.click('#older');expect(page.locator('#latest')).to_be_enabled();page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    page.locator('#chart').click(position={'x':100,'y':160});expect(page.locator('#candleInfo')).to_contain_text(' O ')
    assert page.locator('#chart path').count()>30
    page.uncheck('#showLevels');page.uncheck('#showSma');page.uncheck('#showSignals');page.check('#fitLevels')
@@ -96,7 +98,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.locator('#chartSearchResults button').filter(has_text='ETHUSDT').click()
    expect(page.locator('#symbol')).to_have_value('ETHUSDT')
    expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
-   page.get_by_role('button',name='View SOLUSDT chart',exact=True).click()
+   page.click('[data-page-link=settings]');page.get_by_role('button',name='View SOLUSDT chart',exact=True).click()
    expect(page.locator('#symbol')).to_have_value('SOLUSDT')
    assert len(writes)==write_count and writes[-1][1]['symbols']==saved_before
    # Actual horizontal drag in both directions, including pointer capture across redraws.
@@ -264,7 +266,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#closeAppearance')
    expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    page.select_option('#symbol','ETHUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
-   page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
+   page.click('[data-page-link=settings]');page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
+   page.select_option('#strategyLogic','sma_cross');expect(page.locator('#strategyDescription')).to_contain_text('SMA 7')
+   page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
+   assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   page.locator('#page-settings').screenshot(path=str(root/'docs/mobile-settings-fixture.png'))
+   page.click('[data-page-link=chart]')
    page.locator('#chart').click(position={'x':130,'y':120});expect(page.locator('#candleInfo')).to_contain_text(' O ')
    assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
    page.click('#chartSearch');page.fill('#chartSearchInput','ETHUSDT');page.keyboard.press('Enter')
@@ -301,6 +308,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    expect(page.locator('#historyStatus')).to_contain_text('1000 candles loaded')
    assert page.evaluate('() => chartLookback')==1000
+   page.click('[data-page-link=positions]');expect(page.locator('#page-positions')).to_be_visible();expect(page.locator('#page-chart')).not_to_be_visible()
+   page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
+   page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
+   page.reload();expect(page.locator('#page-history')).to_be_visible()
+   page.click('[data-page-link=chart]')
    expect(page.locator('#viewMode')).to_have_count(0)
    expect(page.locator('#paperPanel')).to_have_count(0)
    page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")
@@ -310,6 +322,6 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not errors,errors
    assert not activation,activation
    browser.close()
-  print('PASS: desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, live-only controls, no JS errors/overflow, no activation requests')
+  print('PASS: separate Chart/Positions/History/Settings pages, bookmark reload, SMA strategy and close-only settings saves, retained trade display, desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, live-only controls, no JS errors/overflow, no activation requests')
  finally:
   server.terminate();server.wait(timeout=15);log.close()

@@ -103,6 +103,11 @@ def exchange_status(request: Request):
     return result
 
 
+@app.get('/api/live/history')
+def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
+    return live.history(symbol,limit,offset)
+
+
 @app.put('/api/live/settings')
 def exchange_settings(request: Request,config: TestnetSettings):
     return live.configure(config)
@@ -178,10 +183,10 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     # Chart timeframe is independent from the execution setting.
     chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'timeframe': interval})
     analysis = [b for b in (history_runner.analysis(symbol,chart_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,chart_cfg)) if b['time'] >= rows[0]['time']]
-    averages = [b for b in sma(history, cfg['sma_length']) if b['time'] >= rows[0]['time']]
+    averages = [b for b in sma(history, 200 if cfg['strategy']=='sma_cross' else cfg['sma_length']) if b['time'] >= rows[0]['time']]
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
             'analysis': analysis,
-            'indicator_status': 'Experimental S/R port; TradingView parity verification pending',
+            'indicator_status': 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
             'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 
 

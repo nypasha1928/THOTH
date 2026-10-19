@@ -51,6 +51,10 @@ def evaluate(rows, cfg, now=None):
             raise ValueError('Invalid candle price')
         if not (r['low'] <= min(r['open'],r['close']) <= max(r['open'],r['close']) <= r['high']):
             raise ValueError('Invalid candle range')
+    if cfg.strategy=='sma_cross':
+        from .sma_cross import SMACross
+        cross=SMACross()
+        return [cross.step(row,duration) for row in rows if row['time']+duration<=now]
     machines = [ZigZag(), ZigZag()]
     high_info = [(nan, nan, nan), (nan, nan, nan)]
     low_info = [(nan, nan, nan), (nan, nan, nan)]
