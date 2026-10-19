@@ -16,3 +16,9 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 #chart{touch-action:none}.page-nav a{min-width:70px}
 
 @media(max-width:850px){.page-nav{gap:4px;flex-wrap:nowrap}.page-nav a{min-width:0;min-height:44px;padding:10px 3px;font-size:11px;display:flex;align-items:center;justify-content:center}}
+
+.trade-win>td{background:rgba(82,196,125,.15);color:#d7fbe5}.pnl-win,#historyRows .pnl-win{color:#7be3a4;font-weight:700}#historyRows tr.trade-win button{color:#d7fbe5;border-color:#6d9f80;background:transparent}
+
+#events{max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:12px}#dailyBudget,#cooldownSummary,#coinCooldowns{font-variant-numeric:tabular-nums}#dailyBudget{color:#c3efab;font-weight:600}#coinCooldowns{line-height:1.8}
+
+#dailyBudget.budget-exhausted{color:#ff9b91}

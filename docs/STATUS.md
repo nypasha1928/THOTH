@@ -19,3 +19,9 @@ The PWA now has separate Chart, Live positions, History and Settings pages. Clos
 Configurable trailing activation and execute distance are frozen per new trade. The selected default bases are initial-margin ROI for activation and best-price percentage for distance; trailing defaults off. THOTH samples mark prices and tightens verified fixed Bybit stops, retaining durable peak/update intent through restart. The last confirmed stop survives server outages but does not keep trailing.
 
 Mobile gestures add one-finger time/price movement and two-finger candle zoom. The Analysis page uses the retained closed-trade ledger for coin and strategy statistics. Biometric login, password reset/change and Google Authenticator remain deferred as requested.
+
+## Priority risk update
+
+Daily protection now uses a fixed starting-equity dollar allowance below a persisted observed peak. Transfers are neutralized and the UI shows remaining allowance. Per-coin consecutive-loss control is the default, with independent persisted cooldowns; unrelated coins can continue entering/reversing. Whole-account mode is optional. Legacy shared pauses are not assigned to every coin, and unavailable historical peaks are not fabricated.
+
+Live activation errors now name ENABLE LIVE ORDERS. Manual daily-stop review preserves baseline/peak and requires flat, reconciled exposure plus equity inside the saved allowance. Countdown displays use the server clock; Activity retains the latest 30 on screen. Profit/loss row colors and detailed reversal block reasons are included.

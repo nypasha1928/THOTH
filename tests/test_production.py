@@ -41,6 +41,14 @@ class ProductionGateTests(unittest.TestCase):
             self.assertFalse(service.snapshot()['entries'])
             self.assertTrue(service.snapshot()['unverified_live_allowed'])
 
+    def test_live_confirmation_error_names_live_and_trims_whitespace(self):
+        with tempfile.TemporaryDirectory() as d:
+            service=ProductionSupervisor(Path(d)/'live.sqlite')
+            with self.assertRaisesRegex(ValueError,'Type ENABLE LIVE ORDERS to enable LIVE trading'):
+                service.activate('ENABLE TESTNET ORDERS')
+            with self.assertRaisesRegex(ValueError,'disabled'):
+                service.activate('  ENABLE LIVE ORDERS  ')
+
     def test_journal_rejects_wrong_environment_endpoint(self):
         with tempfile.TemporaryDirectory() as d:
             client=ProductionClient()

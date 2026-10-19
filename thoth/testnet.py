@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.request import urlopen
 from .verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
 
-from .account_risk import new_risk, sample, closure, day
+from .account_risk import new_risk, sample, closure, day, symbol_paused
 from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
 from .credentials import runtime_secret
 from .execution import ExecutionJournal
@@ -79,7 +79,7 @@ class TestnetSupervisor:
         state.setdefault('pending_signals',{})
         state.setdefault('blocked_symbols',{})
         state['config']={**TestnetSettings().model_dump(),**state['config']}
-        state['risk'].setdefault('portfolio_stop',False)
+        for key,value in new_risk().items():state['risk'].setdefault(key,value)
         state.setdefault('daily_resume_intent',False)
         state.setdefault('flatten_reason',None)
         return state
@@ -95,8 +95,9 @@ class TestnetSupervisor:
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
             'blocked_symbols':s.get('blocked_symbols',{}),'monitor_error':s.get('monitor_error'),
+            'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
-            'risk':{k:s['risk'][k] for k in ('day','baseline','loss_pct','streak','pause_until','daily_stop','baseline_required','portfolio_stop')},
+            'risk':{k:s['risk'][k] for k in ('day','baseline','peak','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
@@ -124,7 +125,7 @@ class TestnetSupervisor:
     def configure(self,cfg):
         with self.lock:
             self.state=self.load()
-            if self.state['entries']:raise ValueError('Pause testnet entries before editing settings')
+            if self.state['entries']:raise ValueError('Pause '+self.label+' entries before editing settings')
             if any(s not in cfg.symbols for s in self.state['owned']):raise ValueError('Close managed positions before removing their symbols')
             if cfg.strategy!=self.state['config']['strategy']:
                 if self.state['management'] and self.client is None:
@@ -190,13 +191,13 @@ class TestnetSupervisor:
 
     def _preflight(self):
         if not self.enabled:raise ValueError(self.label+' execution is disabled on the server')
-        if not self.password_configured:raise ValueError('Configure dashboard authentication before testnet execution')
+        if not self.password_configured:raise ValueError('Configure dashboard authentication before '+self.label+' execution')
         cfg=TestnetSettings(**self.state['config'])
         if not cfg.symbols:raise ValueError('Select at least one symbol')
-        if not cfg.dedicated_account:raise ValueError('A dedicated USDT-only testnet account must be acknowledged')
+        if not cfg.dedicated_account:raise ValueError('A dedicated USDT-only '+self.label+' account must be acknowledged')
         if cfg.margin_mode not in ('isolated','cross'):raise ValueError('Confirm a margin mode')
         key,secret=self.credentials()
-        if not key or not secret:raise ValueError('Testnet credentials are not configured')
+        if not key or not secret:raise ValueError(self.label+' credentials are not configured')
         client=self.factory(key,secret,armed=True)
         if client.BASE!={'testnet':'https://api-testnet.bybit.com','live':'https://api.bybit.com'}[self.environment]:raise ValueError('Exchange endpoint/environment mismatch')
         info=client.request('GET','/v5/user/query-api',{},private=True)
@@ -207,10 +208,10 @@ class TestnetSupervisor:
             {'Order','Position'}.issubset(set(perms.get('ContractTrade',[]))) or 'DerivativesTrade' in perms.get('Derivatives',[])):
             raise ValueError('Key must have contract order and position permissions')
         uid=info.get('userID')
-        if not uid:raise ValueError('Cannot bind testnet execution to an account')
+        if not uid:raise ValueError('Cannot bind '+self.label+' execution to an account')
         binding=hashlib.sha256(('bybit-'+self.environment+':'+str(uid)).encode()).hexdigest()
         if self.state['account_binding'] and self.state['account_binding']!=binding:
-            raise ValueError('Credentials belong to a different testnet account')
+            raise ValueError('Credentials belong to a different '+self.label+' account')
         account=client.request('GET','/v5/account/info',{},private=True)
         expected='ISOLATED_MARGIN' if cfg.margin_mode=='isolated' else 'REGULAR_MARGIN'
         if account.get('marginMode')!=expected:raise ValueError('Bybit margin mode differs from the selected setting; change it in Bybit first')
@@ -245,14 +246,22 @@ class TestnetSupervisor:
     def activate(self,confirmation,recovery=False):
         with self.lock:
             self.state=self.load()
-            if confirmation!=self.confirmation:raise ValueError('Explicit testnet confirmation is required')
-            if not recovery and self.state['risk']['daily_stop'] and self.state['risk']['day']==day(self.clock()):
-                raise ValueError('Daily loss lock cannot be bypassed')
-            if not recovery and self.state['risk'].get('pause_until') and self.clock()<self.state['risk']['pause_until']:
+            if confirmation.strip()!=self.confirmation:raise ValueError('Type '+self.confirmation+' to enable '+self.label+' trading')
+            if not recovery and self.state['config']['loss_streak_scope']=='account' and self.state['risk'].get('pause_until') and self.clock()<self.state['risk']['pause_until']:
                 raise ValueError('Consecutive-loss pause cannot be bypassed')
-            self.state.update(entries=False,status='paused',reason='Checking testnet account prerequisites')
+            self.state.update(entries=False,status='paused',reason='Checking '+self.label+' account prerequisites')
             self.save()
             cfg=self._preflight()
+            if not recovery and self.state['risk']['daily_stop'] and self.state['risk']['day']==day(self.clock()):
+                sample(self.state['risk'],self.wallet(),self.transfers(),cfg,self.clock())
+                self.save()
+                unresolved=any(r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records())
+                if self.positions() or self.state['owned'] or unresolved:
+                    raise ValueError('Daily stop remains active: close and reconcile all managed positions and orders before manual review')
+                if self.state['risk']['loss_used']>=self.state['risk']['loss_allowance']:
+                    raise ValueError("Daily loss allowance is exhausted. Review the daily limit in Settings; increasing it increases the permitted daily risk. The starting equity and peak cannot be reset")
+                self.state['risk']['daily_stop']=False
+                self.event('Operator manually reviewed daily protection under the revised allowance; starting equity and peak preserved')
             if not recovery and self.state['risk']['portfolio_stop']:
                 if self.positions() or self.state['owned']:raise ValueError('Wait for all position-stop exits to settle before restarting')
                 self.state['risk']['portfolio_stop']=False
@@ -266,7 +275,7 @@ class TestnetSupervisor:
             try:self.monitor()
             except Exception:
                 self._lock('safety_lock','Testnet monitoring failed; new entries disabled, inspect the account')
-                raise ValueError('Testnet monitoring unavailable; entries remain disabled') from None
+                raise ValueError(self.label+' monitoring unavailable; entries remain disabled') from None
             if not recovery and self.state['entries'] and self.state['status']=='running':
                 for symbol in list(self.state['blocked_symbols']):
                     if symbol not in self.state['owned'] and not any(r['payload']['symbol']==symbol and r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records()):
@@ -355,7 +364,11 @@ class TestnetSupervisor:
         if sum((dec(r['closedSize']) for r in unique.values()),dec(0))!=dec(owner['qty']):
             return False  # Delay entries until complete realized results are visible.
         pnl=float(sum((dec(r['closedPnl']) for r in unique.values()),dec(0)))
-        closure(self.state['risk'],owner['link'],pnl,cfg,self.clock())
+        previous_pause=self.state['risk'].get('symbols',{}).get(symbol,{}).get('pause_until')
+        closure(self.state['risk'],owner['link'],pnl,cfg,self.clock(),symbol)
+        coin_pause=self.state['risk'].get('symbols',{}).get(symbol,{}).get('pause_until')
+        if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
+            self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
         trade=dict(link=owner['link'],symbol=symbol,side='Long' if owner['side']=='Buy' else 'Short',entry=float(owner['entry']),qty=float(owner['qty']),opened_at=owner['opened_ms']/1000,
             strategy=owner.get('strategy','sr_breakout'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
         self._record_trade(owner['link'],trade)
@@ -512,7 +525,7 @@ class TestnetSupervisor:
     def close_all(self):
         with self.lock:
             self.state=self.load()
-            if not self.client or not self.state['management']:raise ValueError('Activate testnet risk management first')
+            if not self.client or not self.state['management']:raise ValueError('Activate '+self.label+' risk management first')
             self._lock('paused','Manual close all; new entries disabled')
             self.state['flatten_reason']='Manual close all'
             self.save()
@@ -526,7 +539,7 @@ class TestnetSupervisor:
     def establish_baseline(self):
         with self.lock:
             self.state=self.load()
-            if not self.client:raise ValueError('Connect testnet management first')
+            if not self.client:raise ValueError('Connect '+self.label+' management first')
             if self.state['risk']['day']==day(self.clock()) and self.state['risk']['daily_stop']:
                 raise ValueError('Today\'s daily loss lock cannot be reset')
             if self.positions() or self.state['owned']:raise ValueError('Account must be flat and all results reconciled')
@@ -535,6 +548,17 @@ class TestnetSupervisor:
             self.state.update(status='paused',entries=False,reason='New daily baseline established; manually enable entries')
             self.save()
         return self.snapshot()
+
+    def _reversal_block_reason(self,symbol):
+        reasons=[]
+        if symbol_paused(self.state['risk'],symbol,TestnetSettings(**self.state['config']),self.clock()):
+            reasons.append('per-coin consecutive-loss cooldown')
+        if symbol in self.state['blocked_symbols']:
+            reasons.append('symbol blocked: '+self.state['blocked_symbols'][symbol])
+        if self.state['status']!='running':
+            reasons.append(self.state['status'].replace('_',' ')+(': '+self.state['reason'] if self.state['reason'] else ''))
+        if not self.state['entries']:reasons.append('new entries disabled')
+        return '; '.join(reasons)
 
     def apply_signals(self,cfg,observations):
         with self.lock:
@@ -557,24 +581,25 @@ class TestnetSupervisor:
                     if owner['side']==side:continue
                     reason='Opposite SMA crossover' if current.strategy=='sma_cross' else 'Opposite breakout'
                     owner['signal_exit']=reason
-                    if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
+                    if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
-                        self.event(symbol+': opposite-signal exit requested; replacement entry blocked by account/risk state')
+                        self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
                     self.save()  # Retain exit obligation if a position read fails.
                     try:
                         p=self.positions().get(symbol)
                         if p:self._close(symbol,p,reason)
                     except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
-                if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols']:
+                if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                     self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
             self._reversals(current)
             self._drain(current)
             self.save()
 
     def _entry(self,symbol,side,stamp,identity,cfg):
+        if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):return
         if symbol in self.state['blocked_symbols']:return
         if self.state['status']!='running' or not self.state['entries']:return
         if len(self.state['owned'])>=cfg.max_positions:return
@@ -613,6 +638,8 @@ class TestnetSupervisor:
 
     def _drain(self,cfg):
         for symbol,intent in list(self.state['pending_signals'].items()):
+            if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
+                del self.state['pending_signals'][symbol];continue
             if self.clock()-intent['time']>(120 if cfg.timeframe=='1' else 172800):
                 del self.state['pending_signals'][symbol];continue
             if self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
@@ -623,6 +650,10 @@ class TestnetSupervisor:
 
     def _reversals(self,cfg):
         for symbol,reversal in list(self.state['reversals'].items()):
+            if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
+                del self.state['reversals'][symbol]
+                self.event(symbol+": replacement entry blocked by this coin’s consecutive-loss cooldown")
+                continue
             if self.clock()-reversal['time']>(120 if cfg.timeframe=='1' else 172800):
                 del self.state['reversals'][symbol]
                 self.event(symbol+': reverse signal expired; no replacement position opened')
