@@ -13,6 +13,7 @@ class Settings(BaseModel):
     position_value: float = Field(default=50, gt=0, le=100000, allow_inf_nan=False)
     leverage: int = Field(default=20, ge=1, le=100)
     stop_dollars: float = Field(default=1, gt=0, allow_inf_nan=False)
+    sma_exit_enabled: bool = True
     trailing_enabled: bool = False
     trailing_activation_basis: str = Field(default='margin',pattern=r'^(price|margin)$')
     trailing_activation_pct: float = Field(default=10,ge=0,le=10000,allow_inf_nan=False)

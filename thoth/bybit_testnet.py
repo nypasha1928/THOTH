@@ -124,8 +124,8 @@ class TestnetClient:
         return self.request('POST','/v5/position/trading-stop',dict(category='linear',symbol=symbol,
             tpslMode='Full',positionIdx=0,stopLoss=stop,slTriggerBy='MarkPrice'),private=True)
 
-    def candles(self,symbol,interval):
-        rows=self.request('GET','/v5/market/kline',dict(category='linear',symbol=symbol,interval=interval,limit=1000))['list']
+    def candles(self,symbol,interval,limit=1000):
+        rows=self.request('GET','/v5/market/kline',dict(category='linear',symbol=symbol,interval=interval,limit=limit))['list']
         return sorted([dict(time=int(r[0])//1000,open=float(r[1]),high=float(r[2]),low=float(r[3]),close=float(r[4]),volume=float(r[5])) for r in rows],key=lambda r:r['time'])
 
     def close_payload(self,symbol,side,qty,identifier):

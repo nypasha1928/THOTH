@@ -10,7 +10,7 @@ const mode='live';
 let dirty=false,formDraft=null,chartRequest=0,chartLoading=false;
 const marketPrice=n=>Number(n).toLocaleString('en-US',{maximumFractionDigits:Math.abs(Number(n))<1?Math.min(12,Math.max(6,2-Math.floor(Math.log10(Math.abs(Number(n))||1)))):Math.abs(Number(n))<10?4:2});
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0));
-const fieldIds=['trailing_enabled','trailing_activation_pct','trailing_distance_pct','position_value','leverage','stop_dollars','daily_loss_pct','max_positions','consecutive_losses','pause_minutes','pivot_long','pivot_short','sma_length','major','minor','sma_enabled','portfolio_loss_enabled','portfolio_loss_pct','daily_resume_automatic'];
+const fieldIds=['sma_exit_enabled','trailing_enabled','trailing_activation_pct','trailing_distance_pct','position_value','leverage','stop_dollars','daily_loss_pct','max_positions','consecutive_losses','pause_minutes','pivot_long','pivot_short','sma_length','major','minor','sma_enabled','portfolio_loss_enabled','portfolio_loss_pct','daily_resume_automatic'];
 async function api(path,method='GET',body){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),45000);
  try{const response=await fetch('/api/'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal});
@@ -43,7 +43,7 @@ function renderSettings(){
  ['portfolio_loss_pct','Overall position loss (%)',{min:'.1',max:'100',step:'.1'}],['max_positions','Maximum positions',{max:'100'}],['consecutive_losses','Consecutive losses',{max:'100'}],
  ['pause_minutes','Pause duration (minutes)',{max:'10080'}],['pivot_long','Long pivot period',{max:'100'}],['pivot_short','Short pivot period',{max:'100'}],['sma_length','SMA length',{max:'500'}]])
  $('fields').append(field(label,id,c[id],'number',attrs));
- for(const [id,label]of [['trailing_enabled','Enable trailing stop for new positions'],['major','Major levels'],['minor','Minor levels'],['sma_enabled','SMA filter'],['portfolio_loss_enabled','Enable overall position loss stop'],['daily_resume_automatic','Resume after next UTC day']])$('fields').append(field(label,id,c[id],'checkbox'));
+ for(const [id,label]of [['sma_exit_enabled','SMA 7/50 intrabar exits (both strategies)'],['trailing_enabled','Enable trailing stop for new positions'],['major','Major levels'],['minor','Minor levels'],['sma_enabled','SMA filter'],['portfolio_loss_enabled','Enable overall position loss stop'],['daily_resume_automatic','Resume after next UTC day']])$('fields').append(field(label,id,c[id],'checkbox'));
  $('strategyLogic').value=c.strategy;$('oppositeAction').value=c.opposite_action;renderStrategyDescription();
  $('lossStreakScope').value=c.loss_streak_scope;
  $('trailingBasis').value=c.trailing_distance_basis;$('trailingActivationBasis').value=c.trailing_activation_basis;renderTrailingDescription();
@@ -164,6 +164,7 @@ setInterval(refreshQuote,5000);
 function countdown(until){const seconds=Math.max(0,Math.ceil(until-(Date.now()+riskClockOffset)/1000)),hours=Math.floor(seconds/3600),minutes=Math.floor(seconds%3600/60),rest=seconds%60;return (hours?String(hours).padStart(2,'0')+':':'')+String(minutes).padStart(2,'0')+':'+String(rest).padStart(2,'0')}
 function renderRiskOverview(){
  if(!lv)return;const risk=lv.risk,now=(Date.now()+riskClockOffset)/1000;
+ $('dailyCountdown').textContent='Time until next UTC day: '+countdown((Math.floor(now/86400)+1)*86400)+' · resets at 00:00 UTC; restart follows your saved resume setting';
  if(risk.loss_allowance==null){$('dailyBudget').textContent='Waiting for a verified risk baseline…';$('dailyBudgetDetails').textContent='';}
  else{$('dailyBudget').classList.toggle('budget-exhausted',risk.daily_stop||risk.remaining<=0);$('dailyBudget').textContent='Daily loss allowance remaining: '+money(risk.remaining)+' ('+Number(risk.remaining_pct).toFixed(2)+'% of starting equity)';$('dailyBudgetDetails').textContent='UTC starting equity: '+money(risk.baseline)+' · Tracked transfer-adjusted peak: '+money(risk.peak)+' · Allowance: '+money(risk.loss_allowance)+' · Used below peak: '+money(risk.loss_used)+' · Current account stop threshold: '+money(risk.stop_equity)+(risk.daily_stop?' · Daily stop latched; explicit review required':'');}
  $('coinCooldowns').replaceChildren();

@@ -39,6 +39,10 @@ class Exchange(TestnetClient):
             if params.get('orderLinkId'):rows=[self.orders[params['orderLinkId']]] if params['orderLinkId'] in self.orders else []
             else:rows=[o for o in self.orders.values() if o['orderStatus'] in ('New','PartiallyFilled')]
             return {'list':deepcopy(rows)}
+        if path=='/v5/market/kline':
+            duration=60 if params['interval']=='1' else 86400
+            start=int(self.now())//duration*duration
+            return {'list':[[str((start-i*duration)*1000),'100','100','100','100','1'] for i in range(params['limit'])]}
         if path=='/v5/market/tickers':return {'list':[dict(lastPrice=str(self.prices[params['symbol']]))]}
         if path=='/v5/position/set-leverage':return {}
         if path=='/v5/order/create':
