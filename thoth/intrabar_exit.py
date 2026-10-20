@@ -1,5 +1,6 @@
 """Causal SMA 7/50 exits using the current (unfinished) exchange candle."""
 import math
+from .timeframes import interval_seconds
 
 
 class ExitDataError(ValueError):
@@ -9,7 +10,7 @@ class ExitDataError(ValueError):
 
 
 def observe_exit(tracker,rows,timeframe,side,now):
-    duration=60 if timeframe=='1' else 86400
+    duration=interval_seconds(timeframe)
     start=int(now)//duration*duration
     rows=sorted(rows,key=lambda r:r['time'])
     if len(rows)<51 or rows[-1]['time']!=start:

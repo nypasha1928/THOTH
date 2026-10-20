@@ -1,4 +1,5 @@
 """Read-only public Bybit market data. TLS verification remains enabled."""
+from .timeframes import interval_seconds,INTERVALS
 import json
 from urllib.parse import urlencode
 from urllib.request import urlopen
@@ -72,7 +73,7 @@ def _history_page(symbol,interval,environment,before,bucket):
 def chart_history(symbol,interval,bars,environment):
     """Bounded public chart replay only; never writes execution checkpoints."""
     from time import sleep
-    if not 1000<=bars<=5000 or interval not in ('1','D') or environment not in ('paper','live','testnet'):
+    if not 1000<=bars<=5000 or interval not in INTERVALS or environment not in ('paper','live','testnet'):
         raise ValueError('Unsupported historical chart request')
     collected={};before=None
     for page in range(5):
@@ -85,7 +86,7 @@ def chart_history(symbol,interval,bars,environment):
         sleep(.125)
     result=sorted(collected.values(),key=lambda r:r['time'])[-bars:]
     if not result:raise ValueError('No historical candles available')
-    duration=60 if interval=='1' else 86400
+    duration=interval_seconds(interval)
     if any(b['time']-a['time']!=duration for a,b in zip(result,result[1:])):
         raise ValueError('Historical candles contain a gap; replay unavailable')
     return result

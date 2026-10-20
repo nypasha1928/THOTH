@@ -14,6 +14,7 @@ from urllib.request import urlopen
 from .verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
 
 from .intrabar_exit import observe_exit
+from .timeframes import interval_seconds
 from .account_risk import new_risk, sample, closure, day, symbol_paused
 from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
 from .credentials import runtime_secret
@@ -609,7 +610,7 @@ class TestnetSupervisor:
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
                 if previous is None or observation.get('signal') not in ('Long','Short'):continue
-                if not 0<=self.clock()-stamp<=(120 if current.timeframe=='1' else 172800):continue
+                if not 0<=self.clock()-stamp<=(2*interval_seconds(current.timeframe)):continue
                 side='Buy' if observation['signal']=='Long' else 'Sell'
                 owner=self.state['owned'].get(symbol)
                 if owner:
@@ -675,7 +676,7 @@ class TestnetSupervisor:
         for symbol,intent in list(self.state['pending_signals'].items()):
             if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
                 del self.state['pending_signals'][symbol];continue
-            if self.clock()-intent['time']>(120 if cfg.timeframe=='1' else 172800):
+            if self.clock()-intent['time']>(2*interval_seconds(cfg.timeframe)):
                 del self.state['pending_signals'][symbol];continue
             if self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
@@ -689,7 +690,7 @@ class TestnetSupervisor:
                 del self.state['reversals'][symbol]
                 self.event(symbol+": replacement entry blocked by this coin’s consecutive-loss cooldown")
                 continue
-            if self.clock()-reversal['time']>(120 if cfg.timeframe=='1' else 172800):
+            if self.clock()-reversal['time']>(2*interval_seconds(cfg.timeframe)):
                 del self.state['reversals'][symbol]
                 self.event(symbol+': reverse signal expired; no replacement position opened')
                 continue

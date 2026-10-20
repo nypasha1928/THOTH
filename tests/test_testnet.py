@@ -40,7 +40,8 @@ class Exchange(TestnetClient):
             else:rows=[o for o in self.orders.values() if o['orderStatus'] in ('New','PartiallyFilled')]
             return {'list':deepcopy(rows)}
         if path=='/v5/market/kline':
-            duration=60 if params['interval']=='1' else 86400
+            from thoth.timeframes import interval_seconds
+            duration=interval_seconds(params['interval'])
             start=int(self.now())//duration*duration
             return {'list':[[str((start-i*duration)*1000),'100','100','100','100','1'] for i in range(params['limit'])]}
         if path=='/v5/market/tickers':return {'list':[dict(lastPrice=str(self.prices[params['symbol']]))]}

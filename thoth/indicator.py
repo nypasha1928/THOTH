@@ -6,6 +6,7 @@
 Experimental port: TradingView parity requires external reference exports.
 No future bars are used at the historical pivot's chart timestamp.
 """
+from .timeframes import interval_seconds
 from math import nan, isfinite
 from time import time
 
@@ -42,7 +43,7 @@ def confirmed_pivot(rows, i, period, field, high):
 
 def evaluate(rows, cfg, now=None):
     now = time() if now is None else now
-    duration = 60 if cfg.timeframe == '1' else 86400
+    duration = interval_seconds(cfg.timeframe)
     rows = sorted(rows, key=lambda r:r['time'])
     if len({r['time'] for r in rows}) != len(rows):
         raise ValueError('Duplicate candle timestamps')

@@ -37,6 +37,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     row['time']=1700006400+i*86400
     if array=='analysis':
      for level in row['levels'].values():level['pivot_time']=1700006400+max(0,(i//100)*100-20)*86400
+  chart_intervals={'1':chart,'D':chart_daily}
+  for interval,duration in [('5',300),('60',3600),('240',14400)]:
+   item=copy.deepcopy(chart);origin=1792300000//duration*duration
+   for array in ('candles','analysis','sma'):
+    for i,row in enumerate(item[array]):
+     row['time']=origin+i*duration
+     if array=='analysis':
+      for level in row['levels'].values():level['pivot_time']=origin+max(0,(i//100)*100-20)*duration
+   chart_intervals[interval]=item
   chart_older=copy.deepcopy(chart)
   old_rows=[];old_bars=[];old_sma=[]
   for i in range(-1000,0):
@@ -49,7 +58,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
     chart_queries.append(url)
-    result=chart_daily if 'interval=D' in url else chart_older if 'lookback=2000' in url else chart
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    result=chart_older if 'lookback=2000' in url else chart_intervals[params.get('interval',['1'])[0]]
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -229,6 +239,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
    assert all(b-a==86400 for a,b in zip(ticks,ticks[1:]))
+   for interval,label,duration in [('5','5m',300),('60','1h',3600),('240','4h',14400)]:
+    page.select_option('#tf',interval);expect(page.locator('#title')).to_contain_text(label)
+    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes)=>nodes.map(n=>Number(n.dataset.timeTick))')
+    assert all(b-a==duration for a,b in zip(ticks,ticks[1:]))
+    expect(page.locator('[data-sma50]')).to_have_count(1);expect(page.locator('[data-sma200]')).to_have_count(1)
+    expect(page.locator('#strategyTf')).to_have_value('1')
    page.select_option('#tf','1');expect(page.locator('#title')).to_contain_text('1m')
    # Display-only overlays use pre-viewport warmup and independent volume scale.
    expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#ffffff')
@@ -273,6 +289,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert abs(geometry['labelCenter']-geometry['highCenter'])>=22,geometry
    countdowns=page.evaluate('() => [candleCountdown(0,"1"),candleCountdown(59000,"1"),candleCountdown(60000,"1"),candleCountdown(86399000,"D"),candleCountdown(86400000,"D")]')
    assert countdowns==['01:00','00:01','01:00','00:00:01','24:00:00'],countdowns
+   assert page.evaluate('() => [candleCountdown(0,"5"),candleCountdown(0,"60"),candleCountdown(0,"240")]')==['05:00','01:00:00','04:00:00']
    expect(page.locator('[data-candle-countdown]')).to_be_visible()
    timer=page.locator('[data-candle-countdown]').text_content()
    expect(page.locator('[data-candle-countdown]')).not_to_have_text(timer,timeout=3000)
@@ -342,6 +359,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     expect(page.locator('#'+control)).to_be_visible()
    expect(page.locator('#sma_enabled').locator('..')).to_contain_text('S/R entry filter')
    expect(page.locator('#sma_7_50_filter_enabled').locator('..')).to_contain_text('S/R entry filter')
+   for interval in ['5','60','240']:
+    page.select_option('#strategyTf',interval);page.click('#saveSymbols')
+    page.wait_for_function('(value)=>lv.config.timeframe===value',arg=interval)
+    assert writes[-1][1]['timeframe']==interval
+    expect(page.locator('#tf')).to_have_value('1')
+   page.select_option('#strategyTf','1')
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'

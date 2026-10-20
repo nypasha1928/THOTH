@@ -21,3 +21,17 @@ These fixed display periods do not depend on entry strategy, SMA filter enable
 checkboxes, filter length, or the intrabar exit checkbox. Changing chart colors
 or timeframe does not change saved strategy settings, trading signals, or risk.
 Volume and its MA 20 remain independent display overlays.
+
+## Chart and bot timeframes
+
+Both selectors offer 1 minute, 5 minutes, 1 hour, 4 hours and Daily. The chart
+selector changes the view only. In Settings, the strategy timeframe changes
+which candles drive entry logic and the SMA 7/50 exit. Save it explicitly while
+entries are paused; viewing another chart does not change the saved selection.
+All SMA periods count candles: on a 1-hour strategy, SMA 50 uses 50 hourly
+candles. Entries remain confirmed at candle close; the SMA exit still samples
+the currently forming candle without waiting for it to close. Signal freshness
+and reversal expiry remain two candles, calculated using the selected interval.
+
+The three display SMA lines, timeframe options, and color controls are included
+in the same update branch.

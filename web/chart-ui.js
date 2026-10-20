@@ -62,7 +62,7 @@ function displayAverage(rows,period,field){
 
 let formingDisplayState=null;
 function synchronizeFormingCandle(rows,quote,context,previous=null){
- const last=rows.at(-1),seconds=context.interval==='D'?86400:60,now=context.now??Date.now()/1000;
+ const last=rows.at(-1),seconds=chartIntervalSeconds(context.interval),now=context.now??Date.now()/1000;
  if(!last||!quote||quote.symbol!==context.symbol||quote.environment!==context.environment||!Number.isFinite(quote.price)||quote.price<=0||now-quote.observed_at>=20||now-quote.observed_at< -5||now<last.time||now>=last.time+seconds||quote.observed_at<last.time||quote.observed_at>=last.time+seconds)return {rows,state:previous};
  const key=[context.environment,context.symbol,context.interval,last.time].join(':');
  const prior=previous?.key===key?previous:null;
@@ -73,13 +73,13 @@ function synchronizeFormingCandle(rows,quote,context,previous=null){
 }
 
 function candleCountdown(nowMilliseconds=marketNow(),interval=$('tf').value){
- const period=interval==='D'?86400:60,now=Math.floor(nowMilliseconds/1000),remaining=period-((now%period)+period)%period;
+ const period=chartIntervalSeconds(interval),now=Math.floor(nowMilliseconds/1000),remaining=period-((now%period)+period)%period;
  const seconds=String(remaining%60).padStart(2,'0'),minutes=String(Math.floor(remaining/60)%60).padStart(2,'0');
- return interval==='D'?String(Math.floor(remaining/3600)).padStart(2,'0')+':'+minutes+':'+seconds:minutes+':'+seconds;
+ return period>=3600?String(Math.floor(remaining/3600)).padStart(2,'0')+':'+minutes+':'+seconds:minutes+':'+seconds;
 }
 function updateCandleCountdown(){
  const text=candleCountdown();for(const node of document.querySelectorAll('[data-candle-countdown]'))node.textContent=text;
- $('candleCountdown').textContent='Current '+($('tf').value==='D'?'Daily':'1m')+' candle closes in '+text+' · UTC';
+ $('candleCountdown').textContent='Current '+$('tf').selectedOptions[0].textContent+' candle closes in '+text+' · UTC';
 }
 setInterval(updateCandleCountdown,1000);
 

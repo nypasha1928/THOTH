@@ -24,7 +24,7 @@ class Settings(BaseModel):
     loss_streak_scope: str = Field(default='per_coin',pattern=r'^(per_coin|account)$')
     consecutive_losses: int = Field(default=3, ge=1, le=100)
     pause_minutes: int = Field(default=60, ge=1, le=10080)
-    timeframe: str = Field(default='1', pattern=r'^(1|D)$')
+    timeframe: str = Field(default='1', pattern=r'^(1|5|60|240|D)$')
     pivot_long: int = Field(default=21, ge=1, le=100)
     pivot_short: int = Field(default=5, ge=1, le=100)
     major: bool = True
