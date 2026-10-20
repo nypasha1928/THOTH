@@ -10,6 +10,9 @@ import secrets
 import threading
 import time
 from collections import defaultdict, deque
+from pathlib import Path
+from .security import SecurityStore,password_matches
+from .security_routes import perform
 
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from .credentials import runtime_secret
@@ -24,11 +27,40 @@ KEY = hmac.new(PASSWORD.encode(), b'THOTH-session-v2'+secrets.token_bytes(32), h
 _revoked = {}
 _attempts = defaultdict(deque)
 _lock = threading.Lock()
-LOGIN = '''<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>THOTH · Sign in</title><style>body{background:#101918;color:#ecf1e9;font:16px system-ui;margin:12vh auto;max-width:360px;padding:24px}input,button{box-sizing:border-box;width:100%;padding:14px;border-radius:8px;margin:12px 0}button{background:#b9ee79;border:0}p{color:#a8b5aa}</style><h1>THOTH.</h1><p>Sign in to your trading desk.</p><form id="login"><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button>Sign in</button></form><p id="error" role="status"></p><script src="/login.js" defer></script></html>'''
+_store = None
 
 
-def token():
-    body=f'{int(time.time())+28800}.{secrets.token_hex(16)}'
+def security_store():
+    global _store
+    if _store is None:
+        with _lock:
+            if _store is None:
+                directory=Path(os.environ.get('THOTH_DB',str(Path(__file__).resolve().parent.parent/'data'/'live.sqlite'))).parent
+                _store=SecurityStore(directory)
+    return _store
+
+
+def limited(host):
+    with _lock:
+        attempts=_attempts[host]
+        while attempts and attempts[0]<time.time()-900:attempts.popleft()
+        if len(attempts)>=5:return True
+        attempts.append(time.time())
+    return False
+
+
+def signed_in(local,revision):
+    response=JSONResponse({'status':'signed_in'})
+    response.set_cookie('thoth_session',token(revision),max_age=28800,httponly=True,
+                        secure=not local,samesite='strict',path='/')
+    return response
+
+LOGIN = (Path(__file__).resolve().parent.parent/'web'/'login.html').read_text()
+
+
+def token(revision=None):
+    if revision is None:revision=security_store().read()['revision']
+    body=f"{int(time.time())+28800}.{secrets.token_hex(16)}.{revision}"
     return body+'.'+hmac.new(KEY,body.encode(),hashlib.sha256).hexdigest()
 
 
@@ -37,7 +69,9 @@ def authorized(request):
     raw=request.cookies.get('thoth_session','')
     try:
         body,signature=raw.rsplit('.',1)
-        expiry=int(body.split('.')[0])
+        expiry_text,nonce,revision=body.split('.')
+        expiry=int(expiry_text)
+        if int(revision)!=security_store().read()['revision']:return False
         if hashlib.sha256(raw.encode()).hexdigest() in _revoked:return False
         return time.time()<expiry<=time.time()+28801 and hmac.compare_digest(
             signature,hmac.new(KEY,body.encode(),hashlib.sha256).hexdigest())
@@ -50,25 +84,54 @@ async def guard(request):
         return JSONResponse({'detail':'HTTPS required'},status_code=400)
     path=request.url.path
     if path=='/login':return HTMLResponse(LOGIN) if PASSWORD else RedirectResponse('/')
+    public_security=path in ('/api/security/login-options','/api/security/recover','/api/security/passkey/login/options','/api/security/passkey/login/verify')
     if path=='/api/login' and request.method=='POST':
         host=request.client.host if request.client else 'unknown'
-        with _lock:
-            attempts=_attempts[host]
-            while attempts and attempts[0]<time.time()-900:attempts.popleft()
-            if len(attempts)>=5:return JSONResponse({'detail':'Try later'},status_code=429)
-            attempts.append(time.time())
+        bucket=host+':login'
+        if limited(bucket):return JSONResponse({'detail':'Too many attempts. Try again in 15 minutes.'},status_code=429)
         try:
-            data=await request.json()
+            raw=await request.body()
+            if len(raw)>65536:return JSONResponse({'detail':'Request too large'},status_code=413)
+            import json
+            data=json.loads(raw)
+            if not isinstance(data,dict):raise ValueError('Invalid login')
             supplied=data.get('password','')
-            if not isinstance(supplied,str):raise ValueError()
-        except (ValueError,AttributeError):return JSONResponse({'detail':'Invalid login'},status_code=400)
-        if not PASSWORD or not hmac.compare_digest(hashlib.sha256(supplied.encode()).digest(),hashlib.sha256(PASSWORD.encode()).digest()):
-            return JSONResponse({'detail':'Invalid login'},status_code=401)
-        response=JSONResponse({'status':'signed_in'})
-        response.set_cookie('thoth_session',token(),max_age=28800,httponly=True,
-                            secure=not local,samesite='strict',path='/')
+            if not isinstance(supplied,str):raise ValueError('Invalid login')
+            if not PASSWORD:raise ValueError('Invalid login')
+            with security_store().edit() as (state,db):
+                security_store().authenticate(state,supplied,data.get('code',''),PASSWORD)
+                verified_revision=state['revision']
+        except (ValueError,AttributeError):return JSONResponse({'detail':'Invalid password, authenticator code, or recovery code. Authenticator codes can be used only once.'},status_code=401)
+        with _lock:_attempts.pop(bucket,None)
+        return signed_in(local,verified_revision)
+    if path.startswith('/api/security/'):
+        if not PASSWORD:return JSONResponse({'detail':'Configure a dashboard password first'},status_code=403)
+        if not public_security and not authorized(request):return JSONResponse({'detail':'Login required'},status_code=401)
+        if request.method not in ('GET','POST'):return JSONResponse({'detail':'Method not allowed'},status_code=405)
+        action=path.removeprefix('/api/security/')
+        if request.method=='GET' and action not in ('status','login-options'):return JSONResponse({'detail':'Method not allowed'},status_code=405)
+        host=request.client.host if request.client else 'unknown'
+        bucket=host+':'+path
+        if request.method=='POST' and limited(bucket):return JSONResponse({'detail':'Too many attempts. Try again in 15 minutes.'},status_code=429)
+        try:
+            raw=await request.body() if request.method=='POST' else b'{}'
+            if len(raw)>65536:return JSONResponse({'detail':'Request too large'},status_code=413)
+            import json
+            data=json.loads(raw)
+            if not isinstance(data,dict):raise ValueError('Invalid request')
+            result,rotate,verified_revision=perform(security_store(),request,data,PASSWORD)
+        except Exception as exc:
+            message=str(exc) if type(exc) is ValueError else 'Security verification failed; start again and verify your credentials.'
+            return JSONResponse({'detail':message},status_code=400)
+        if request.method=='POST' and action not in ('passkey/login/options',):
+            with _lock:_attempts.pop(bucket,None)
+        response=signed_in(local,verified_revision) if rotate else JSONResponse(result)
+        if rotate:
+            import json
+            response.body=json.dumps(result).encode()
+            response.headers['content-length']=str(len(response.body))
         return response
-    if path in ('/healthz','/login.js','/icon.svg','/icon-192.png','/icon-512.png','/manifest.webmanifest') and request.method=='GET':return None
+    if path in ('/healthz','/login.js','/passkeys.js','/icon.svg','/icon-192.png','/icon-512.png','/manifest.webmanifest') and request.method=='GET':return None
     if not authorized(request):
         return JSONResponse({'detail':'Login required'},status_code=401) if path.startswith('/api/') else RedirectResponse('/login')
     if path=='/api/logout' and request.method=='POST':

@@ -12,7 +12,7 @@ from thoth.analytics import analyze
 with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
  env={k:v for k,v in os.environ.items() if not k.startswith('THOTH_')};env['THOTH_DB']=d+'/paper.sqlite'
  log=open(d+'/server.log','w')
- server=subprocess.Popen(['python','-m','uvicorn','thoth.app:app','--host','127.0.0.1','--port','8097'],cwd=root,env=env,stdout=log,stderr=log)
+ server=subprocess.Popen([sys.executable,'-m','uvicorn','thoth.app:app','--host','127.0.0.1','--port','8097'],cwd=root,env=env,stdout=log,stderr=log)
  try:
   base='http://127.0.0.1:8097'
   for _ in range(100):
@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  writes=[];activation=[];errors=[];chart_queries=[]
+  writes=[];activation=[];errors=[];chart_queries=[];history_many=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -53,7 +53,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
-   elif path=='live/history':result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='Opposite breakout',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
+   elif path=='security/status':result=dict(totp_enabled=False,recovery_codes_remaining=0,passkeys=[])
+   elif path=='live/history':
+    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='Opposite breakout',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
+    if history_many:
+     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+     offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
    elif path=='live/analysis':
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
     records=[dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24),dict(symbol='BTCUSDT',strategy='sr_breakout',pnl=-.31),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0)]
@@ -406,6 +411,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.locator('#historyRows tr.trade-loss td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(255, 110, 110, 0.15)'
    expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(1)
    page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
+   history_many.extend(dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000-i,pnl=.01,reason='Synthetic trade '+str(i),strategy='sr_breakout') for i in range(123))
+   page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(50)
+   page.get_by_role('button',name='History page 2',exact=True).click()
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('51–100 of 123')
+   expect(page.locator('#historyRows tr').first).to_contain_text('Synthetic trade 50')
+   page.fill('#historyPageNumber','3');page.click('#historyJump button')
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('101–123 of 123')
+   expect(page.locator('#historyRows tr')).to_have_count(23)
+   expect(page.get_by_role('button',name='History page 3',exact=True)).to_have_attribute('aria-current','page')
+   page.get_by_role('button',name='History page 1',exact=True).click()
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('1–50 of 123')
+   history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
+
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#coinAnalysis')).to_contain_text('BTCUSDT');expect(page.locator('#strategyAnalysis')).to_contain_text('SMA 7/200')
    page.fill('#analysisSymbol','ETHUSDT');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')
