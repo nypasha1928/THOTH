@@ -309,6 +309,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#symbol','ETHUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    page.click('[data-page-link=settings]');page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
    page.select_option('#strategyLogic','sma_cross');expect(page.locator('#strategyDescription')).to_contain_text('SMA 7')
+   for control in ['sma_enabled','sma_7_50_filter_enabled','sma_length']:
+    expect(page.locator('#'+control)).to_be_visible()
+   expect(page.locator('#sma_enabled').locator('..')).to_contain_text('S/R entry filter')
+   expect(page.locator('#sma_7_50_filter_enabled').locator('..')).to_contain_text('S/R entry filter')
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
