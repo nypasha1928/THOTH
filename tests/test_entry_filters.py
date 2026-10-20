@@ -44,3 +44,23 @@ class EntryFilterTests(unittest.TestCase):
         filtered=cross.model_copy(update={'sma_7_50_filter_enabled':True,'sma_enabled':False})
         self.assertEqual(evaluate(rows,cross,now=18000),evaluate(rows,filtered,now=18000))
         self.assertNotEqual(strategy_fingerprint(Settings()),strategy_fingerprint(Settings(sma_7_50_filter_enabled=True)))
+
+    def test_defaults_off_and_old_saved_config_migration(self):
+        import tempfile
+        from pathlib import Path
+        from thoth.testnet import TestnetSupervisor
+        self.assertFalse(Settings().sma_enabled)
+        self.assertFalse(Settings().sma_7_50_filter_enabled)
+        with tempfile.TemporaryDirectory() as directory:
+            service=TestnetSupervisor(Path(directory)/'live.sqlite')
+            service.state['config'].pop('sma_7_50_filter_enabled')
+            service.state['config']['sma_enabled']=True
+            service.save()
+            service=TestnetSupervisor(service.path)
+            self.assertFalse(service.state['config']['sma_enabled'])
+            self.assertFalse(service.state['config']['sma_7_50_filter_enabled'])
+            service.state['config'].update(sma_enabled=True,sma_7_50_filter_enabled=True)
+            service.save()
+            restarted=TestnetSupervisor(service.path)
+            self.assertTrue(restarted.state['config']['sma_enabled'])
+            self.assertTrue(restarted.state['config']['sma_7_50_filter_enabled'])

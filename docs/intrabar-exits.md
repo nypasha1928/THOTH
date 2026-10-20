@@ -35,10 +35,11 @@ Bybit SMA exit execution has not been verified by the development environment.
 
 ## Optional S/R entry filters
 
-S/R Breakout now has two independent checkboxes:
+S/R Breakout starts with no entry filters. Both checkboxes default off.
+The first upgrade also clears the older automatic SMA filter selection; later
+explicitly saved choices persist across restarts. There are two independent checkboxes:
 
-- **SMA price filter (default SMA 200)** preserves the existing `sma_enabled`
-  selection and configurable `sma_length` (200 by default). Long entries need
+- **SMA price filter (default SMA 200)** uses `sma_enabled` and configurable `sma_length` (200 by default). Long entries need
   close above that SMA; shorts need close below it.
 - **SMA 7/50 entry filter** starts off. Long entries need SMA 7 above SMA 50;
   shorts need SMA 7 below SMA 50. This tests alignment, not a new crossover.
