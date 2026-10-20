@@ -3,6 +3,7 @@
 No production hostname is accepted. Never retry a submission blindly after a
 transport failure: reconcile by the original orderLinkId instead.
 """
+from .request_pacing import BYBIT_PACER
 import hashlib
 import hmac
 import json
@@ -69,6 +70,7 @@ class TestnetClient:
     def request(self, method, path, params, private=False):
         if not path.startswith('/v5/') or method not in ('GET','POST'):
             raise ValueError('Unsupported Bybit request')
+        BYBIT_PACER.wait()  # Pace before signing so timestamps remain fresh.
         encoded=urlencode(sorted(params.items())) if method=='GET' else json.dumps(params,separators=(',',':'))
         headers={'Content-Type':'application/json'}
         if private:
@@ -81,6 +83,7 @@ class TestnetClient:
         req=Request(url,data=encoded.encode() if method=='POST' else None,headers=headers,method=method)
         try:
             with self.transport(req,timeout=10) as response:body=json.load(response)
+            if body.get('retCode')==10006:BYBIT_PACER.backoff(2)
             if body.get('retCode')!=0:raise BybitError(f"Bybit rejected request ({body.get('retCode')}): {body.get('retMsg')}",code=body.get('retCode'))
         except Exception as exc:
             # Keep original exception classes so unknown order outcomes remain

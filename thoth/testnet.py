@@ -437,9 +437,11 @@ class TestnetSupervisor:
     def _manage_sma_exit(self,symbol,owner,p,cfg):
         if not cfg.sma_exit_enabled or owner['close_link']:return
         tracker=owner.setdefault('sma_exit',{})
-        if self.clock()-tracker.get('checked_at',0)<5:return
+        if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
         rows=self.client.candles(symbol,cfg.timeframe,limit=51)
         reason=observe_exit(tracker,rows,cfg.timeframe,p['side'],self.clock())
+        if owner.pop('sma_exit_error',None):self.event(symbol+': SMA exit observations recovered; account activation remains manual if paused')
+        tracker.pop('retry_after',None)
         self.save()
         if reason:
             # A durable exit obligation, independent of permission to enter.
@@ -499,8 +501,10 @@ class TestnetSupervisor:
                     try:self._manage_sma_exit(symbol,owner,p,cfg)
                     except Exception as exc:
                         # Still manage every other exit and account risk if candle reads fail.
-                        self._lock('safety_lock',symbol+': SMA exit monitoring unavailable; new entries blocked')
-                        owner['sma_exit_error']=failure_details(exc,'sma_exit')
+                        details=failure_details(exc,'sma_exit')
+                        owner['sma_exit_error']=details
+                        owner.setdefault('sma_exit',{})['retry_after']=self.clock()+30
+                        self._lock('safety_lock',symbol+': SMA exit monitoring unavailable; new entries blocked · '+failure_summary(details))
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)

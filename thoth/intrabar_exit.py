@@ -2,17 +2,23 @@
 import math
 
 
+class ExitDataError(ValueError):
+    def __init__(self,reason):
+        super().__init__(reason)
+        self.exit_data_reason=reason
+
+
 def observe_exit(tracker,rows,timeframe,side,now):
     duration=60 if timeframe=='1' else 86400
     start=int(now)//duration*duration
     rows=sorted(rows,key=lambda r:r['time'])
     if len(rows)<51 or rows[-1]['time']!=start:
-        raise ValueError('Fresh forming candle and 50 prior candles required for SMA exits')
+        raise ExitDataError('forming_candle_or_history_unavailable')
     rows=rows[-51:]
     if any(b['time']-a['time']!=duration for a,b in zip(rows,rows[1:])):
-        raise ValueError('Candle gap in SMA exit observations')
+        raise ExitDataError('candle_gap')
     values=[float(r['close']) for r in rows]
-    if any(not math.isfinite(v) or v<=0 for v in values):raise ValueError('Invalid SMA exit price')
+    if any(not math.isfinite(v) or v<=0 for v in values):raise ExitDataError('invalid_price')
     previous=sum(values[-8:-1])/7-sum(values[:-1])/50
     current=sum(values[-7:])/7-sum(values[-50:])/50
     if tracker.get('timeframe')==timeframe and tracker.get('time')==start:

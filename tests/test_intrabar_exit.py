@@ -90,3 +90,21 @@ class IntrabarIntegration(unittest.TestCase):
         self.assertEqual(owner['sma_exit']['timeframe'],'1')
         self.assertTrue(self.exchange.orders[owner['close_link']]['reduceOnly'])
         self.assertFalse(self.service.state['reversals'])
+
+    def test_failed_reads_back_off_and_recovery_stays_paused(self):
+        from thoth.intrabar_exit import ExitDataError
+        self.enter();self.now[0]+=6
+        original=self.exchange.candles;attempts=[]
+        def unavailable(*args,**kwargs):
+            attempts.append(self.now[0]);raise ExitDataError('candle_gap')
+        self.exchange.candles=unavailable
+        self.service.monitor()
+        owner=self.service.state['owned']['BTCUSDT']
+        self.assertEqual(owner['sma_exit_error']['data_reason'],'candle_gap')
+        self.now[0]+=6;self.service.monitor()
+        self.assertEqual(len(attempts),1)
+        self.exchange.candles=original
+        self.now[0]+=25;self.service.monitor()
+        self.assertNotIn('sma_exit_error',owner)
+        self.assertFalse(self.service.state['entries'])
+        self.assertTrue(any('observations recovered' in e['message'] for e in self.service.state['events']))
