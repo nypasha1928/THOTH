@@ -39,9 +39,9 @@ S/R Breakout starts with no entry filters. Both checkboxes default off.
 The first upgrade also clears the older automatic SMA filter selection; later
 explicitly saved choices persist across restarts. There are two independent checkboxes:
 
-- **SMA price filter (default SMA 200)** uses `sma_enabled` and configurable `sma_length` (200 by default). Long entries need
+- **S/R entry filter: price vs SMA (default 200)** uses `sma_enabled` and configurable `sma_length` (200 by default). Long entries need
   close above that SMA; shorts need close below it.
-- **SMA 7/50 entry filter** starts off. Long entries need SMA 7 above SMA 50;
+- **S/R entry filter: SMA 7/50** starts off. Long entries need SMA 7 above SMA 50;
   shorts need SMA 7 below SMA 50. This tests alignment, not a new crossover.
 
 Selecting both requires both conditions. With neither selected, the S/R
@@ -50,3 +50,7 @@ contiguous closed candles and equality blocks both directions. These options
 apply only to S/R Breakout; SMA 7/200 retains its confirmed-crossover entries.
 The independently selectable intrabar SMA 7/50 exit still applies to both
 entry strategies when enabled. It does not become an entry filter.
+
+Both entry-filter checkboxes and the SMA length stay visible under either entry
+strategy. Their labels identify them as S/R filters; selecting SMA 7/200 does
+not hide or clear their saved selections. They only filter S/R Breakout entries.
