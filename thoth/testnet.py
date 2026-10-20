@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.request import urlopen
 from .verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
 
+from .intrabar_exit import observe_exit
 from .account_risk import new_risk, sample, closure, day, symbol_paused
 from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
 from .credentials import runtime_secret
@@ -429,6 +430,21 @@ class TestnetSupervisor:
         self.save()
         self.event(symbol+': trailing stop verified on Bybit at '+target)
 
+    def _manage_sma_exit(self,symbol,owner,p,cfg):
+        if not cfg.sma_exit_enabled or owner['close_link']:return
+        tracker=owner.setdefault('sma_exit',{})
+        if self.clock()-tracker.get('checked_at',0)<5:return
+        rows=self.client.candles(symbol,cfg.timeframe,limit=51)
+        reason=observe_exit(tracker,rows,cfg.timeframe,p['side'],self.clock())
+        self.save()
+        if reason:
+            # A durable exit obligation, independent of permission to enter.
+            owner['signal_exit']=reason
+            self.state['reversals'].pop(symbol,None)
+            self.state['pending_signals'].pop(symbol,None)
+            self.save()
+            self._close(symbol,p,reason)
+
     def monitor(self):
         with self.lock:
             if not self.client or not self.state['management']:return
@@ -473,6 +489,14 @@ class TestnetSupervisor:
                             self.save()
                         if not owner['close_link'] and dec(p.get('stopLoss','0'))==dec(expected):
                             self._manage_trailing(symbol,owner,p,record,desired)
+            for symbol,owner in list(self.state['owned'].items()):
+                p=active.get(symbol)
+                if p:
+                    try:self._manage_sma_exit(symbol,owner,p,cfg)
+                    except Exception as exc:
+                        # Still manage every other exit and account risk if candle reads fail.
+                        self._lock('safety_lock',symbol+': SMA exit monitoring unavailable; new entries blocked')
+                        owner['sma_exit_error']=failure_details(exc,'sma_exit')
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)
