@@ -1,10 +1,10 @@
 // Separate, bookmarkable PWA pages; navigation never changes trading settings.
-const pageIds=['chart','positions','history','analysis','settings'];
+const pageIds=['chart','positions','history','analysis','settings','security'];
 let historyOffset=0,historyTotal=0,historyRequest=0;
 function buildPages(){
  const grid=document.querySelector('.grid'),nav=document.createElement('nav');
  nav.className='page-nav';nav.setAttribute('aria-label','Trading desk pages');
- for(const [id,label] of [['chart','Chart'],['positions','Live positions'],['history','History'],['analysis','Analysis'],['settings','Settings']]){
+ for(const [id,label] of [['chart','Chart'],['positions','Live positions'],['history','History'],['analysis','Analysis'],['settings','Settings'],['security','Security']]){
   const link=document.createElement('a');link.href='#'+id;link.textContent=label;link.dataset.pageLink=id;nav.append(link);
  }
  document.querySelector('main').prepend(nav);
@@ -33,6 +33,7 @@ function showPage(){
  if(id==='history'&&state)loadHistory();
  if(id==='analysis'&&state)loadAnalysis();
  if(id==='chart'&&state)draw();
+ if(id==='security'&&typeof loadAccountSecurity==='function')loadAccountSecurity();
 }
 function goHistoryPage(page){const total=Math.max(1,Math.ceil(historyTotal/50));if(!Number.isInteger(page)||page<1||page>total)return;historyOffset=(page-1)*50;loadHistory();}
 function renderHistoryPages(){

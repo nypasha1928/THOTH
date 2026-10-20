@@ -1,6 +1,6 @@
 # Dashboard password, recovery, authenticator and passkeys
 
-Open **Settings → Account security** after deploying. Existing dashboard access
+Open **Security → Account security** after deploying. Existing dashboard access
 continues to use the server password until you change it. Nothing here starts,
 pauses, closes, or resets trading. Deployment retains the existing restart rules.
 

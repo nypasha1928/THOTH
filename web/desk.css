@@ -28,3 +28,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 .account-security{margin-top:20px;max-width:760px}.account-security p{line-height:1.6}.account-security input{max-width:100%}.account-security pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#101918;padding:16px}.account-security button{margin:6px 8px 6px 0}.account-security #totpQr{display:block;width:min(260px,100%);height:auto;background:white;padding:12px;box-sizing:border-box}.security-reauth{padding:14px;border:1px solid #66785f;border-radius:8px}#securityMessage{overflow-wrap:anywhere}
 
 .history-pages{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px}.history-pages button[aria-current=page]{background:#b9ee79;color:#101918;font-weight:700}.history-jump{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}.history-jump label{display:flex;gap:8px;align-items:center;margin:0}.history-jump input{width:82px;max-width:100%}
+
+#page-security .account-security{margin-top:0}@media(max-width:420px){.page-nav{gap:3px}.page-nav a{font-size:10px;padding:10px 2px}}
