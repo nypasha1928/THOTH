@@ -22,3 +22,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 #events{max-height:340px;overflow-y:auto;overscroll-behavior:contain;padding-right:12px}#dailyBudget,#cooldownSummary,#coinCooldowns{font-variant-numeric:tabular-nums}#dailyBudget{color:#c3efab;font-weight:600}#coinCooldowns{line-height:1.8}
 
 #dailyBudget.budget-exhausted{color:#ff9b91}
+
+#settings label.exit-setting{background:#48282b;border:1px solid #d66b73;border-left:4px solid #f08088;border-radius:8px;padding:14px;margin:12px 0;color:#ffe1e3;font-weight:600;gap:12px;box-sizing:border-box}#settings .exit-setting input{accent-color:#d94c5a;flex-shrink:0}

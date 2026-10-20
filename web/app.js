@@ -30,6 +30,7 @@ function current(){
 }
 function field(label,id,value,type='number',attributes=''){
  const wrapper=document.createElement('label');wrapper.htmlFor=id;wrapper.append(document.createTextNode(label));
+ if(id==='sma_exit_enabled')wrapper.classList.add('exit-setting');
  const input=document.createElement('input');input.id=id;input.type=type;
  if(type==='checkbox')input.checked=Boolean(value);else{input.value=value;input.required=true;input.min='1';input.step='1'}
  if(attributes){for(const [key,value]of Object.entries(attributes))input.setAttribute(key,value)}
