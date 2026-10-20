@@ -10,7 +10,7 @@ def day(stamp):
 def new_risk():
     return dict(day=None,baseline=None,baseline_ms=None,last_sample=None,loss_pct=0,
                 streak=0,pause_until=None,daily_stop=False,baseline_required=False,
-                seen_closures=[],portfolio_stop=False,peak=None,loss_allowance=None,
+                seen_closures=[],portfolio_stop=False,peak=None,peak_ms=None,loss_allowance=None,
                 loss_used=None,remaining=None,remaining_pct=None,stop_equity=None,symbols={})
 
 
@@ -27,6 +27,17 @@ def symbol_paused(risk,symbol,cfg,now):
     return bool(tracker.get('pause_until') and now<tracker['pause_until'])
 
 
+def start_daily_period(risk,equity,cfg,now):
+    """Replace every daily-derived value together; retain independent risk controls."""
+    if equity<=0:raise ValueError('A positive account equity baseline is required')
+    allowance=equity*cfg.daily_loss_pct/100
+    risk.update(day=day(now),baseline=equity,baseline_ms=int(now*1000),
+                peak=equity,peak_ms=int(now*1000),loss_allowance=allowance,
+                loss_used=0.,remaining=allowance,remaining_pct=cfg.daily_loss_pct,
+                stop_equity=equity-allowance,daily_stop=False,
+                baseline_required=False,loss_pct=0.,last_sample=now)
+
+
 def sample(risk,equity,net_transfers,cfg,now,initial=False):
     if not all(isfinite(v) for v in (equity,net_transfers)) or equity<0:
         raise ValueError('Invalid account equity sample')
@@ -36,9 +47,7 @@ def sample(risk,equity,net_transfers,cfg,now,initial=False):
         near_midnight=(now-midnight<=30 and risk['last_sample'] is not None
                        and 0<=now-risk['last_sample']<=30)
         if risk['day'] is None or initial or near_midnight:
-            if equity<=0:raise ValueError('A positive account equity baseline is required')
-            risk.update(day=today,baseline=equity,baseline_ms=int(now*1000),peak=equity,
-                        daily_stop=False,baseline_required=False,loss_pct=0)
+            start_daily_period(risk,equity,cfg,now)
             net_transfers=0
         else:
             risk.update(baseline_required=True)
@@ -48,7 +57,9 @@ def sample(risk,equity,net_transfers,cfg,now,initial=False):
     # Old deployments did not retain intraday highs. Begin from the larger of
     # starting equity and the first verified sample; never invent earlier peaks.
     previous_peak=risk.get('peak')
-    risk['peak']=max(previous_peak if previous_peak is not None else risk['baseline'],adjusted)
+    floor=previous_peak if previous_peak is not None else risk['baseline']
+    if adjusted>floor:risk['peak_ms']=int(now*1000)
+    risk['peak']=max(floor,adjusted)
     allowance=risk['baseline']*cfg.daily_loss_pct/100
     used=max(0,risk['peak']-adjusted)
     risk.update(loss_allowance=allowance,loss_used=used,remaining=max(0,allowance-used),

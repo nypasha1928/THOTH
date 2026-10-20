@@ -102,7 +102,7 @@ class TestnetSupervisor:
             'blocked_symbols':s.get('blocked_symbols',{}),'monitor_error':s.get('monitor_error'),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
-            'risk':{k:s['risk'][k] for k in ('day','baseline','peak','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
+            'risk':{k:s['risk'][k] for k in ('day','baseline','baseline_ms','peak','peak_ms','last_sample','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
@@ -511,7 +511,10 @@ class TestnetSupervisor:
                 if p and (owner.get('signal_exit') or owner['close_link']):
                     self._close(symbol,p,owner.get('signal_exit') or owner['reason'] or 'Pending close')
             equity=self.wallet()
+            previous_day=self.state['risk']['day']
             risk=sample(self.state['risk'],equity,self.transfers(),cfg,self.clock())
+            if self.state['risk']['day']!=previous_day:
+                self.event('New UTC daily period '+self.state['risk']['day']+': starting equity '+format(equity,'.2f')+' USDT; fresh allowance '+format(self.state['risk']['loss_allowance'],'.2f')+' USDT; prior daily loss usage cleared')
             self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
             if risk=='daily_stop':
                 if self.state['status']!='daily_stop':self.state['daily_resume_intent']=self.state['entries']

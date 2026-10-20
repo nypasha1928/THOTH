@@ -76,7 +76,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
    # Read-only risk displays use the server clock and never activate orders.
-   payloads['live']['risk'].update(baseline=100,peak=150,loss_allowance=5,loss_used=2,remaining=3,remaining_pct=3,stop_equity=145,loss_pct=2,symbols={'XVGUSDT':dict(streak=3,pause_until=time.time()+125)})
+   payloads['live']['risk'].update(day='2026-10-20',baseline_ms=1792454402000,peak_ms=1792458000000,baseline=100,peak=150,loss_allowance=5,loss_used=2,remaining=3,remaining_pct=3,stop_equity=145,loss_pct=2,symbols={'XVGUSDT':dict(streak=3,pause_until=time.time()+125)})
    payloads['live']['events']=[dict(time=time.time()-40+i,message='Synthetic activity '+str(i)) for i in range(40)]
    page.evaluate('(data)=>{updateAccount(data);render();}',copy.deepcopy(payloads['live']))
    expect(page.locator('#dailyCountdown')).to_contain_text('Time until next UTC day:')
@@ -92,6 +92,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#dailyBudget')).to_contain_text('$3.00')
    expect(page.locator('#dailyBudgetDetails')).to_contain_text('Allowance: $5.00')
    expect(page.locator('#dailyBudgetDetails')).to_contain_text('stop threshold: $145.00')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('Baseline recorded: 2026-10-20 00:00:02 UTC')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('Peak recorded: 2026-10-20 01:00:00 UTC')
+   page.evaluate("() => { lv.risk.baseline_required=true; renderRiskOverview(); }")
+   expect(page.locator('#dailyBudget')).to_contain_text('pending baseline review')
+   expect(page.locator('#dailyBudget')).not_to_contain_text('$3.00')
+   page.evaluate("() => { lv.risk.baseline_required=false; renderRiskOverview(); }")
    expect(page.locator('#coinCooldowns')).to_contain_text('XVGUSDT')
    first_timer=page.locator('#coinCooldowns').inner_text();page.wait_for_timeout(1200)
    assert page.locator('#coinCooldowns').inner_text()!=first_timer

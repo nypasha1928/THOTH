@@ -94,3 +94,50 @@ class AccountRiskTests(unittest.TestCase):
         self.assertEqual(risk['peak'],110)
         self.assertEqual(risk['loss_allowance'],3)
         self.assertTrue(risk['daily_stop'])
+
+    def test_midnight_discards_yesterdays_peak_loss_and_latch(self):
+        cfg=self.cfg.model_copy(update={'daily_loss_pct':15})
+        before=datetime(2026,10,19,23,59,58,tzinfo=timezone.utc).timestamp()
+        risk=new_risk();sample(risk,61.52,0,cfg,before-5)
+        sample(risk,70,0,cfg,before-4)
+        sample(risk,54.71,0,cfg,before)
+        self.assertTrue(risk['daily_stop'])
+        self.assertGreater(risk['loss_used'],0)
+        for i in range(3):closure(risk,'old-'+str(i),-1,cfg,before,'ETHUSDT')
+        until=risk['symbols']['ETHUSDT']['pause_until']
+        self.assertEqual(sample(risk,54,0,cfg,before+4),'ok')
+        self.assertEqual(risk['day'],'2026-10-20')
+        self.assertEqual(risk['baseline'],54)
+        self.assertEqual(risk['peak'],54)
+        self.assertEqual(risk['loss_used'],0)
+        self.assertAlmostEqual(risk['remaining'],8.10)
+        self.assertEqual(risk['remaining_pct'],15)
+        self.assertAlmostEqual(risk['stop_equity'],45.90)
+        self.assertEqual(risk['peak_ms'],risk['baseline_ms'])
+        self.assertEqual(risk['symbols']['ETHUSDT']['pause_until'],until)
+        # A loss realized today that was already marked at midnight is not charged twice.
+        closure(risk,'overnight-position',-5,cfg,before+6,'BTCUSDT')
+        sample(risk,54,0,cfg,before+6)
+        self.assertEqual(risk['loss_used'],0)
+        sample(risk,53,0,cfg,before+8)
+        self.assertEqual(risk['loss_used'],1)
+        self.assertAlmostEqual(risk['remaining'],7.10)
+
+    def test_peak_time_tracks_new_high_not_recovery_below_peak(self):
+        risk=new_risk();sample(risk,100,0,self.cfg,self.t)
+        sample(risk,110,0,self.cfg,self.t+1)
+        self.assertEqual(risk['peak_ms'],int((self.t+1)*1000))
+        sample(risk,109,0,self.cfg,self.t+2)
+        self.assertEqual(risk['peak_ms'],int((self.t+1)*1000))
+
+    def test_midnight_reset_is_persistable_and_not_repeated_on_same_day(self):
+        import json
+        before=datetime(2026,10,19,23,59,59,tzinfo=timezone.utc).timestamp()
+        risk=new_risk();sample(risk,100,0,self.cfg,before)
+        sample(risk,98,0,self.cfg,before+2)
+        baseline_ms=risk['baseline_ms']
+        risk=json.loads(json.dumps(risk))
+        sample(risk,97,0,self.cfg,before+10,initial=True)
+        self.assertEqual(risk['baseline'],98)
+        self.assertEqual(risk['baseline_ms'],baseline_ms)
+        self.assertEqual(risk['loss_used'],1)
