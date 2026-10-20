@@ -103,6 +103,7 @@ function render(){
  $('positions').replaceChildren();
  for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,money(p.value)+' / '+p.leverage+'×',money(p.pnl),p.trailing?.enabled?(p.trailing.active?'Active · stop '+marketPrice(p.stop):'Waiting · activation '+marketPrice(p.trailing.activation_price)):'Off']){const td=document.createElement('td');td.textContent=value;row.append(td)}row.onclick=()=>{location.hash='#chart';showPage();$('symbol').value=p.symbol;renderWatchlist();loadChart()};$('positions').append(row)}
  $('events').replaceChildren();for(const event of [...s.events].reverse().slice(0,30)){const li=document.createElement('li');li.textContent=new Date(event.time).toLocaleTimeString()+' · '+event.message;$('events').append(li)}
+ const smaBlocks=Object.keys(tn.sma_exit_blocks||{});$('smaDataStatus').textContent=smaBlocks.length?'SMA exit data: new entries blocked only for '+smaBlocks.join(', ')+'. Other coins remain subject to their own signals and risk checks. Existing Bybit stops stay managed.':'';
  $('execution').replaceChildren();for(const record of tn.execution.filter(r=>!['closed','cancelled','rejected'].includes(r.phase))){const li=document.createElement('li');li.textContent=record.symbol+' · '+record.phase+(record.reason?' · '+record.reason:'');$('execution').append(li)}
  $('baseline').disabled=!(tn.risk.baseline_required&&tn.management);
  $('settingsGroup').disabled=tn.entries;
