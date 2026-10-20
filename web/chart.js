@@ -18,14 +18,15 @@ function draw(){
  const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+chartStyle.rightGap),x=i=>L+(i+.5)*step;
  const levelSnapshot=analysis.filter(b=>b.time<=finish).at(-1);
  const family=key=>(key.startsWith('long_')?'long_':'short_')+(key.endsWith('_major')?'major':'minor');
- const sma7=displayAverage(displayRows,7,'close'),volumeMA=displayAverage(chartRows,20,'volume');
- const byTime=new Map(analysis.map(b=>[b.time,b])),smaByTime=new Map(smaRows.map(s=>[s.time,s.value]));
- const settings=current().settings,showLevels=$('showLevels').checked,showSma=$('showSma').checked&&settings.sma_enabled;
+ const displaySmas=[{period:7,color:chartStyle.sma7},{period:50,color:chartStyle.sma50},{period:200,color:chartStyle.sma}].map(line=>({...line,values:displayAverage(displayRows,line.period,'close')})),volumeMA=displayAverage(chartRows,20,'volume');
+ const byTime=new Map(analysis.map(b=>[b.time,b]));
+ const settings=current().settings,showLevels=$('showLevels').checked;
  const enabled=key=>(!key.endsWith('_major')||settings.major)&&(!key.endsWith('_minor')||settings.minor)&&chartStyle[family(key)]?.visible;
  const active=rows.map(r=>byTime.get(r.time)).filter(Boolean),positions=current().positions.filter(p=>p.symbol===$('symbol').value);
  const stop=p=>Number(p.stop)>0?Number(p.stop):p.entry+(p.side==='Long'?-1:1)*p.stop_dollars/p.qty;
  const values=rows.flatMap(r=>[Number(r.low),Number(r.high)]);
- if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);if(showSma)for(const r of rows){const v=smaByTime.get(r.time);if(Number.isFinite(v))values.push(v)}if(chartStyle.showSma7)for(const r of rows){const v=sma7.get(r.time);if(Number.isFinite(v))values.push(v)}for(const p of positions){values.push(p.entry,stop(p));if(p.trailing?.enabled&&Number(p.trailing.activation_price)>0)values.push(Number(p.trailing.activation_price))}}
+ for(const line of displaySmas)for(const r of rows){const value=line.values.get(r.time);if(Number.isFinite(value))values.push(value)}
+ if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);for(const p of positions){values.push(p.entry,stop(p));if(p.trailing?.enabled&&Number(p.trailing.activation_price)>0)values.push(Number(p.trailing.activation_price))}}
  const bottom=Math.min(...values),top=Math.max(...values),pad=Math.max((top-bottom)*.12,Math.abs(top)*.00002,.000001),center=(bottom+top)/2+chartPriceShift,half=((top-bottom)/2+pad)*chartPriceZoom,min=center-half,max=center+half;
  chartGeometry={W,H,L,R,T,B,P,step,firstIndex:Math.max(0,end-visibleBars),pricePerPixel:(max-min)/(B-T)*H/svg.getBoundingClientRect().height};
  const y=p=>B-(Number(p)-min)/(max-min)*(B-T),price=marketPrice;
@@ -50,8 +51,7 @@ function draw(){
     'data-sr-key':key},plot);
   shape('title',{},ray).textContent=key.replaceAll('_',' ')+' · '+price(level.value)+' · active at '+new Date(levelSnapshot.time*1000).toISOString();
  }}
- if(showSma){let d='',connected=false;rows.forEach((r,i)=>{const value=smaByTime.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});shape('path',{d,fill:'none',stroke:chartStyle.sma,'stroke-width':2},plot)}
- if(chartStyle.showSma7){let d='',connected=false;rows.forEach((r,i)=>{const value=sma7.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});shape('path',{d,fill:'none',stroke:'#ffffff','stroke-width':1.6,'data-sma7':'true'},plot)}
+ for(const line of displaySmas){let d='',connected=false;rows.forEach((r,i)=>{const value=line.values.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:line.color,'stroke-width':line.period===7?1.6:2,['data-sma'+line.period]:'true'},plot)}
  if(chartStyle.showVolume){const volumeTop=B+25,volumeBottom=axisBottom,validVolumes=rows.filter(r=>Number.isFinite(r.volume)&&r.volume>=0),maxVolume=Math.max(1,...validVolumes.map(r=>r.volume),...rows.map(r=>volumeMA.get(r.time)||0)),vy=v=>volumeBottom-(v/maxVolume)*(volumeBottom-volumeTop-18);
   shape('path',{d:`M${L} ${B+13} H${R}`,stroke:'#344b3d'});
   shape('text',{x:L,y:volumeTop+8,fill:axisText,'font-size':10,'data-volume-heading':'true'}).textContent='Volume · MA 20'+(validVolumes.length?'':' · unavailable');
@@ -115,7 +115,7 @@ $('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspec
 $('resetChartView').onclick=()=>{visibleBars=70;$('zoom').value='70';chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;draw()};
 $('autoPriceScale').onclick=()=>{chartPriceZoom=1;chartPriceShift=0;draw()};
 $('refresh').onclick=()=>loadChart();
-for(const id of ['showLevels','showSma','showSignals','fitLevels'])$(id).onchange=()=>draw();
+for(const id of ['showLevels','showSignals','fitLevels'])$(id).onchange=()=>draw();
 window.addEventListener('resize',()=>{if(chartRows.length)draw()});
 
 // Wheel handling must be non-passive to zoom the plot instead of scrolling

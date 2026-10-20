@@ -145,8 +145,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=chart]');page.click('#older');expect(page.locator('#latest')).to_be_enabled();page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    page.locator('#chart').click(position={'x':100,'y':160});expect(page.locator('#candleInfo')).to_contain_text(' O ')
    assert page.locator('#chart path').count()>30
-   page.uncheck('#showLevels');page.uncheck('#showSma');page.uncheck('#showSignals');page.check('#fitLevels')
-   page.check('#showLevels');page.check('#showSma');page.check('#showSignals')
+   page.uncheck('#showLevels');page.uncheck('#showSignals');page.check('#fitLevels')
+   page.check('#showLevels');page.check('#showSignals')
    page.locator('#zoom').fill('35');page.locator('#zoom').dispatch_event('input')
    assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
    # Chart-only search and coin-name navigation must never modify trading settings.
@@ -238,6 +238,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
    average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
    assert average==[22,155,False],average
+   averages=page.evaluate('() => {const rows=Array.from({length:250},(_,i)=>({time:i,close:i+1}));return [displayAverage(rows,50,"close").get(249),displayAverage(rows,200,"close").get(249),displayAverage(rows,200,"close").has(198)]}')
+   assert averages==[225.5,150.5,False],averages
+   assert payloads['live']['config']['sma_enabled'] is False
+   expect(page.locator('[data-sma50]')).to_have_count(1)
+   expect(page.locator('[data-sma200]')).to_have_count(1)
    # Quote/candle alignment: update only the forming candle and retain observed
    # extrema; never change closed bars, volume, source arrays, or trade settings.
    check=page.evaluate('''() => {
@@ -292,8 +297,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert float(page.locator('[data-candle]').last.get_attribute('x'))<before_x
    page.get_by_label('Volume with MA 20',exact=True).uncheck();expect(page.locator('[data-volume-bar]')).to_have_count(0)
    page.get_by_label('Volume with MA 20',exact=True).check();expect(page.locator('[data-volume-bar]')).to_have_count(70)
-   page.get_by_label('SMA 7 (white)',exact=True).uncheck();expect(page.locator('[data-sma7]')).to_have_count(0)
-   page.get_by_label('SMA 7 (white)',exact=True).check();expect(page.locator('[data-sma7]')).to_have_count(1)
+   for period,color in [(7,'#ffffff'),(50,'#81d4fa'),(200,'#2962ff')]:
+    expect(page.locator('[data-sma'+str(period)+']')).to_have_attribute('stroke',color)
+   page.get_by_label('SMA 50 color',exact=True).fill('#55bbdd')
+   expect(page.locator('[data-sma50]')).to_have_attribute('stroke','#55bbdd')
+   page.get_by_label('SMA 200 color',exact=True).fill('#3344cc')
+   expect(page.locator('[data-sma200]')).to_have_attribute('stroke','#3344cc')
+   page.get_by_label('SMA 7 color',exact=True).fill('#eeeeee')
+   expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#eeeeee')
+   saved_colors=page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey))')
+   assert saved_colors['sma7']=='#eeeeee' and saved_colors['sma50']=='#55bbdd' and saved_colors['sma']=='#3344cc'
    page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
    expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
    page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
