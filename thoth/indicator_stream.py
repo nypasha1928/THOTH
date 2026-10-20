@@ -96,8 +96,15 @@ class IndicatorState:
         if cfg.sma_enabled:
             bullish=bullish and average is not None and row['close']>average
             bearish=bearish and average is not None and row['close']<average
+        if cfg.sma_7_50_filter_enabled:
+            window=self.buffer[-50:]
+            ready=len(window)==50 and all(b['time']-a['time']==duration for a,b in zip(window,window[1:]))
+            fast=sum(r['close'] for r in window[-7:])/7 if ready else None
+            slow=sum(r['close'] for r in window)/50 if ready else None
+            bullish=bullish and ready and fast>slow
+            bearish=bearish and ready and fast<slow
         signal='Long' if bullish and not bearish else 'Short' if bearish and not bullish else None
         self.previous=levels;self.last_time=row['time'];self.count+=1
-        keep=max(cfg.sma_length+1,2*cfg.pivot_long+1,2*cfg.pivot_short+1)
+        keep=max(51,cfg.sma_length+1,2*cfg.pivot_long+1,2*cfg.pivot_short+1)
         if len(self.buffer)>keep:del self.buffer[:-keep]
         return dict(time=row['time'],levels=levels,sma=average,signal=signal,conflict=bullish and bearish,close=row['close'])

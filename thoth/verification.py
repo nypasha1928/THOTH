@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
-STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','minor','sma_enabled','sma_length')
+STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','minor','sma_enabled','sma_length','sma_7_50_filter_enabled')
 
 
 def source_fingerprint():

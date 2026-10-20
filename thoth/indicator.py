@@ -91,6 +91,13 @@ def evaluate(rows, cfg, now=None):
         if cfg.sma_enabled:
             bullish = bullish and average is not None and row['close'] > average
             bearish = bearish and average is not None and row['close'] < average
+        if cfg.sma_7_50_filter_enabled:
+            window=rows[max(0,i-49):i+1]
+            ready=len(window)==50 and all(b['time']-a['time']==duration for a,b in zip(window,window[1:]))
+            fast=sum(r['close'] for r in window[-7:])/7 if ready else None
+            slow=sum(r['close'] for r in window)/50 if ready else None
+            bullish=bullish and ready and fast>slow
+            bearish=bearish and ready and fast<slow
         # Conflicting signals are visible but do not silently choose a direction.
         signal = 'Long' if bullish and not bearish else 'Short' if bearish and not bullish else None
         output.append(dict(time=row['time'], levels=levels, sma=average, signal=signal,

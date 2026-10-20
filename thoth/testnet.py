@@ -79,6 +79,10 @@ class TestnetSupervisor:
         with self.db() as db:state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
         state.setdefault('pending_signals',{})
         state.setdefault('blocked_symbols',{})
+        # First installation of selectable entry filters starts unfiltered.
+        # Later explicitly saved selections survive reloads and restarts.
+        if 'sma_7_50_filter_enabled' not in state['config']:
+            state['config'].update(sma_enabled=False,sma_7_50_filter_enabled=False)
         state['config']={**TestnetSettings().model_dump(),**state['config']}
         for key,value in new_risk().items():state['risk'].setdefault(key,value)
         state.setdefault('daily_resume_intent',False)

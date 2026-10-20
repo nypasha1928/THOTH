@@ -42,7 +42,7 @@ class IndicatorTests(unittest.TestCase):
 
     def test_filter_and_signal_directions(self):
         rows=fixture(700)
-        output=evaluate(rows,Settings(),now=700*60)
+        output=evaluate(rows,Settings(sma_enabled=True),now=700*60)
         self.assertTrue(any(b['signal']=='Long' for b in output))
         self.assertTrue(any(b['signal']=='Short' for b in output))
         for prev,bar in zip(output,output[1:]):
