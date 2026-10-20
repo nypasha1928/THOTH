@@ -80,6 +80,7 @@ class TestnetSupervisor:
         with self.db() as db:state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
         state.setdefault('pending_signals',{})
         state.setdefault('blocked_symbols',{})
+        state.setdefault('sma_exit_blocks',{})
         # First installation of selectable entry filters starts unfiltered.
         # Later explicitly saved selections survive reloads and restarts.
         if 'sma_7_50_filter_enabled' not in state['config']:
@@ -100,7 +101,7 @@ class TestnetSupervisor:
     def snapshot(self):
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
-            'blocked_symbols':s.get('blocked_symbols',{}),'monitor_error':s.get('monitor_error'),
+            'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','baseline_ms','peak','peak_ms','last_sample','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
@@ -140,6 +141,9 @@ class TestnetSupervisor:
                     raise ValueError('Close managed positions and reconcile pending orders before changing strategy')
             if self.state['owned'] and cfg.margin_mode!=self.state['config']['margin_mode']:
                 raise ValueError('Cannot change margin mode while positions are open')
+            if not cfg.sma_exit_enabled:
+                self.state['sma_exit_blocks']={}
+                for owner in self.state['owned'].values():owner.pop('sma_exit_error',None)
             self.state['config']=cfg.model_dump()
             self.state['cursors']={}
             self.save()
@@ -441,7 +445,11 @@ class TestnetSupervisor:
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
         rows=self.client.candles(symbol,cfg.timeframe,limit=51)
         reason=observe_exit(tracker,rows,cfg.timeframe,p['side'],self.clock())
-        if owner.pop('sma_exit_error',None):self.event(symbol+': SMA exit observations recovered; account activation remains manual if paused')
+        if tracker.get('waiting_for_candle') is not None:
+            self.save();return
+        previous_error=owner.pop('sma_exit_error',None)
+        previous_block=self.state['sma_exit_blocks'].pop(symbol,None)
+        if previous_error or previous_block:self.event(symbol+': SMA exit observations recovered; coin data block cleared')
         tracker.pop('retry_after',None)
         self.save()
         if reason:
@@ -504,8 +512,13 @@ class TestnetSupervisor:
                         # Still manage every other exit and account risk if candle reads fail.
                         details=failure_details(exc,'sma_exit')
                         owner['sma_exit_error']=details
-                        owner.setdefault('sma_exit',{})['retry_after']=self.clock()+30
-                        self._lock('safety_lock',symbol+': SMA exit monitoring unavailable; new entries blocked · '+failure_summary(details))
+                        retry_after=self.clock()+30
+                        owner.setdefault('sma_exit',{})['retry_after']=retry_after
+                        prior=self.state['sma_exit_blocks'].get(symbol,{}).get('details')
+                        self.state['sma_exit_blocks'][symbol]=dict(details=details,retry_after=retry_after)
+                        if prior!=details:self.event(symbol+': SMA exit monitoring unavailable; only this coin’s new entries blocked · '+failure_summary(details))
+                        self.save()
+
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)
@@ -634,11 +647,27 @@ class TestnetSupervisor:
             self._drain(current)
             self.save()
 
+    def _sma_entry_ready(self,symbol,cfg):
+        block=self.state['sma_exit_blocks'].get(symbol)
+        if not block or not cfg.sma_exit_enabled:return True
+        if self.clock()<block['retry_after']:return False
+        try:
+            tracker={}
+            observe_exit(tracker,self.client.candles(symbol,cfg.timeframe,limit=51),cfg.timeframe,'Buy',self.clock())
+            if tracker.get('waiting_for_candle') is not None:return False
+        except Exception as exc:
+            block.update(details=failure_details(exc,'sma_exit'),retry_after=self.clock()+30)
+            self.save();return False
+        del self.state['sma_exit_blocks'][symbol]
+        self.event(symbol+': fresh SMA exit data verified; coin entry block cleared')
+        self.save();return True
+
     def _entry(self,symbol,side,stamp,identity,cfg):
         if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):return
         if symbol in self.state['blocked_symbols']:return
         if self.state['status']!='running' or not self.state['entries']:return
         if len(self.state['owned'])>=cfg.max_positions:return
+        if not self._sma_entry_ready(symbol,cfg):return
         if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
         # Never place the next trade while a previous close awaits realized P&L.
         active=self.positions()

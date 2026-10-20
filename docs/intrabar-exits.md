@@ -16,7 +16,7 @@ Each open managed coin is checked approximately every five seconds, subject to
 network and account polling latency. This is a sampled server exit, not a native
 Bybit conditional SMA order or a guarantee of detecting every tick. Candle gaps,
 stale data, and invalid prices cannot generate exits; unavailable observations
-block new entries while existing stops and account risk controls continue.
+block new entries for the affected coin while existing stops and account risk controls continue.
 The verified dollar stop remains on Bybit during outages.
 
 An SMA exit creates a durable reduce-only close, with its reason in Activity and
@@ -62,8 +62,10 @@ schedule. A Bybit 10006 response delays subsequent requests by at least two
 seconds; rejected writes are never blindly replayed. Failed SMA observations
 wait 30 seconds before retrying instead of repeating every risk-monitor cycle.
 Account risk checks and existing close obligations continue during this wait.
-Successful observations clear the stale diagnostic, but never automatically
-re-enable entries after a safety lock.
+Successful observations clear the coin data block, but never automatically
+re-enable entries after a manual pause or account-wide safety lock. A publication
+delay of up to ten seconds at a candle boundary retries normally without
+creating a data block; only a validated, contiguous just-closed candle qualifies.
 
 Curated diagnostics distinguish unavailable forming/history data, candle gaps,
 and invalid prices without retaining upstream response bodies or credentials.

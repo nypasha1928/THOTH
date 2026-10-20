@@ -22,7 +22,7 @@ class IntrabarMath(unittest.TestCase):
 
     def test_stale_gap_and_invalid_price_rejected(self):
         for data in [rows(5950),rows(6010)[:-1],rows(6010,float('nan'))]:
-            with self.assertRaises(ValueError):observe_exit({},data,'1','Buy',6010)
+            with self.assertRaises(ValueError):observe_exit({},data,'1','Buy',6011)
 
 
 class IntrabarIntegration(unittest.TestCase):
@@ -71,7 +71,8 @@ class IntrabarIntegration(unittest.TestCase):
         self.exchange.request=request
         self.exchange.prices['BTCUSDT']=97
         self.service.monitor()
-        self.assertFalse(self.service.state['entries'])
+        self.assertTrue(self.service.state['entries'])
+        self.assertIn('BTCUSDT',self.service.state['sma_exit_blocks'])
         self.assertIsNotNone(self.service.state['last_monitor'])
         self.assertTrue(any(o['reduceOnly'] for o in self.exchange.orders.values()))
 
@@ -91,7 +92,7 @@ class IntrabarIntegration(unittest.TestCase):
         self.assertTrue(self.exchange.orders[owner['close_link']]['reduceOnly'])
         self.assertFalse(self.service.state['reversals'])
 
-    def test_failed_reads_back_off_and_recovery_stays_paused(self):
+    def test_failed_reads_back_off_and_recovery_preserves_running_state(self):
         from thoth.intrabar_exit import ExitDataError
         self.enter();self.now[0]+=6
         original=self.exchange.candles;attempts=[]
@@ -106,7 +107,8 @@ class IntrabarIntegration(unittest.TestCase):
         self.exchange.candles=original
         self.now[0]+=25;self.service.monitor()
         self.assertNotIn('sma_exit_error',owner)
-        self.assertFalse(self.service.state['entries'])
+        self.assertTrue(self.service.state['entries'])
+        self.assertNotIn('BTCUSDT',self.service.state['sma_exit_blocks'])
         self.assertTrue(any('observations recovered' in e['message'] for e in self.service.state['events']))
 
     def test_overnight_open_loss_rolls_at_midnight_without_double_charge(self):
@@ -136,3 +138,96 @@ class IntrabarIntegration(unittest.TestCase):
         self.service=self.create()
         self.assertEqual(self.service.state['risk']['peak_ms'],saved['peak_ms'])
         self.assertEqual(self.service.state['risk']['loss_used'],0)
+
+    def test_publication_delay_does_not_pause_or_skip_a_boundary_cross(self):
+        self.now[0]=int(self.now[0])//60*60+50
+        self.enter();self.service.pause()
+        # Model an already enabled, protected position observed just before a boundary.
+        self.service.state.update(entries=True,status='running',reason='')
+        owner=self.service.state['owned']['BTCUSDT']
+        start=int(self.now[0])//60*60+60
+        owner['sma_exit']=dict(time=start-60,timeframe='1',difference=.1,checked_at=start-1)
+        self.service.save();original=self.exchange.request
+        publishing=[True]
+        def request(method,path,params,private=False):
+            if path=='/v5/market/kline':
+                data=rows(start-1 if publishing[0] else self.now[0],99)
+                return {'list':[[str(r['time']*1000),'100','100','99',str(r['close']),'1'] for r in data]}
+            return original(method,path,params,private)
+        self.exchange.request=request
+        self.now[0]=start+5;self.service.monitor()
+        self.assertTrue(self.service.state['entries'])
+        self.assertEqual(self.service.state['status'],'running')
+        self.assertEqual(owner['sma_exit']['waiting_for_candle'],start)
+        self.assertNotIn('sma_exit_error',owner)
+        self.assertFalse(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+        publishing[0]=False;self.now[0]=start+11;self.service.monitor()
+        self.assertIn('intrabar exit',owner['reason'])
+        self.assertNotIn('waiting_for_candle',owner['sma_exit'])
+        self.assertTrue(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.assertTrue(self.service.state['entries'])
+
+    def test_prolonged_publication_failure_still_blocks_entries_and_manages_stop(self):
+        self.enter();original=self.exchange.candles
+        self.now[0]=int(self.now[0])//60*60+65
+        stale=rows(self.now[0]-60)
+        self.exchange.candles=lambda *args,**kwargs:stale
+        self.service.monitor()
+        self.assertTrue(self.service.state['entries'])
+        self.now[0]+=7;self.service.monitor()
+        self.assertTrue(self.service.state['entries'])
+        self.assertEqual(self.service.state['status'],'running')
+        self.assertIn('BTCUSDT',self.service.state['sma_exit_blocks'])
+        self.assertEqual(self.service.state['owned']['BTCUSDT']['sma_exit_error']['data_reason'],'forming_candle_or_history_unavailable')
+        self.exchange.candles=original
+
+    def test_one_coin_data_failure_does_not_block_other_coin_entries_or_reversals(self):
+        from thoth.intrabar_exit import ExitDataError
+        self.enter();original=self.exchange.candles
+        def candles(symbol,*args,**kwargs):
+            if symbol=='BTCUSDT':raise ExitDataError('candle_gap')
+            return original(symbol,*args,**kwargs)
+        self.exchange.candles=candles;self.now[0]+=6;self.service.monitor()
+        self.assertIn('BTCUSDT',self.service.snapshot()['sma_exit_blocks'])
+        self.assertEqual(float(self.exchange.active['BTCUSDT']['stopLoss']),98)
+        self.assertFalse(any(o['reduceOnly'] for o in self.exchange.orders.values()))
+        self.signal(self.now[0]-60,None,'ETHUSDT')
+        self.now[0]+=60;self.signal(self.now[0]-60,'Short','ETHUSDT')
+        eth=next(link for link,o in self.exchange.orders.items() if o['symbol']=='ETHUSDT' and not o['reduceOnly'])
+        self.exchange.fill(eth);self.service.monitor()
+        self.assertTrue(self.service.state['entries'])
+        self.now[0]+=60;self.signal(self.now[0]-60,'Long','ETHUSDT')
+        self.fill_closes();self.service.monitor()
+        replacements=[o for o in self.exchange.orders.values() if o['symbol']=='ETHUSDT' and not o['reduceOnly'] and o['side']=='Buy']
+        self.assertEqual(len(replacements),1)
+        self.assertEqual(self.service.state['status'],'running')
+
+    def test_data_recovery_never_resumes_a_manual_pause(self):
+        from thoth.intrabar_exit import ExitDataError
+        self.enter();self.service.pause();original=self.exchange.candles
+        def fail(*args,**kwargs):raise ExitDataError('candle_gap')
+        self.exchange.candles=fail;self.now[0]+=6;self.service.monitor()
+        self.assertIn('BTCUSDT',self.service.state['sma_exit_blocks'])
+        self.exchange.candles=original;self.now[0]+=31;self.service.monitor()
+        self.assertNotIn('BTCUSDT',self.service.state['sma_exit_blocks'])
+        self.assertFalse(self.service.state['entries'])
+        self.assertEqual(self.service.state['status'],'paused')
+
+    def test_flat_affected_coin_requires_verified_data_before_reentry(self):
+        from thoth.intrabar_exit import ExitDataError
+        self.enter();original=self.exchange.candles
+        def fail(*args,**kwargs):raise ExitDataError('candle_gap')
+        self.exchange.candles=fail;self.now[0]+=6;self.service.monitor()
+        self.service._close('BTCUSDT',self.service.positions()['BTCUSDT'],'fixture close')
+        self.fill_closes();self.service.monitor()
+        self.assertNotIn('BTCUSDT',self.service.state['owned'])
+        self.now[0]+=31
+        before=len(self.exchange.orders)
+        self.signal(self.now[0]-60,'Short','BTCUSDT')
+        self.assertEqual(len(self.exchange.orders),before)
+        self.assertIn('BTCUSDT',self.service.state['sma_exit_blocks'])
+        self.assertTrue(self.service.state['entries'])
+        self.exchange.candles=original;self.now[0]+=60
+        self.signal(self.now[0]-60,'Short','BTCUSDT')
+        self.assertEqual(len(self.exchange.orders),before+1)
+        self.assertNotIn('BTCUSDT',self.service.state['sma_exit_blocks'])
