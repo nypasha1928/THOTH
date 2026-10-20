@@ -6,3 +6,6 @@ data/*.sqlite*
 secrets/
 *.backup
 dist/
+
+# Dashboard authenticator encryption key; never commit.
+data/security.key

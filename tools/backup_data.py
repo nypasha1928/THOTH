@@ -2,7 +2,9 @@
 
 Stop the app first for a consistent application-level point in time. Each
 SQLite file is copied through its online backup API and checked independently.
-Only *.sqlite account/candle/journal files are included, never credential files.
+SQLite account/candle/journal/security files and the dedicated security encryption
+key are included. Exchange API credential files are never included. Protect these
+backups as login secrets; restore security.sqlite and security.key together.
 """
 import argparse
 import hashlib
@@ -38,6 +40,15 @@ def backup(source,destination):
             original.backup(copy)
             if copy.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('Database integrity check failed')
         manifest['databases'].append({'file':path.name,'sha256':digest(target),'bytes':target.stat().st_size})
+    key=source/'security.key'
+    if (source/'security.sqlite').exists() and not key.exists():
+        with sqlite3.connect((source/'security.sqlite').as_uri()+'?mode=ro',uri=True) as db:
+            security=json.loads(db.execute('SELECT payload FROM owner WHERE id=1').fetchone()[0])
+        if security.get('totp_secret'):raise ValueError('Authenticator encryption key missing; backup is incomplete')
+    if (source/'security.sqlite').exists() and key.exists():
+        if key.is_symlink() or not key.is_file():raise ValueError('Invalid security encryption key')
+        private_write(destination/'security.key',key.read_bytes())
+        manifest['security_key']={'file':'security.key','sha256':digest(destination/'security.key'),'bytes':(destination/'security.key').stat().st_size}
     # Manifest written last: partial copies without it are never valid backups.
     private_write(destination/'manifest.json',(json.dumps(manifest,indent=2)+'\n').encode())
     return manifest
@@ -56,6 +67,11 @@ def verify(directory):
             raise ValueError('Backup checksum/size verification failed')
         with sqlite3.connect(path.resolve().as_uri()+'?mode=ro',uri=True) as db:
             if db.execute('PRAGMA integrity_check').fetchone()[0]!='ok':raise ValueError('Backup SQLite verification failed')
+    key=manifest.get('security_key')
+    if key:
+        path=directory/'security.key'
+        if key.get('file')!='security.key' or path.is_symlink() or not path.is_file() or digest(path)!=key['sha256'] or path.stat().st_size!=key['bytes']:
+            raise ValueError('Security key verification failed')
     return manifest
 
 
@@ -66,6 +82,7 @@ def restore(source,destination):
         target=destination/item['file'];private_write(target,b'')
         with sqlite3.connect((source/item['file']).resolve().as_uri()+'?mode=ro',uri=True) as original,sqlite3.connect(target) as copy:
             original.backup(copy)
+    if manifest.get('security_key'):private_write(destination/'security.key',(source/'security.key').read_bytes())
     return manifest
 
 

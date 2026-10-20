@@ -13,12 +13,13 @@ function buildPages(){
  pages.chart.append($('chartCard'),activity);
  pages.settings.append(settings,$('symbolPanel'));
  pages.positions.append(positions,account);
- pages.history.innerHTML='<section class="card"><h2>Closed trade history</h2><p class="note">Confirmed Bybit realized P&amp;L for THOTH-managed trades. History includes retained older records; previously pruned records are unavailable. Fees and funding follow Bybit’s closed-P&amp;L reporting.</p><label>Filter by symbol<input id="historySymbol" type="search" placeholder="ETHUSDT" aria-label="History symbol"></label><p id="tradeHistoryStatus" role="status"></p><div class="table-scroll"><table><thead><tr><th>Close confirmed</th><th>Symbol</th><th>Side</th><th>Entry / quantity</th><th>Realized P&amp;L</th><th>Reason</th><th>Strategy</th></tr></thead><tbody id="historyRows"></tbody></table></div><div class="row"><button id="historyPrevious">← Newer</button><button id="historyRefresh">Refresh history</button><button id="historyNext">Older →</button></div></section>';
+ pages.history.innerHTML='<section class="card"><h2>Closed trade history</h2><p class="note">Confirmed Bybit realized P&amp;L for THOTH-managed trades. History includes retained older records; previously pruned records are unavailable. Fees and funding follow Bybit’s closed-P&amp;L reporting.</p><label>Filter by symbol<input id="historySymbol" type="search" placeholder="ETHUSDT" aria-label="History symbol"></label><p id="tradeHistoryStatus" role="status"></p><div class="table-scroll"><table><thead><tr><th>Close confirmed</th><th>Symbol</th><th>Side</th><th>Entry / quantity</th><th>Realized P&amp;L</th><th>Reason</th><th>Strategy</th></tr></thead><tbody id="historyRows"></tbody></table></div><div class="row"><button id="historyPrevious">← Newer</button><button id="historyRefresh">Refresh history</button><button id="historyNext">Older →</button></div><nav id="historyPageButtons" class="history-pages" aria-label="History pages"></nav><form id="historyJump" class="history-jump"><label>Page<input id="historyPageNumber" type="number" min="1" step="1" value="1" aria-label="History page number"></label><span id="historyPageCount"></span><button>Go</button><span class="note">50 trades per page</span></form></section>';
  pages.analysis.innerHTML='<section class="card"><h2>Trade analysis</h2><p class="note">Based only on THOTH’s stored, confirmed closed trades. Includes retained older S/R records; previously pruned records and open P&amp;L are excluded. Win rate includes breakeven trades in the total. P&amp;L follows Bybit closed-P&amp;L reporting.</p><div class="analysis-filters"><label>Coin<input id="analysisSymbol" type="search" placeholder="All coins or ETHUSDT" aria-label="Analysis symbol"></label><label>Strategy<select id="analysisStrategy"><option value="">All strategies</option><option value="sr_breakout">S/R Breakout</option><option value="sma_cross">SMA 7/200</option><option value="unknown">Unknown</option></select></label><button id="refreshAnalysis">Refresh analysis</button></div><p id="analysisStatus" role="status"></p><div id="analysisSummary" class="stats"></div><h3>Per coin</h3><div class="table-scroll"><table><thead><tr><th>Coin</th><th>Trades</th><th>Wins / losses / flat</th><th>Win rate</th><th>Realized P&amp;L</th><th>Average P&amp;L</th><th>Profit factor</th></tr></thead><tbody id="coinAnalysis"></tbody></table></div><h3>Strategy comparison per coin</h3><div class="table-scroll"><table><thead><tr><th>Coin</th><th>Strategy</th><th>Trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Profit factor</th></tr></thead><tbody id="strategyAnalysis"></tbody></table></div><p class="note">Profit factor = gross winning P&amp;L divided by absolute gross losing P&amp;L; shown as — when there are no losing trades. Small samples do not establish future performance.</p></section>';
  grid.classList.add('paged-desk');grid.replaceChildren(...pageIds.map(id=>pages[id]));
  $('historyPrevious').onclick=()=>{historyOffset=Math.max(0,historyOffset-50);loadHistory()};
  $('historyNext').onclick=()=>{historyOffset+=50;loadHistory()};
  $('historyRefresh').onclick=()=>{historyOffset=0;loadHistory()};
+ $('historyJump').onsubmit=e=>{e.preventDefault();goHistoryPage(Number($('historyPageNumber').value))};
  let filterTimer;$('historySymbol').oninput=()=>{clearTimeout(filterTimer);filterTimer=setTimeout(()=>{historyOffset=0;loadHistory()},300)};
  $('refreshAnalysis').onclick=loadAnalysis;$('analysisStrategy').onchange=loadAnalysis;
  let analysisTimer;$('analysisSymbol').oninput=()=>{clearTimeout(analysisTimer);analysisTimer=setTimeout(loadAnalysis,300)};
@@ -33,19 +34,30 @@ function showPage(){
  if(id==='analysis'&&state)loadAnalysis();
  if(id==='chart'&&state)draw();
 }
+function goHistoryPage(page){const total=Math.max(1,Math.ceil(historyTotal/50));if(!Number.isInteger(page)||page<1||page>total)return;historyOffset=(page-1)*50;loadHistory();}
+function renderHistoryPages(){
+ const total=Math.max(1,Math.ceil(historyTotal/50)),current=Math.floor(historyOffset/50)+1,nav=$('historyPageButtons');nav.replaceChildren();
+ const pages=new Set([1,total]);for(let page=Math.max(1,current-2);page<=Math.min(total,current+2);page++)pages.add(page);
+ let last=0;for(const page of [...pages].sort((a,b)=>a-b)){
+  if(last&&page>last+1){const gap=document.createElement('span');gap.textContent='…';nav.append(gap)}
+  const button=document.createElement('button');button.type='button';button.textContent=page;button.setAttribute('aria-label','History page '+page);if(page===current)button.setAttribute('aria-current','page');button.onclick=()=>goHistoryPage(page);nav.append(button);last=page;
+ }
+ $('historyPageNumber').value=current;$('historyPageNumber').max=total;$('historyPageCount').textContent='of '+total;
+}
 async function loadHistory(){
  const request=++historyRequest,symbol=$('historySymbol').value.trim().toUpperCase();
  if(symbol&&!/^[A-Z0-9]{2,30}USDT$/.test(symbol)){$('tradeHistoryStatus').textContent='Enter the complete Bybit symbol, such as ETHUSDT.';$('historyRows').replaceChildren();return}
  $('tradeHistoryStatus').textContent='Loading confirmed closed trades…';
  try{
   const data=await api('live/history?limit=50&offset='+historyOffset+(symbol?'&symbol='+encodeURIComponent(symbol):''));if(request!==historyRequest)return;
-  historyTotal=data.total;$('historyRows').replaceChildren();
+  historyTotal=data.total;if(historyOffset>=historyTotal&&historyOffset>0){historyOffset=Math.max(0,(Math.ceil(historyTotal/50)-1)*50);loadHistory();return}$('historyRows').replaceChildren();
   for(const trade of data.items){const row=document.createElement('tr');row.classList.toggle('trade-loss',Number(trade.pnl)<0);row.classList.toggle('trade-win',Number(trade.pnl)>0);
    const symbolButton=document.createElement('button');symbolButton.type='button';symbolButton.textContent=trade.symbol;symbolButton.onclick=()=>openChartSymbol(trade.symbol);
    const cells=[new Date(trade.closed_at*1000).toLocaleString(),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),trade.reason||'—',trade.strategy==='sma_cross'?'SMA 7/200':trade.strategy==='sr_breakout'?'S/R Breakout':'Legacy'];
    for(const [index,value] of cells.entries()){const cell=document.createElement('td');if(index===4){if(Number(trade.pnl)<0)cell.classList.add('pnl-loss');else if(Number(trade.pnl)>0)cell.classList.add('pnl-win');}if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
   }
   $('tradeHistoryStatus').textContent=data.total?(historyOffset+1)+'–'+Math.min(historyOffset+data.items.length,data.total)+' of '+data.total+' closed trades':'No confirmed closed trades'+(symbol?' for '+symbol:'')+'.';
+  renderHistoryPages();
   $('historyPrevious').disabled=historyOffset===0;$('historyNext').disabled=historyOffset+50>=data.total;
  }catch(e){if(request===historyRequest)$('tradeHistoryStatus').textContent='History unavailable: '+e.message}
 }
