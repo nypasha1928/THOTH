@@ -21,6 +21,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .market import candles, sma, quote, chart_history
 from .models import Settings, TestnetSettings, TestnetActivation
+from .timeframes import INTERVALS
 
 ROOT = Path(__file__).resolve().parent.parent
 live_feed = None
@@ -176,7 +177,7 @@ def current_quote(symbol: str, environment: str = 'live'):
 @app.get('/api/chart/{symbol}')
 def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback: int = Query(1000,ge=1000,le=5000)):
     import re
-    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in ('1', 'D') or environment!='live':
+    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in INTERVALS or environment!='live':
         raise HTTPException(422, 'Unsupported symbol or interval')
     try:
         rows = chart_history(symbol,interval,lookback,'live') if lookback>1000 else candles(symbol, interval)

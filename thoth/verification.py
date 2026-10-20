@@ -9,7 +9,7 @@ STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','mino
 
 def source_fingerprint():
     h=hashlib.sha256()
-    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','reference/support_resistance.pine'):
+    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/timeframes.py','reference/support_resistance.pine'):
         path=ROOT/relative
         h.update(relative.encode());h.update(path.read_bytes())
     return h.hexdigest()

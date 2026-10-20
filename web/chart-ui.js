@@ -1,5 +1,5 @@
 // Appearance is device-local display state; never included in trading settings.
-const chartStyleDefaults={background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',signalSize:18,rightGap:24,showVolume:true,showSma7:true,
+const chartStyleDefaults={background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,showVolume:true,
  long_major:{support:'#085d31',resistance:'#b70909',style:'solid',width:4,visible:true},
  long_minor:{support:'#3e7d5c',resistance:'#b14848',style:'dotted',width:2,visible:true},
  short_major:{support:'#83a091',resistance:'#986464',style:'dashed',width:3,visible:true},
@@ -10,8 +10,8 @@ const chartTouches=new Map();
 let chartPinch=null;
 let chartStyle=copyStyle(),chartDrag=null,suppressChartClick=false,chartPriceShift=0,chartPriceZoom=1,chartGeometry=null;
 try{const stored=JSON.parse(localStorage.getItem(chartStyleKey)||'null');if(stored&&typeof stored==='object'){
- for(const key of ['bull','bear','longSignal','shortSignal','sma','background'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
- for(const key of ['showVolume','showSma7','showLastPrice'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
+ for(const key of ['bull','bear','longSignal','shortSignal','sma','sma7','sma50','background'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
+ for(const key of ['showVolume','showLastPrice'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
  if(Number.isInteger(stored.rightGap)&&stored.rightGap>=0&&stored.rightGap<=100)chartStyle.rightGap=stored.rightGap;
  if(Number.isInteger(stored.signalSize)&&stored.signalSize>=10&&stored.signalSize<=32)chartStyle.signalSize=stored.signalSize;
  for(const key of ['long_major','long_minor','short_major','short_minor']){const value=stored[key];if(!value||typeof value!=='object')continue;for(const side of ['support','resistance'])if(/^#[0-9a-f]{6}$/i.test(value[side]))chartStyle[key][side]=value[side];if(['solid','dotted','dashed'].includes(value.style))chartStyle[key].style=value.style;if(Number.isInteger(value.width)&&value.width>=1&&value.width<=6)chartStyle[key].width=value.width;if(typeof value.visible==='boolean')chartStyle[key].visible=value.visible}
@@ -21,10 +21,9 @@ function appearanceInput(label,type,value,oninput,options={}){const row=document
 function renderAppearance(){const target=$('appearanceFields');target.replaceChildren();
  target.append(appearanceInput('Chart background','color',chartStyle.background,v=>chartStyle.background=v));
  target.append(appearanceInput('Show current price line and label','checkbox',chartStyle.showLastPrice,v=>chartStyle.showLastPrice=v));
- for(const [key,label]of [['bull','Bullish candle'],['bear','Bearish candle'],['longSignal','Bullish signal'],['shortSignal','Bearish signal'],['sma','SMA line']])target.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
+ for(const [key,label]of [['bull','Bullish candle'],['bear','Bearish candle'],['longSignal','Bullish signal'],['shortSignal','Bearish signal'],['sma7','SMA 7 color'],['sma50','SMA 50 color'],['sma','SMA 200 color']])target.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
  target.append(appearanceInput('Right spacing (bars)','number',chartStyle.rightGap,v=>{if(Number.isInteger(v)&&v>=0&&v<=100)chartStyle.rightGap=v},{min:0,max:100}));
  target.append(appearanceInput('Volume with MA 20','checkbox',chartStyle.showVolume,v=>chartStyle.showVolume=v));
- target.append(appearanceInput('SMA 7 (white)','checkbox',chartStyle.showSma7,v=>chartStyle.showSma7=v));
  target.append(appearanceInput('Signal size','number',chartStyle.signalSize,v=>{if(Number.isInteger(v)&&v>=10&&v<=32)chartStyle.signalSize=v},{min:10,max:32}));
  for(const [key,label]of [['long_major','Long-term major'],['long_minor','Long-term minor'],['short_major','Short-term major'],['short_minor','Short-term minor']]){const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=label;group.append(legend);for(const [property,type,name]of [['visible','checkbox','Show'],['support','color','Support'],['resistance','color','Resistance'],['style','select','Line style'],['width','number','Line width']])group.append(appearanceInput(label+' '+name,type,chartStyle[key][property],v=>{if(property!=='width'||Number.isInteger(v)&&v>=1&&v<=6)chartStyle[key][property]=v},property==='width'?{min:1,max:6}:{}));target.append(group)}
 }
@@ -63,7 +62,7 @@ function displayAverage(rows,period,field){
 
 let formingDisplayState=null;
 function synchronizeFormingCandle(rows,quote,context,previous=null){
- const last=rows.at(-1),seconds=context.interval==='D'?86400:60,now=context.now??Date.now()/1000;
+ const last=rows.at(-1),seconds=chartIntervalSeconds(context.interval),now=context.now??Date.now()/1000;
  if(!last||!quote||quote.symbol!==context.symbol||quote.environment!==context.environment||!Number.isFinite(quote.price)||quote.price<=0||now-quote.observed_at>=20||now-quote.observed_at< -5||now<last.time||now>=last.time+seconds||quote.observed_at<last.time||quote.observed_at>=last.time+seconds)return {rows,state:previous};
  const key=[context.environment,context.symbol,context.interval,last.time].join(':');
  const prior=previous?.key===key?previous:null;
@@ -74,13 +73,13 @@ function synchronizeFormingCandle(rows,quote,context,previous=null){
 }
 
 function candleCountdown(nowMilliseconds=marketNow(),interval=$('tf').value){
- const period=interval==='D'?86400:60,now=Math.floor(nowMilliseconds/1000),remaining=period-((now%period)+period)%period;
+ const period=chartIntervalSeconds(interval),now=Math.floor(nowMilliseconds/1000),remaining=period-((now%period)+period)%period;
  const seconds=String(remaining%60).padStart(2,'0'),minutes=String(Math.floor(remaining/60)%60).padStart(2,'0');
- return interval==='D'?String(Math.floor(remaining/3600)).padStart(2,'0')+':'+minutes+':'+seconds:minutes+':'+seconds;
+ return period>=3600?String(Math.floor(remaining/3600)).padStart(2,'0')+':'+minutes+':'+seconds:minutes+':'+seconds;
 }
 function updateCandleCountdown(){
  const text=candleCountdown();for(const node of document.querySelectorAll('[data-candle-countdown]'))node.textContent=text;
- $('candleCountdown').textContent='Current '+($('tf').value==='D'?'Daily':'1m')+' candle closes in '+text+' · UTC';
+ $('candleCountdown').textContent='Current '+$('tf').selectedOptions[0].textContent+' candle closes in '+text+' · UTC';
 }
 setInterval(updateCandleCountdown,1000);
 

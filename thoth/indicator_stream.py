@@ -2,6 +2,7 @@
 # License, v. 2.0. https://mozilla.org/MPL/2.0/
 # Derived from the TFlab source in reference/support_resistance.pine.
 """Bounded, restartable indicator state equivalent to causal batch replay."""
+from .timeframes import interval_seconds
 from math import nan,isfinite
 from .indicator import confirmed_pivot,extract_levels,TYPES
 from .indicator_core import ZigZag,PineArray
@@ -64,7 +65,7 @@ class IndicatorState:
 
     def step(self,row):
         validate(row)
-        cfg=self.cfg;duration=60 if cfg.timeframe=='1' else 86400
+        cfg=self.cfg;duration=interval_seconds(cfg.timeframe)
         if self.last_time is not None and row['time']<=self.last_time:raise ValueError('Candle checkpoint must advance')
         if cfg.strategy=='sma_cross':
             result=self.cross.step(row,duration)

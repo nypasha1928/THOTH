@@ -37,6 +37,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     row['time']=1700006400+i*86400
     if array=='analysis':
      for level in row['levels'].values():level['pivot_time']=1700006400+max(0,(i//100)*100-20)*86400
+  chart_intervals={'1':chart,'D':chart_daily}
+  for interval,duration in [('5',300),('60',3600),('240',14400)]:
+   item=copy.deepcopy(chart);origin=1792300000//duration*duration
+   for array in ('candles','analysis','sma'):
+    for i,row in enumerate(item[array]):
+     row['time']=origin+i*duration
+     if array=='analysis':
+      for level in row['levels'].values():level['pivot_time']=origin+max(0,(i//100)*100-20)*duration
+   chart_intervals[interval]=item
   chart_older=copy.deepcopy(chart)
   old_rows=[];old_bars=[];old_sma=[]
   for i in range(-1000,0):
@@ -49,7 +58,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
     chart_queries.append(url)
-    result=chart_daily if 'interval=D' in url else chart_older if 'lookback=2000' in url else chart
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    result=chart_older if 'lookback=2000' in url else chart_intervals[params.get('interval',['1'])[0]]
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -145,8 +155,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=chart]');page.click('#older');expect(page.locator('#latest')).to_be_enabled();page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    page.locator('#chart').click(position={'x':100,'y':160});expect(page.locator('#candleInfo')).to_contain_text(' O ')
    assert page.locator('#chart path').count()>30
-   page.uncheck('#showLevels');page.uncheck('#showSma');page.uncheck('#showSignals');page.check('#fitLevels')
-   page.check('#showLevels');page.check('#showSma');page.check('#showSignals')
+   page.uncheck('#showLevels');page.uncheck('#showSignals');page.check('#fitLevels')
+   page.check('#showLevels');page.check('#showSignals')
    page.locator('#zoom').fill('35');page.locator('#zoom').dispatch_event('input')
    assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
    # Chart-only search and coin-name navigation must never modify trading settings.
@@ -229,6 +239,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
    assert all(b-a==86400 for a,b in zip(ticks,ticks[1:]))
+   for interval,label,duration in [('5','5m',300),('60','1h',3600),('240','4h',14400)]:
+    page.select_option('#tf',interval);expect(page.locator('#title')).to_contain_text(label)
+    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes)=>nodes.map(n=>Number(n.dataset.timeTick))')
+    assert all(b-a==duration for a,b in zip(ticks,ticks[1:]))
+    expect(page.locator('[data-sma50]')).to_have_count(1);expect(page.locator('[data-sma200]')).to_have_count(1)
+    expect(page.locator('#strategyTf')).to_have_value('1')
    page.select_option('#tf','1');expect(page.locator('#title')).to_contain_text('1m')
    # Display-only overlays use pre-viewport warmup and independent volume scale.
    expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#ffffff')
@@ -238,6 +254,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
    average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
    assert average==[22,155,False],average
+   averages=page.evaluate('() => {const rows=Array.from({length:250},(_,i)=>({time:i,close:i+1}));return [displayAverage(rows,50,"close").get(249),displayAverage(rows,200,"close").get(249),displayAverage(rows,200,"close").has(198)]}')
+   assert averages==[225.5,150.5,False],averages
+   assert payloads['live']['config']['sma_enabled'] is False
+   expect(page.locator('[data-sma50]')).to_have_count(1)
+   expect(page.locator('[data-sma200]')).to_have_count(1)
    # Quote/candle alignment: update only the forming candle and retain observed
    # extrema; never change closed bars, volume, source arrays, or trade settings.
    check=page.evaluate('''() => {
@@ -268,6 +289,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert abs(geometry['labelCenter']-geometry['highCenter'])>=22,geometry
    countdowns=page.evaluate('() => [candleCountdown(0,"1"),candleCountdown(59000,"1"),candleCountdown(60000,"1"),candleCountdown(86399000,"D"),candleCountdown(86400000,"D")]')
    assert countdowns==['01:00','00:01','01:00','00:00:01','24:00:00'],countdowns
+   assert page.evaluate('() => [candleCountdown(0,"5"),candleCountdown(0,"60"),candleCountdown(0,"240")]')==['05:00','01:00:00','04:00:00']
    expect(page.locator('[data-candle-countdown]')).to_be_visible()
    timer=page.locator('[data-candle-countdown]').text_content()
    expect(page.locator('[data-candle-countdown]')).not_to_have_text(timer,timeout=3000)
@@ -292,8 +314,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert float(page.locator('[data-candle]').last.get_attribute('x'))<before_x
    page.get_by_label('Volume with MA 20',exact=True).uncheck();expect(page.locator('[data-volume-bar]')).to_have_count(0)
    page.get_by_label('Volume with MA 20',exact=True).check();expect(page.locator('[data-volume-bar]')).to_have_count(70)
-   page.get_by_label('SMA 7 (white)',exact=True).uncheck();expect(page.locator('[data-sma7]')).to_have_count(0)
-   page.get_by_label('SMA 7 (white)',exact=True).check();expect(page.locator('[data-sma7]')).to_have_count(1)
+   for period,color in [(7,'#ffffff'),(50,'#81d4fa'),(200,'#2962ff')]:
+    expect(page.locator('[data-sma'+str(period)+']')).to_have_attribute('stroke',color)
+   page.get_by_label('SMA 50 color',exact=True).fill('#55bbdd')
+   expect(page.locator('[data-sma50]')).to_have_attribute('stroke','#55bbdd')
+   page.get_by_label('SMA 200 color',exact=True).fill('#3344cc')
+   expect(page.locator('[data-sma200]')).to_have_attribute('stroke','#3344cc')
+   page.get_by_label('SMA 7 color',exact=True).fill('#eeeeee')
+   expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#eeeeee')
+   saved_colors=page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey))')
+   assert saved_colors['sma7']=='#eeeeee' and saved_colors['sma50']=='#55bbdd' and saved_colors['sma']=='#3344cc'
    page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
    expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
    page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
@@ -329,6 +359,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     expect(page.locator('#'+control)).to_be_visible()
    expect(page.locator('#sma_enabled').locator('..')).to_contain_text('S/R entry filter')
    expect(page.locator('#sma_7_50_filter_enabled').locator('..')).to_contain_text('S/R entry filter')
+   for interval in ['5','60','240']:
+    page.select_option('#strategyTf',interval);page.click('#saveSymbols')
+    page.wait_for_function('(value)=>lv.config.timeframe===value',arg=interval)
+    assert writes[-1][1]['timeframe']==interval
+    expect(page.locator('#tf')).to_have_value('1')
+   page.select_option('#strategyTf','1')
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'

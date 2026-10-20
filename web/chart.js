@@ -18,14 +18,15 @@ function draw(){
  const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+chartStyle.rightGap),x=i=>L+(i+.5)*step;
  const levelSnapshot=analysis.filter(b=>b.time<=finish).at(-1);
  const family=key=>(key.startsWith('long_')?'long_':'short_')+(key.endsWith('_major')?'major':'minor');
- const sma7=displayAverage(displayRows,7,'close'),volumeMA=displayAverage(chartRows,20,'volume');
- const byTime=new Map(analysis.map(b=>[b.time,b])),smaByTime=new Map(smaRows.map(s=>[s.time,s.value]));
- const settings=current().settings,showLevels=$('showLevels').checked,showSma=$('showSma').checked&&settings.sma_enabled;
+ const displaySmas=[{period:7,color:chartStyle.sma7},{period:50,color:chartStyle.sma50},{period:200,color:chartStyle.sma}].map(line=>({...line,values:displayAverage(displayRows,line.period,'close')})),volumeMA=displayAverage(chartRows,20,'volume');
+ const byTime=new Map(analysis.map(b=>[b.time,b]));
+ const settings=current().settings,showLevels=$('showLevels').checked;
  const enabled=key=>(!key.endsWith('_major')||settings.major)&&(!key.endsWith('_minor')||settings.minor)&&chartStyle[family(key)]?.visible;
  const active=rows.map(r=>byTime.get(r.time)).filter(Boolean),positions=current().positions.filter(p=>p.symbol===$('symbol').value);
  const stop=p=>Number(p.stop)>0?Number(p.stop):p.entry+(p.side==='Long'?-1:1)*p.stop_dollars/p.qty;
  const values=rows.flatMap(r=>[Number(r.low),Number(r.high)]);
- if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);if(showSma)for(const r of rows){const v=smaByTime.get(r.time);if(Number.isFinite(v))values.push(v)}if(chartStyle.showSma7)for(const r of rows){const v=sma7.get(r.time);if(Number.isFinite(v))values.push(v)}for(const p of positions){values.push(p.entry,stop(p));if(p.trailing?.enabled&&Number(p.trailing.activation_price)>0)values.push(Number(p.trailing.activation_price))}}
+ for(const line of displaySmas)for(const r of rows){const value=line.values.get(r.time);if(Number.isFinite(value))values.push(value)}
+ if($('fitLevels').checked){if(showLevels)for(const [key,level]of Object.entries(levelSnapshot?.levels||{}))if(enabled(key)&&Number.isFinite(level.value))values.push(level.value);for(const p of positions){values.push(p.entry,stop(p));if(p.trailing?.enabled&&Number(p.trailing.activation_price)>0)values.push(Number(p.trailing.activation_price))}}
  const bottom=Math.min(...values),top=Math.max(...values),pad=Math.max((top-bottom)*.12,Math.abs(top)*.00002,.000001),center=(bottom+top)/2+chartPriceShift,half=((top-bottom)/2+pad)*chartPriceZoom,min=center-half,max=center+half;
  chartGeometry={W,H,L,R,T,B,P,step,firstIndex:Math.max(0,end-visibleBars),pricePerPixel:(max-min)/(B-T)*H/svg.getBoundingClientRect().height};
  const y=p=>B-(Number(p)-min)/(max-min)*(B-T),price=marketPrice;
@@ -50,8 +51,7 @@ function draw(){
     'data-sr-key':key},plot);
   shape('title',{},ray).textContent=key.replaceAll('_',' ')+' · '+price(level.value)+' · active at '+new Date(levelSnapshot.time*1000).toISOString();
  }}
- if(showSma){let d='',connected=false;rows.forEach((r,i)=>{const value=smaByTime.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});shape('path',{d,fill:'none',stroke:chartStyle.sma,'stroke-width':2},plot)}
- if(chartStyle.showSma7){let d='',connected=false;rows.forEach((r,i)=>{const value=sma7.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});shape('path',{d,fill:'none',stroke:'#ffffff','stroke-width':1.6,'data-sma7':'true'},plot)}
+ for(const line of displaySmas){let d='',connected=false;rows.forEach((r,i)=>{const value=line.values.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:line.color,'stroke-width':line.period===7?1.6:2,['data-sma'+line.period]:'true'},plot)}
  if(chartStyle.showVolume){const volumeTop=B+25,volumeBottom=axisBottom,validVolumes=rows.filter(r=>Number.isFinite(r.volume)&&r.volume>=0),maxVolume=Math.max(1,...validVolumes.map(r=>r.volume),...rows.map(r=>volumeMA.get(r.time)||0)),vy=v=>volumeBottom-(v/maxVolume)*(volumeBottom-volumeTop-18);
   shape('path',{d:`M${L} ${B+13} H${R}`,stroke:'#344b3d'});
   shape('text',{x:L,y:volumeTop+8,fill:axisText,'font-size':10,'data-volume-heading':'true'}).textContent='Volume · MA 20'+(validVolumes.length?'':' · unavailable');
@@ -71,7 +71,7 @@ function draw(){
  axisLabel(visibleHigh,'High','#234578');axisLabel(visibleLow,'Low','#234578');updateCandleCountdown();
 
  for(const trade of current().trades.filter(t=>t.symbol===$('symbol').value))for(const [stamp,label,color]of [[trade.opened_at,'E','#d7f7ca'],[trade.closed_at,'X','#ffaaa1']]){const t=typeof stamp==='number'?(stamp>1e12?stamp/1000:stamp):Date.parse(stamp)/1000;const i=rows.findIndex((r,j)=>t>=r.time&&t<(rows[j+1]?.time??r.time+($('tf').value==='1'?60:86400)));if(i>=0)shape('text',{x:x(i),y:20,fill:color,'font-size':12,'text-anchor':'middle'}).textContent=label}
- if(chartMeasurement){const m=chartMeasurement,endPoint=m.end||m.start;const project=point=>{const absolute=chartRows.findIndex(r=>r.time===point.time),relative=absolute>=0?absolute-(end-rows.length):(point.time-rows[0].time)/($('tf').value==='D'?86400:60);return {x:x(relative),y:y(point.price)}};const a=project(m.start),b=project(endPoint),color=endPoint.price>=m.start.price?'#57c6ec':'#ff9c9c';const group=shape('g',{'data-measurement':'true'},plot);shape('rect',{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.max(1,Math.abs(b.x-a.x)),height:Math.max(1,Math.abs(b.y-a.y)),fill:color,'fill-opacity':.15,stroke:color,'stroke-dasharray':'5 4'},group);shape('path',{d:`M${a.x} ${a.y} L${b.x} ${b.y}`,stroke:color,'stroke-width':1.5},group);for(const point of [a,b])shape('circle',{cx:point.x,cy:point.y,r:4,fill:color},group);
+ if(chartMeasurement){const m=chartMeasurement,endPoint=m.end||m.start;const project=point=>{const absolute=chartRows.findIndex(r=>r.time===point.time),relative=absolute>=0?absolute-(end-rows.length):(point.time-rows[0].time)/chartIntervalSeconds($('tf').value);return {x:x(relative),y:y(point.price)}};const a=project(m.start),b=project(endPoint),color=endPoint.price>=m.start.price?'#57c6ec':'#ff9c9c';const group=shape('g',{'data-measurement':'true'},plot);shape('rect',{x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.max(1,Math.abs(b.x-a.x)),height:Math.max(1,Math.abs(b.y-a.y)),fill:color,'fill-opacity':.15,stroke:color,'stroke-dasharray':'5 4'},group);shape('path',{d:`M${a.x} ${a.y} L${b.x} ${b.y}`,stroke:color,'stroke-width':1.5},group);for(const point of [a,b])shape('circle',{cx:point.x,cy:point.y,r:4,fill:color},group);
   if(m.end){const stats=measurementStats(m.start,m.end,chartRows),days=Math.floor(stats.seconds/86400),hours=Math.floor(stats.seconds%86400/3600),minutes=Math.floor(stats.seconds%3600/60);$('measurementReadout').textContent='Price move: '+(stats.delta>=0?'+':'')+marketPrice(stats.delta)+' USDT ('+(stats.percent>=0?'+':'')+stats.percent.toFixed(2)+'%) · '+(stats.bars??'—')+' candle intervals · '+(days?days+'d ':'')+(hours?hours+'h ':'')+minutes+'m · '+marketPrice(m.start.price)+' → '+marketPrice(m.end.price)+' · fees/leverage excluded';const labelWidth=Math.min(225,P-16),labelX=Math.max(L+8,Math.min(R-labelWidth-8,(a.x+b.x)/2-labelWidth/2)),labelY=Math.max(T+8,Math.min(B-52,Math.min(a.y,b.y)-50)),summary=shape('g',{'data-ruler-summary':'true'},group);shape('rect',{x:labelX,y:labelY,width:labelWidth,height:42,rx:5,fill:'#173947',stroke:color},summary);shape('text',{x:labelX+8,y:labelY+16,fill:'#f2faff','font-size':12},summary).textContent=(stats.percent>=0?'+':'')+stats.percent.toFixed(2)+'% · '+(stats.delta>=0?'+':'')+marketPrice(stats.delta)+' USDT';shape('text',{x:labelX+8,y:labelY+32,fill:'#c2e7f0','font-size':11},summary).textContent=(stats.bars??'—')+' candle intervals · '+(days?days+'d ':'')+(hours?hours+'h ':'')+minutes+'m'}else $('measurementReadout').textContent='First point set · Click a second point or drag to measure.';
  }else $('measurementReadout').textContent=rulerMode?'Measure ON · Hold and drag to the second point, then release. Or click the first and second points. The result stays on the chart.':'Measure: enable the ruler to compare signals. No orders are placed.';
  function chartPointer(e){const matrix=svg.getScreenCTM();if(matrix)return new DOMPoint(e.clientX,e.clientY).matrixTransform(matrix.inverse());const rect=svg.getBoundingClientRect();return {x:(e.clientX-rect.left)/rect.width*W,y:(e.clientY-rect.top)/rect.height*H}}
@@ -115,7 +115,7 @@ $('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspec
 $('resetChartView').onclick=()=>{visibleBars=70;$('zoom').value='70';chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;draw()};
 $('autoPriceScale').onclick=()=>{chartPriceZoom=1;chartPriceShift=0;draw()};
 $('refresh').onclick=()=>loadChart();
-for(const id of ['showLevels','showSma','showSignals','fitLevels'])$(id).onchange=()=>draw();
+for(const id of ['showLevels','showSignals','fitLevels'])$(id).onchange=()=>draw();
 window.addEventListener('resize',()=>{if(chartRows.length)draw()});
 
 // Wheel handling must be non-passive to zoom the plot instead of scrolling

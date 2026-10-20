@@ -1,4 +1,5 @@
 """Single-process, opt-in automatic paper loop. Never submits exchange orders."""
+from .timeframes import interval_seconds
 import json
 import sqlite3
 import threading
@@ -28,7 +29,7 @@ class Runner:
 
     def history(self, symbol, interval, rows):
         """Persist history so moving API windows don't reset major/minor state."""
-        duration = 60 if interval == '1' else 86400
+        duration = interval_seconds(interval)
         with sqlite3.connect(self.history_path) as db:
             previous = db.execute('SELECT MAX(time) FROM candles WHERE symbol=? AND interval=?', (symbol,interval)).fetchone()[0]
             if previous is not None and rows[0]['time'] > previous + duration:
@@ -49,7 +50,7 @@ class Runner:
         return stored
 
     def analysis(self,symbol,cfg,history,now):
-        strategy=strategy_fingerprint(cfg);duration=60 if cfg.timeframe=='1' else 86400
+        strategy=strategy_fingerprint(cfg);duration=interval_seconds(cfg.timeframe)
         for row in history:validate(row)
         with sqlite3.connect(self.history_path) as db:
             checkpoint=db.execute('SELECT source,stamp,payload FROM checkpoints WHERE symbol=? AND interval=? AND strategy=?',(symbol,cfg.timeframe,strategy)).fetchone()
@@ -100,7 +101,7 @@ class Runner:
                 symbol = futures[future]
                 try: downloaded[symbol] = future.result()
                 except Exception as exc: downloaded[symbol] = exc
-        duration = 60 if cfg.timeframe == '1' else 86400
+        duration = interval_seconds(cfg.timeframe)
         for symbol in symbols:
             if self.stop_event.is_set(): return
             try:
