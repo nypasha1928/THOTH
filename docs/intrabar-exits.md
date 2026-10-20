@@ -32,3 +32,20 @@ automatic resume setting still control that behavior.
 
 Validation uses simulated exchange responses and browser fixtures. Actual
 Bybit SMA exit execution has not been verified by the development environment.
+
+## Optional S/R entry filters
+
+S/R Breakout now has two independent checkboxes:
+
+- **SMA price filter (default SMA 200)** preserves the existing `sma_enabled`
+  selection and configurable `sma_length` (200 by default). Long entries need
+  close above that SMA; shorts need close below it.
+- **SMA 7/50 entry filter** starts off. Long entries need SMA 7 above SMA 50;
+  shorts need SMA 7 below SMA 50. This tests alignment, not a new crossover.
+
+Selecting both requires both conditions. With neither selected, the S/R
+breakout logic runs without either SMA entry filter. SMA 7/50 requires 50
+contiguous closed candles and equality blocks both directions. These options
+apply only to S/R Breakout; SMA 7/200 retains its confirmed-crossover entries.
+The independently selectable intrabar SMA 7/50 exit still applies to both
+entry strategies when enabled. It does not become an entry filter.

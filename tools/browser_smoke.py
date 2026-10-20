@@ -87,6 +87,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#dailyCountdown')).to_contain_text('24:00:00')
    page.evaluate("() => { riskClockOffset=window.savedRiskOffset; renderRiskOverview(); }")
    expect(page.locator('#sma_exit_enabled')).to_be_checked()
+   expect(page.locator('#sma_enabled')).to_be_checked()
+   expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
    expect(page.locator('#dailyBudget')).to_contain_text('$3.00')
    expect(page.locator('#dailyBudgetDetails')).to_contain_text('Allowance: $5.00')
    expect(page.locator('#dailyBudgetDetails')).to_contain_text('stop threshold: $145.00')
@@ -111,6 +113,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=settings]');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).not_to_contain_text('SOLUSDT')
    expect(page.locator('#symbol')).to_have_value('ETHUSDT')
    assert writes[-1][1]['symbols']==['ETHUSDT']
+   if page.locator('#sma_7_50_filter_enabled').is_visible():
+    page.check('#sma_7_50_filter_enabled');page.click('#saveSymbols')
+    assert writes[-1][1]['sma_7_50_filter_enabled'] is True
+    assert writes[-1][1]['sma_enabled'] is True
+    page.uncheck('#sma_7_50_filter_enabled');page.click('#saveSymbols')
    page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    assert writes[-1][1]['symbols']==['ETHUSDT']
    page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)

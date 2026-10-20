@@ -111,7 +111,7 @@ class Runner:
                     raise ValueError('Stale or future market data')
                 history = self.history(symbol, cfg.timeframe, rows)
                 result,count = self.analysis(symbol,cfg,history,now)
-                if count < (201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1, 2*cfg.pivot_long+1)):
+                if count < (201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
                 observations[symbol] = dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])

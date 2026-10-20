@@ -29,6 +29,7 @@ class Settings(BaseModel):
     pivot_short: int = Field(default=5, ge=1, le=100)
     major: bool = True
     minor: bool = True
+    sma_7_50_filter_enabled: bool = False
     sma_enabled: bool = True
     sma_length: int = Field(default=200, ge=1, le=500)
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
