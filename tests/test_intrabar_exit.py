@@ -108,3 +108,31 @@ class IntrabarIntegration(unittest.TestCase):
         self.assertNotIn('sma_exit_error',owner)
         self.assertFalse(self.service.state['entries'])
         self.assertTrue(any('observations recovered' in e['message'] for e in self.service.state['events']))
+
+    def test_overnight_open_loss_rolls_at_midnight_without_double_charge(self):
+        from datetime import datetime,timezone
+        self.now[0]=datetime(2026,10,19,23,58,tzinfo=timezone.utc).timestamp()
+        self.cfg.daily_loss_pct=15;self.cfg.stop_dollars=2.4
+        self.service.configure(self.cfg)
+        self.enter()
+        self.exchange.prices['BTCUSDT']=104;self.service.monitor()
+        before=datetime(2026,10,19,23,59,59,tzinfo=timezone.utc).timestamp()
+        self.now[0]=before;self.exchange.prices['BTCUSDT']=97;self.service.monitor()
+        old=self.service.state['risk']['loss_used']
+        self.assertGreater(old,0)
+        self.now[0]=before+3;self.service.monitor()
+        risk=self.service.state['risk']
+        self.assertEqual(risk['day'],'2026-10-20')
+        self.assertEqual(risk['baseline'],98.5)
+        self.assertEqual(risk['peak'],98.5)
+        self.assertEqual(risk['loss_used'],0)
+        self.assertAlmostEqual(risk['remaining'],98.5*.15)
+        self.assertEqual(sum('New UTC daily period 2026-10-20' in e['message'] for e in self.service.state['events']),1)
+        self.service._close('BTCUSDT',self.service.positions()['BTCUSDT'],'fixture overnight close')
+        self.fill_closes();self.service.monitor()
+        self.assertEqual(risk['loss_used'],0)
+        saved=self.service.snapshot()['risk']
+        self.assertEqual(saved['baseline_ms'],int((before+3)*1000))
+        self.service=self.create()
+        self.assertEqual(self.service.state['risk']['peak_ms'],saved['peak_ms'])
+        self.assertEqual(self.service.state['risk']['loss_used'],0)
