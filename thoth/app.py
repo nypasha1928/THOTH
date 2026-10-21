@@ -191,9 +191,14 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     display_strategy='sr_breakout' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar') else cfg['strategy']
     chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'strategy':display_strategy,'timeframe': interval}).model_copy(update={'timeframe':interval})
     analysis = [b for b in (history_runner.analysis(symbol,chart_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,chart_cfg)) if b['time'] >= rows[0]['time']]
+    sr_analysis=analysis
+    if display_strategy!='sr_breakout':
+        sr_cfg=chart_cfg.model_copy(update={'strategy':'sr_breakout'})
+        sr_analysis=[bar for bar in (history_runner.analysis(symbol,sr_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,sr_cfg)) if bar['time']>=rows[0]['time']]
     rsi_analysis=[]
     if include_rsi:
         rsi_cfg=Settings(**{k:v for k,v in cfg.items() if k in Settings.model_fields}).model_copy(update={'strategy':'rsi_hourly_intrabar','timeframe':interval})
+        rsi_cfg=rsi_cfg.model_copy(update={'rsi':rsi_cfg.rsi.model_copy(update={'static_signals':True,'ml_signals':True})})
         now=__import__('time').time()
         if history_runner:
             rsi_analysis=history_runner.analysis(symbol,rsi_cfg,history,now)[0]
@@ -207,7 +212,7 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
         rsi_analysis=[bar for bar in rsi_analysis if bar['time']>=rows[0]['time']]
     averages = [b for b in sma(history, 200 if cfg['strategy']=='sma_cross' else cfg['sma_length']) if b['time'] >= rows[0]['time']]
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
-            'analysis': analysis,'rsi_analysis':rsi_analysis,'rsi_status':'Corrected ML RSI; historical arrows are reference signals, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up'),
+            'analysis': analysis,'sr_analysis':sr_analysis,'chart_signal_strategy':display_strategy,'rsi_analysis':rsi_analysis,'rsi_status':'Corrected ML RSI; historical arrows are reference signals, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up'),
             'indicator_status': 'S/R reference arrows: confirmed candle-close breakouts on the displayed timeframe; not historical live intrabar triggers. E/X marks recorded trades' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar') else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
             'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 

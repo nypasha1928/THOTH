@@ -30,3 +30,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 .history-pages{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:16px}.history-pages button[aria-current=page]{background:#b9ee79;color:#101918;font-weight:700}.history-jump{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}.history-jump label{display:flex;gap:8px;align-items:center;margin:0}.history-jump input{width:82px;max-width:100%}
 
 #page-security .account-security{margin-top:0}@media(max-width:420px){.page-nav{gap:3px}.page-nav a{font-size:10px;padding:10px 2px}}
+
+#chart .signal-hovered{stroke:#fff;stroke-width:.6px;paint-order:stroke;filter:drop-shadow(0 0 3px #a8b5aa)}#chart [data-rsi-kind],#chart [data-signal-source]{cursor:crosshair}#chartFreshness:empty,#rsiHoverReadout:empty{display:none}

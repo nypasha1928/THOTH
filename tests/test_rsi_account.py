@@ -81,3 +81,18 @@ class RSIBootstrapTests(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(len(response.json()['rsi_analysis']),100)
         self.assertEqual(cfg['strategy'],'sr_breakout');self.assertEqual(cfg['timeframe'],'1')
+
+    def test_chart_signal_families_are_independent_of_entry_family_switches(self):
+        import _environment
+        from fastapi.testclient import TestClient
+        from thoth.app import app
+        rows=candles([100-i for i in range(20)]+[82+i for i in range(50)])
+        cfg=Settings(strategy='rsi_hourly_intrabar',rsi={'max_data':50,'static_signals':False,'ml_signals':True,'volume_filter':False,'vwap_filter':False,'sma_filter':False}).model_dump()
+        with patch('thoth.app.live.snapshot',return_value={'config':cfg}),patch('thoth.app.live_feed',None),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=70*3600):
+            response=TestClient(app).get('/api/chart/ETHUSDT?interval=60&include_rsi=true')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertTrue(any(event['kind']=='static30_up' for row in response.json()['rsi_analysis'] for event in row['events']))
+        self.assertFalse(cfg['rsi']['static_signals'])
+        last=response.json()['rsi_analysis'][-1]
+        self.assertEqual(len(last['cluster_centers']),3)
+        self.assertEqual(last['rsi_cluster'],min(range(3),key=lambda i:abs(last['rsi']-last['cluster_centers'][i])))
