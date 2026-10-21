@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
    elif path=='security/status':result=dict(totp_enabled=False,recovery_codes_remaining=0,passkeys=[])
    elif path=='live/history':
-    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000,pnl=.24,reason='Opposite SMA crossover',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='Opposite breakout',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
+    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
     if history_many:
      params=parse_qs(url.split('?',1)[1] if '?' in url else '')
      offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
@@ -461,8 +461,18 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#historyStatus')).to_contain_text('1000 candles loaded')
    assert page.evaluate('() => chartLookback')==1000
    page.click('[data-page-link=positions]');expect(page.locator('#page-positions')).to_be_visible();expect(page.locator('#page-chart')).not_to_be_visible()
+   page.evaluate("() => {lv.positions=[{symbol:'ETHUSDT',side:'Long',qty:'.02',entry:'2400',mark:'2400',pnl:0,opened_at:1792299900123}];render();}")
+   expect(page.locator('#positions time')).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
+   expect(page.locator('#positions time')).to_contain_text('EDT')
+   page.evaluate('() => {lv.positions=[];render();}')
    page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
    expect(page.locator('#historyRows')).to_contain_text('S/R Breakout')
+   expect(page.locator('#historyRows tr').first.locator('time').first).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
+   expect(page.locator('#historyRows tr').first.locator('time').first).to_contain_text('EDT')
+   expect(page.locator('#historyRows .reason-cell').filter(has_text='SMA 7/50 (EXIT)')).to_have_count(2)
+   expect(page.locator('#historyRows .reason-cell').first).to_have_attribute('title','SMA 7 crossed below SMA 50 (intrabar exit)')
+   expect(page.locator('#historyRows tr').nth(1).locator('td').first).to_have_text('—')
+
    expect(page.locator('#historyRows tr.trade-win')).to_have_count(1)
    expect(page.locator('#historyRows tr.trade-win')).to_contain_text('ETHUSDT')
    expect(page.locator('#historyRows .pnl-win')).to_have_text('$0.24')

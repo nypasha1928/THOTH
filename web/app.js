@@ -19,6 +19,14 @@ async function api(path,method='GET',body){
  const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));return data;
  }finally{clearTimeout(timeout)}
 }
+function tradeTimestamp(value,milliseconds=false){
+ const stamp=Number(value)*(milliseconds?1:1000);
+ if(value==null||!Number.isFinite(stamp)||stamp<=0)return '—';
+ const date=new Date(stamp);if(!Number.isFinite(date.getTime()))return '—';
+ const node=document.createElement('time');node.dateTime=date.toISOString();
+ node.textContent=date.toLocaleString('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZoneName:'short'});
+ node.title=date.toISOString();return node;
+}
 function message(text){$('message').textContent=text}
 function selectedAccount(){return lv}
 function updateAccount(data){state=lv=data;if(Number.isFinite(data.server_time))riskClockOffset=data.server_time*1000-Date.now()}
@@ -99,9 +107,9 @@ function render(){
  $('start').disabled=!tn.enabled_on_server||tn.entries||tn.closing||tn.status==='rate_limited';$('start').title=tn.status==='rate_limited'?'Waiting for verified account reads; Pause entries cancels automatic recovery':!tn.enabled_on_server?'Server-side live activation is disabled':'';
  $('fundsBadge').classList.add('red');$('liveAccountState').textContent=lv.management?'Production execution: REAL funds management active or recovering':'Production execution: inactive';
  $('liveModeNote').textContent=tn.enabled_on_server?'Live server enabled. Account checks, risk controls and manual activation apply.':'Live execution is disabled on the server.';
- $('positionNote').textContent='Bot-managed LIVE positions. Dollar loss limits can be exceeded by fees, slippage or outages. Exchange stop verification is reported in Activity.';
+ $('positionNote').textContent='Bot-managed LIVE positions. Dollar loss limits can be exceeded by fees, slippage or outages. Exchange stop verification is reported in Activity. Opening times show the recorded entry-order creation time.';
  $('positions').replaceChildren();
- for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,money(p.value)+' / '+p.leverage+'×',money(p.pnl),p.trailing?.enabled?(p.trailing.active?'Active · stop '+marketPrice(p.stop):'Waiting · activation '+marketPrice(p.trailing.activation_price)):'Off']){const td=document.createElement('td');td.textContent=value;row.append(td)}row.onclick=()=>{location.hash='#chart';showPage();$('symbol').value=p.symbol;renderWatchlist();loadChart()};$('positions').append(row)}
+ for(const p of s.positions){const row=document.createElement('tr');for(const value of [p.symbol,p.side,tradeTimestamp(p.opened_at,true),money(p.value)+' / '+p.leverage+'×',money(p.pnl),p.trailing?.enabled?(p.trailing.active?'Active · stop '+marketPrice(p.stop):'Waiting · activation '+marketPrice(p.trailing.activation_price)):'Off']){const td=document.createElement('td');if(value instanceof Node)td.append(value);else td.textContent=value;row.append(td)}row.onclick=()=>{location.hash='#chart';showPage();$('symbol').value=p.symbol;renderWatchlist();loadChart()};$('positions').append(row)}
  $('events').replaceChildren();for(const event of [...s.events].reverse().slice(0,30)){const li=document.createElement('li');li.textContent=new Date(event.time).toLocaleTimeString()+' · '+event.message;$('events').append(li)}
  const smaBlocks=Object.keys(tn.sma_exit_blocks||{});$('smaDataStatus').textContent=smaBlocks.length?'SMA exit data: new entries blocked only for '+smaBlocks.join(', ')+'. Other coins remain subject to their own signals and risk checks. Existing Bybit stops stay managed.':'';
  $('execution').replaceChildren();for(const record of tn.execution.filter(r=>!['closed','cancelled','rejected'].includes(r.phase))){const li=document.createElement('li');li.textContent=record.symbol+' · '+record.phase+(record.reason?' · '+record.reason:'');$('execution').append(li)}
