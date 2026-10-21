@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
-  chart=dict(source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
+  chart=dict(indicator_status='S/R reference arrows: confirmed candle-close breakouts; not historical live intrabar triggers',source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
   chart_daily=copy.deepcopy(chart)
   for array in ('candles','analysis','sma'):
    for i,row in enumerate(chart_daily[array]):
@@ -336,6 +336,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
    expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
    page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
+   expect(page.locator('#chartStatus')).to_contain_text('S/R reference arrows')
    expect(page.locator('[data-signal="Long"]').first).to_have_attribute('fill','#aabbcc')
    page.get_by_label('Long-term major Support',exact=True).fill('#33bb77')
    expect(page.locator('[data-sr-key="long_support_major"]')).to_have_attribute('stroke','#33bb77')

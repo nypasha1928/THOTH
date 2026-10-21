@@ -186,13 +186,15 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     cfg = live.snapshot()['config']
     history_runner = live_feed if lookback==1000 else None
     history = history_runner.history(symbol, interval, rows) if history_runner else rows
-    # Chart timeframe is independent from the execution setting.
-    chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'timeframe': interval}).model_copy(update={'timeframe':interval})
+    # Display replay is independent of execution. Hourly intrabar entries cannot
+    # be reconstructed from OHLC; show labelled S/R reference arrows instead.
+    display_strategy='sr_breakout' if cfg['strategy']=='sr_hourly_intrabar' else cfg['strategy']
+    chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'strategy':display_strategy,'timeframe': interval}).model_copy(update={'timeframe':interval})
     analysis = [b for b in (history_runner.analysis(symbol,chart_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,chart_cfg)) if b['time'] >= rows[0]['time']]
     averages = [b for b in sma(history, 200 if cfg['strategy']=='sma_cross' else cfg['sma_length']) if b['time'] >= rows[0]['time']]
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
             'analysis': analysis,
-            'indicator_status': 'Confirmed S/R levels only; sampled intrabar entries cannot be reconstructed from historical OHLC' if cfg['strategy']=='sr_hourly_intrabar' else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
+            'indicator_status': 'S/R reference arrows: confirmed candle-close breakouts on the displayed timeframe; not historical live intrabar triggers. E/X marks recorded trades' if cfg['strategy']=='sr_hourly_intrabar' else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
             'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 
 
