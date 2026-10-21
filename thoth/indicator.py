@@ -101,6 +101,7 @@ def evaluate(rows, cfg, now=None):
             bearish=bearish and ready and fast<slow
         # Conflicting signals are visible but do not silently choose a direction.
         signal = 'Long' if bullish and not bearish else 'Short' if bearish and not bullish else None
+        if cfg.strategy=='sr_hourly_intrabar':signal=None  # OHLC replay cannot reconstruct sampled live crossings.
         output.append(dict(time=row['time'], levels=levels, sma=average, signal=signal,
                            conflict=bullish and bearish, close=row['close']))
         previous = levels
