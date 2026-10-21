@@ -1,0 +1,373 @@
+
+//@version=5
+import TradingView/ta/7 as ta
+
+indicator(
+ "ML RSI / 900 - Filtered Entry", 
+ "ML RSI Entry - 900", 
+ overlay = false, 
+ max_labels_count = 500, 
+ timeframe ="", 
+ timeframe_gaps = true
+ )
+
+// Define Groups
+const string rsi_g = "Relative Strength Index"
+const string ml_t = "Machine Learning Thresholds"
+const string opt_ = "ML Optimization"
+const string ui = "UI Settings"
+const string vol_f = "Volume Filter"
+const string vwap_f = "VWAP Filter"
+const string sig_f = "Signal Settings"
+const string sma_f = "SMA Filter"
+const string macd_f = "MACD Histogram Filter"   // NEW GROUP
+
+// User Inputs 
+// RSI Settings     
+series float src = input.source(close, "Calculation Source", group =rsi_g, inline ="X")
+simple int   rsiLength = input.int(14, "RSI Length", minval = 2, group =rsi_g, inline ="X")
+simple bool  smooth = input.bool(true, "Smooth RSI?", group =rsi_g, inline = "smt")
+string       maType = input.string("Ema", "Moving Average Type",options = ["SMA", "Hull", "Ema", "Wma", "Dema", "RMA", "LINREG", "TEMA", "ALMA", "T3"], group =rsi_g, inline = "smt")
+simple int   smoothP = input.int(4, "Smoothing Period", group =rsi_g)
+simple int   sig = input.int(6, "Sigma for ALMA", group = rsi_g, tooltip = "this is only used if the ALMA is choosen in the Moving Average Type Input")
+
+// Machine Learning Thresholding Settings
+simple int   minThresh = input.int(10, "Threshold Range Min", inline = "thresh", group = ml_t)
+simple int   maxThresh = input.int(90, "Max", inline = "thresh", group = ml_t)
+simple int   step = input.int(5, "Step", inline = "thresh", group = ml_t)
+
+// Optimization Settings 
+simple float perfAlpha = input.float(10, "Performance Memory", minval = 2,tooltip = "controls the weighting of past data or the smoothness of calculations.", group = opt_)
+simple int   maxIter = input.int(1000, "Max Clustering Steps", group =opt_)
+simple int   maxData = input.int(3000, "Max Data Points", group =opt_)
+
+// Volume Filter Settings (global)
+simple bool  volumeFilterEnabled = input.bool(true, "Enable Volume Filter", group = vol_f)  // default true
+simple int   volumeMAPeriod = input.int(20, "Volume MA Period", minval=1, group = vol_f)
+simple float volumeThreshold = input.float(1.0, "Volume Threshold Multiplier", minval=0.5, maxval=5.0, step=0.1, group = vol_f, tooltip="Volume must be this many times above the MA")
+
+// VWAP Filter Settings – updated with calculation & coloring from second script
+simple bool  vwapFilterEnabled = input.bool(true, "Enable VWAP Filter", group = vwap_f)    // default true
+string       vwapAnchor = input.string("D", "VWAP Anchor Period", options = ["1", "3", "5", "15", "30", "60", "240", "D", "W", "M"], group = vwap_f)
+simple bool  showVWAP = input.bool(true, "Show VWAP Line on Chart", group = vwap_f)
+
+// NEW inputs from VWAP Divergence script
+series float vwapSource = input.source(hlc3, "VWAP Source", group = vwap_f)
+simple int   vwapOffset = input.int(0, "VWAP Offset", group = vwap_f)
+simple bool  vwapTrendColor = input.bool(true, "Color VWAP by Trend", group = vwap_f, tooltip="Green when VWAP rising, red when falling. If false, line is white.")
+
+// SMA Filter Settings
+simple bool  smaFilterEnabled = input.bool(true, "Enable SMA 7/50 Filter", group = sma_f) // default true
+simple int   smaFastPeriod = input.int(7, "Fast SMA Period", minval=1, group = sma_f)
+simple int   smaSlowPeriod = input.int(50, "Slow SMA Period", minval=1, group = sma_f)
+
+// ==================== MACD HISTOGRAM FILTER (NEW) ====================
+simple bool  useHistogramFilter = input.bool(false, "Enable MACD Histogram Filter", group = macd_f)
+simple int   macdFastLen = input.int(12, "MACD Fast Length", minval=1, group = macd_f)
+simple int   macdSlowLen = input.int(26, "MACD Slow Length", minval=1, group = macd_f)
+simple int   macdSignalLen = input.int(9, "MACD Signal Length", minval=1, group = macd_f)
+simple bool  histBullPositive = input.bool(true, "Bullish requires Histogram > 0", group = macd_f, tooltip="If true, histogram must be >0 for bullish signals; if false, histogram must be <0 for bullish signals")
+simple bool  histBearNegative = input.bool(true, "Bearish requires Histogram < 0", group = macd_f, tooltip="If true, histogram must be <0 for bearish signals; if false, histogram must be >0 for bearish signals")
+// ======================================================================
+
+// Signal Settings
+simple bool  showStaticSignals = input.bool(true, "Show Static RSI (30/70) Signals", group = sig_f)
+simple bool  showMLSignals = input.bool(true, "Show ML Threshold Signals", group = sig_f)
+simple bool  volumeFilterForStatic = input.bool(true, "Apply Volume Filter to Static RSI 30/70", group = sig_f,  tooltip="If enabled, the RSI 30/70 signals will also require the volume condition. Disable to ignore volume for these signals.")
+
+// UI Settings 
+simple bool  showthres = input.bool(true, "Show Threshold Lines?", group = ui)
+simple bool  paintCandles = input.bool(false, "Color Bars According to Trend?", group = ui)
+int          linew = input.int(3, "Signal Line Width", 1,4,1, group = ui)
+color        longcol = input.color(#00ff00, "Long Colour", group = ui, inline = "xxxx")
+color        shortcol= input.color(#ff0000, "Short Colour", group = ui, inline = "xxxx")
+color        neucol = input.color(color.gray, "Neutral Colour", group = ui)
+simple bool  showSignals = input.bool(true, "Show All Signals", group = ui)
+
+// Static RSI Levels
+rsi30 = 30
+rsi70 = 70
+
+// MA Function
+ma(src, len, type, almaSig) =>
+    switch type
+        "SMA" => ta.sma(src, len)
+        "Hull" => ta.hma(src, len)
+        "Ema" => ta.ema(src, len)
+        "Wma" => ta.wma(src, len)
+        "Dema" => ta.dema(src, len)
+        "RMA" => ta.rma(src, len)
+        "LINREG"=> ta.linreg(src, len, 0)
+        "TEMA" => ta.tema(src, len)
+        "ALMA" => ta.alma(src, len, 0, almaSig)
+        "T3" => ta.t3(src,len, 0.7)
+
+// Calculate Volume MA for filter with threshold
+volumeMA = ta.sma(volume, volumeMAPeriod)
+volumeOK = not volumeFilterEnabled or volume > (volumeMA * volumeThreshold)
+
+// Volume condition for static RSI signals (optional)
+volumeOKStatic = (not volumeFilterForStatic) or volumeOK
+
+// ============================================================
+// NEW VWAP CALCULATION (from VWAP Divergence script)
+// ============================================================
+// Determine when a new anchor period starts
+isNewPeriod = timeframe.change(vwapAnchor) or na(vwapSource[1])
+[vwapValue, _, _] = ta.vwap(vwapSource, isNewPeriod, 1)
+
+// VWAP Filter Conditions (unchanged – use price vs VWAP)
+priceAboveVWAP = close > vwapValue
+priceBelowVWAP = close < vwapValue
+
+// VWAP line color – now matches second script exactly
+vwapColor = showVWAP ? (vwapTrendColor ? (vwapValue > vwapValue[1] ? #00ff0d : #ff0000) : #ffffff) : na
+
+// SMA Filter Calculations
+smaFast = ta.sma(close, smaFastPeriod)
+smaSlow = ta.sma(close, smaSlowPeriod)
+smaUptrend = smaFast > smaSlow
+smaDowntrend = smaFast < smaSlow
+
+// Calculate RSI
+rsi = ta.rsi(src, rsiLength)
+// Smooth?
+if smooth == true
+    rsi:=ma(rsi, smoothP, maType, sig)
+
+// ==================== MACD HISTOGRAM CALCULATION (NEW) ====================
+[_, _, hist] = ta.macd(close, macdFastLen, macdSlowLen, macdSignalLen)
+bullHistOk = histBullPositive ? (hist > 0) : (hist < 0)
+bearHistOk = histBearNegative ? (hist < 0) : (hist > 0)
+// ==========================================================================
+
+// Populate threshold array
+var factors = array.new_float(0)
+if barstate.isfirst
+    for i = minThresh to maxThresh by step
+        array.push(factors, i)
+
+// Clustering for RSI
+var rsi_values = array.new_float(0)
+if last_bar_index - bar_index <= maxData
+    array.push(rsi_values, rsi)
+
+var centroids = array.new_float(3)
+if array.size(rsi_values) > 3
+    array.set(centroids, 0, array.percentile_linear_interpolation(rsi_values, 25))
+    array.set(centroids, 1, array.percentile_linear_interpolation(rsi_values, 50))
+    array.set(centroids, 2, array.percentile_linear_interpolation(rsi_values, 75))
+
+// Initialize clusters
+var cluster1 = array.new_float(0)
+var cluster2 = array.new_float(0)
+var cluster3 = array.new_float(0)
+
+// Function to compare two arrays
+f_arrays_equal(arr1, arr2) =>
+    if array.size(arr1) != array.size(arr2)
+        false
+    else
+        all_equal = true
+        for i = 0 to array.size(arr1) - 1
+            if array.get(arr1, i) != array.get(arr2, i)
+                all_equal := false
+                break
+        all_equal
+
+for _ = 0 to maxIter
+    // Reset clusters at each iteration
+    cluster1 := array.new_float(0)
+    cluster2 := array.new_float(0)
+    cluster3 := array.new_float(0)
+
+    for value in rsi_values
+        distances = array.new_float(3)
+        for centroid in centroids
+            array.push(distances, math.abs(value - centroid))
+        idx = array.indexof(distances, array.min(distances))
+        if idx == 0
+            array.push(cluster1, value)
+        else if idx == 1
+            array.push(cluster2, value)
+        else
+            array.push(cluster3, value)
+
+    // Update centroids
+    new_centroids = array.new_float(3)
+    array.push(new_centroids, array.avg(cluster1))
+    array.push(new_centroids, array.avg(cluster2))
+    array.push(new_centroids, array.avg(cluster3))
+    
+    if f_arrays_equal(new_centroids, centroids)
+        break
+    centroids := new_centroids
+
+// Dynamic thresholds
+long_S = array.get(centroids, 2)
+short_S = array.get(centroids, 0)
+
+// Cluster plotting arrays
+var float cluster1_plot = na
+var float cluster2_plot = na
+var float cluster3_plot = na
+
+if not na(rsi)
+    distances = array.new_float(3)
+    for centroid in centroids
+        array.push(distances, math.abs(rsi - centroid))
+    idx = array.indexof(distances, array.min(distances))
+    cluster1_plot := idx == 0 ? rsi : na
+    cluster2_plot := idx == 1 ? rsi : na
+    cluster3_plot := idx == 2 ? rsi : na
+
+// ========== SIGNAL DEFINITIONS ==========
+
+// ----- Static RSI 30/70 Signals (with VWAP, SMA, and MACD filters) -----
+bullishCross30 = ta.crossover(rsi, rsi30) and volumeOKStatic
+if vwapFilterEnabled
+    bullishCross30 := bullishCross30 and priceAboveVWAP
+if smaFilterEnabled
+    bullishCross30 := bullishCross30 and smaUptrend
+if useHistogramFilter
+    bullishCross30 := bullishCross30 and bullHistOk
+
+bearishCross70 = ta.crossunder(rsi, rsi70) and volumeOKStatic
+if vwapFilterEnabled
+    bearishCross70 := bearishCross70 and priceBelowVWAP
+if smaFilterEnabled
+    bearishCross70 := bearishCross70 and smaDowntrend
+if useHistogramFilter
+    bearishCross70 := bearishCross70 and bearHistOk
+
+// ----- ML Threshold Signals (with VWAP, SMA, and MACD filters) -----
+// Bearish signal when RSI crosses DOWN the Short ML threshold
+bearishCrossShort = ta.crossunder(rsi, short_S) and volumeOK
+if vwapFilterEnabled
+    bearishCrossShort := bearishCrossShort and priceBelowVWAP
+if smaFilterEnabled
+    bearishCrossShort := bearishCrossShort and smaDowntrend
+if useHistogramFilter
+    bearishCrossShort := bearishCrossShort and bearHistOk
+
+// Bullish signal when RSI crosses UP the Long ML threshold
+bullishCrossLong = ta.crossover(rsi, long_S) and volumeOK
+if vwapFilterEnabled
+    bullishCrossLong := bullishCrossLong and priceAboveVWAP
+if smaFilterEnabled
+    bullishCrossLong := bullishCrossLong and smaUptrend
+if useHistogramFilter
+    bullishCrossLong := bullishCrossLong and bullHistOk
+
+// Bullish signal when RSI crosses UP the Short ML threshold
+bullishCrossShortUp = ta.crossover(rsi, short_S) and volumeOK
+if vwapFilterEnabled
+    bullishCrossShortUp := bullishCrossShortUp and priceAboveVWAP
+if smaFilterEnabled
+    bullishCrossShortUp := bullishCrossShortUp and smaUptrend
+if useHistogramFilter
+    bullishCrossShortUp := bullishCrossShortUp and bullHistOk
+
+// Bearish signal when RSI crosses DOWN the Long ML threshold
+bearishCrossLongDown = ta.crossunder(rsi, long_S) and volumeOK
+if vwapFilterEnabled
+    bearishCrossLongDown := bearishCrossLongDown and priceBelowVWAP
+if smaFilterEnabled
+    bearishCrossLongDown := bearishCrossLongDown and smaDowntrend
+if useHistogramFilter
+    bearishCrossLongDown := bearishCrossLongDown and bearHistOk
+
+// ========== SIGNAL VARIABLES ==========
+var bool bullishSignal30 = false
+var bool bearishSignal70 = false
+var bool bearishSignalShort = false
+var bool bullishSignalLong = false
+var bool bullishSignalShortUp = false
+var bool bearishSignalLongDown = false
+
+// Update signal variables
+bullishSignal30 := bullishCross30
+bearishSignal70 := bearishCross70
+bearishSignalShort := bearishCrossShort
+bullishSignalLong := bullishCrossLong
+bullishSignalShortUp := bullishCrossShortUp
+bearishSignalLongDown := bearishCrossLongDown
+
+// ========== ALERT CONDITIONS ==========
+alertcondition(bullishSignal30, "Bullish RSI Cross Above 30 (Filtered)", "RSI crossed above 30 with VWAP/SMA/MACD filters")
+alertcondition(bearishSignal70, "Bearish RSI Cross Below 70 (Filtered)", "RSI crossed below 70 with VWAP/SMA/MACD filters")
+alertcondition(bearishSignalShort, "Bearish RSI Cross Below Short Threshold", "RSI crossed below short ML threshold")
+alertcondition(bullishSignalLong, "Bullish RSI Cross Above Long Threshold", "RSI crossed above long ML threshold")
+alertcondition(bullishSignalShortUp, "Bullish RSI Cross Above Short Threshold", "RSI crossed above short ML threshold")
+alertcondition(bearishSignalLongDown, "Bearish RSI Cross Below Long Threshold", "RSI crossed below long ML threshold")
+
+// Combined alerts
+combinedBullish = bullishSignal30 or bullishSignalLong or bullishSignalShortUp
+combinedBearish = bearishSignal70 or bearishSignalShort or bearishSignalLongDown
+alertcondition(combinedBullish, "Combined Bullish Signal", "Any bullish signal occurred")
+alertcondition(combinedBearish, "Combined Bearish Signal", "Any bearish signal occurred")
+
+// --- Visualization in Indicator Pane ---
+col = rsi > long_S ? longcol : rsi < short_S ? shortcol : neucol
+
+plot(rsi, "RSI", color=col, linewidth = linew)
+
+// Plot static RSI levels
+hline(rsi30, "RSI 30", color=color.new(color.blue, 50), linestyle=hline.style_dotted)
+hline(rsi70, "RSI 70", color=color.new(color.blue, 50), linestyle=hline.style_dotted)
+
+// Dynamic thresholds via Machine Learning
+plot(showthres?long_S:na, "Long ML Threshold", color=longcol)
+plot(showthres?short_S:na, "Short ML Threshold", color=shortcol)
+
+// Plot RSI values in clusters
+plot(cluster1_plot, "Cluster 1", color=color.green, linewidth=2, style=plot.style_circles)
+plot(cluster2_plot, "Cluster 2", color=color.orange, linewidth=2, style=plot.style_circles)
+plot(cluster3_plot, "Cluster 3", color=color.red, linewidth=2, style=plot.style_circles)
+
+// ========== SIGNAL MARKERS ON INDICATOR PANE ==========
+// Static RSI signals (30/70) on RSI chart
+plotshape(showSignals and showStaticSignals and bullishSignal30 ? rsi30 - 3 : na, 
+          "Bullish Signal (30) [Pane]", shape.triangleup, location.absolute, color=color.new(color.green, 0), size=size.tiny)
+plotshape(showSignals and showStaticSignals and bearishSignal70 ? rsi70 + 3 : na, 
+          "Bearish Signal (70) [Pane]", shape.triangledown, location.absolute, color=color.new(color.red, 0), size=size.tiny)
+
+// ML Long / Short signals on RSI chart
+plotshape(showSignals and showMLSignals and bullishSignalLong ? long_S - 3 : na, 
+          "Bullish Signal (ML Long) [Pane]", shape.triangleup, location.absolute, color=color.new(color.lime, 0), size=size.tiny)
+plotshape(showSignals and showMLSignals and bearishSignalShort ? short_S + 3 : na, 
+          "Bearish Signal (ML Short) [Pane]", shape.triangledown, location.absolute, color=color.new(color.maroon, 0), size=size.tiny)
+
+// Additional ML cross signals on RSI chart
+plotshape(showSignals and showMLSignals and bullishSignalShortUp ? short_S - 3 : na, 
+          "Bullish Signal (ML Short Up) [Pane]", shape.triangleup, location.absolute, color=color.new(color.blue, 0), size=size.tiny)
+plotshape(showSignals and showMLSignals and bearishSignalLongDown ? long_S + 3 : na, 
+          "Bearish Signal (ML Long Down) [Pane]", shape.triangledown, location.absolute, color=color.new(color.orange, 0), size=size.tiny)
+
+// Background highlights for signals (still in indicator pane)
+bgcolor(showSignals and bullishSignal30 ? color.new(color.green, 90) : na, title="Bullish RSI 30 Background")
+bgcolor(showSignals and bearishSignal70 ? color.new(color.red, 90) : na, title="Bearish RSI 70 Background")
+bgcolor(showSignals and bullishSignalLong ? color.new(color.lime, 70) : na, title="Bullish ML Long Background")
+bgcolor(showSignals and bearishSignalShort ? color.new(color.maroon, 70) : na, title="Bearish ML Short Background")
+
+// ========== SIGNAL MARKERS ON MAIN CHART (overlay) ==========
+plotshape(showSignals and showStaticSignals and bullishSignal30, "Bullish Signal (30) [Chart]", 
+          shape.triangleup, location.belowbar, color=color.new(color.green, 0), size=size.tiny, force_overlay=true)
+plotshape(showSignals and showStaticSignals and bearishSignal70, "Bearish Signal (70) [Chart]", 
+          shape.triangledown, location.abovebar, color=color.new(color.red, 0), size=size.tiny, force_overlay=true)
+
+plotshape(showSignals and showMLSignals and bullishSignalLong, "Bullish Signal (ML Long) [Chart]", 
+          shape.triangleup, location.belowbar, color=color.new(color.lime, 0), size=size.tiny, force_overlay=true)
+plotshape(showSignals and showMLSignals and bearishSignalShort, "Bearish Signal (ML Short) [Chart]", 
+          shape.triangledown, location.abovebar, color=color.new(color.maroon, 0), size=size.tiny, force_overlay=true)
+
+plotshape(showSignals and showMLSignals and bullishSignalShortUp, "Bullish Signal (ML Short Up) [Chart]", 
+          shape.triangleup, location.belowbar, color=color.new(color.blue, 0), size=size.tiny, force_overlay=true)
+plotshape(showSignals and showMLSignals and bearishSignalLongDown, "Bearish Signal (ML Long Down) [Chart]", 
+          shape.triangledown, location.abovebar, color=color.new(color.orange, 0), size=size.tiny, force_overlay=true)
+
+// ========== VWAP LINE ON MAIN CHART ==========
+plot(showVWAP ? vwapValue : na, "VWAP", color=vwapColor, offset=vwapOffset, linewidth=2, force_overlay=true)
+
+// Bar coloring (if enabled)
+barcolor(paintCandles?col:na)
