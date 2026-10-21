@@ -55,7 +55,9 @@ class Exchange(TestnetClient):
             return {}
         if path=='/v5/position/trading-stop':
             if self.fail_stop:raise BybitError('fixture stop failure')
-            self.active[params['symbol']]['stopLoss']=params['stopLoss'];return {}
+            for key in ('stopLoss','takeProfit'):
+                if key in params:self.active[params['symbol']][key]=params[key]
+            return {}
         if path=='/v5/position/closed-pnl':
             return {'list':[r for r in self.closed if r['symbol']==params['symbol'] and params['startTime']<=int(r['createdTime'])<=params['endTime']]}
         raise AssertionError('Unexpected endpoint '+path)
@@ -68,7 +70,7 @@ class Exchange(TestnetClient):
             self.balance+=pnl
             self.closed.append(dict(orderId=link,symbol=symbol,closedSize=str(qty),closedPnl=str(pnl),execType='Trade',createdTime=str(int(self.now()*1000))))
         else:
-            self.active[symbol]=dict(size=str(qty),side=order['side'],positionIdx=0,avgPrice=str(price),stopLoss=order.get('stopLoss','0'),liqPrice='0')
+            self.active[symbol]=dict(size=str(qty),side=order['side'],positionIdx=0,avgPrice=str(price),stopLoss=order.get('stopLoss','0'),takeProfit=order.get('takeProfit','0'),liqPrice='0')
         order.update(orderStatus='Filled',cumExecQty=str(qty),avgPrice=str(price))
 
 

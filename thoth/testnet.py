@@ -21,6 +21,7 @@ from .credentials import runtime_secret
 from .execution import ExecutionJournal
 from .diagnostics import failure_details, failure_summary
 from .models import TestnetSettings, Settings
+from .bybit_testnet import take_profit_price
 from .trailing import FIELDS as TRAILING_FIELDS,new_trailing,advance as advance_trailing
 
 
@@ -336,6 +337,7 @@ class TestnetSupervisor:
             strategy=record.get('instrument',{}).get('thoth_strategy',self.state['config']['strategy']),
             entry_timeframe=record.get('instrument',{}).get('thoth_entry_timeframe',self.state['config']['timeframe']),
             exit_timeframe=record.get('instrument',{}).get('thoth_exit_timeframe','1' if self.state['config']['strategy']=='sr_hourly_intrabar' else self.state['config']['timeframe']),trailing=new_trailing((record.get('instrument') or {}).get('thoth_trailing',{}),entry,filled,entry*filled/leverage,record['payload']['side']),protection_confirmed=record['phase']=='protected',
+            take_profit=dict(enabled=bool((record.get('instrument') or {}).get('thoth_take_profit',{}).get('enabled',False)),dollars=(record.get('instrument') or {}).get('thoth_take_profit',{}).get('dollars'),verified=False),
             source_fingerprint=self.state.get('source_fingerprint'),execution_fingerprint=self.state.get('execution_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
             real_exchange=self.state.get('real_testnet_exchange',False))
         self.save()
@@ -451,6 +453,33 @@ class TestnetSupervisor:
         self.save()
         self.event(symbol+': trailing stop verified on Bybit at '+target)
 
+    def _manage_take_profit(self,symbol,owner,p,record):
+        state=owner.get('take_profit',{})
+        if not state.get('enabled') or owner['close_link']:return
+        try:
+            target=take_profit_price('Long' if owner['side']=='Buy' else 'Short',owner['entry'],owner['qty'],state['dollars'],record['instrument']['priceFilter']['tickSize'])
+            state['price']=target
+            # Exchange TP is primary; sampled gross P&L is an additional fallback.
+            if dec(p.get('unrealisedPnl','0'))>=dec(state['dollars']):
+                self._close(symbol,p,'Take profit (USDT target)');return
+            if dec(p.get('takeProfit') or '0')==dec(target):
+                if not state.get('verified'):self.event(symbol+': Bybit take profit verified at '+target+' ('+str(state['dollars'])+' USDT gross target)')
+                state.update(verified=True,error=None,pending=False)
+                return
+            if state.get('verified'):self.event(symbol+': take profit missing or changed; restoring target, existing stop remains managed')
+            state['verified']=False
+            if self.clock()<state.get('retry_after',0):return
+            state.update(pending=True,retry_after=self.clock()+10)
+            self.save()  # Durable intent before a potentially ambiguous configuration write.
+            self.client.request('POST','/v5/position/trading-stop',dict(category='linear',symbol=symbol,tpslMode='Full',positionIdx=0,takeProfit=target,tpTriggerBy='MarkPrice',tpOrderType='Market'),private=True)
+            # The next fresh monitor position read verifies it, not the POST acknowledgement.
+            self.save()
+        except Exception as exc:
+            details=failure_details(exc,'take_profit')
+            if state.get('error')!=details:self.event(symbol+': take profit not yet verified; retrying, stop and other coins remain managed · '+failure_summary(details))
+            state.update(verified=False,error=details,retry_after=self.clock()+10)
+            self.save()
+
     def _manage_sma_exit(self,symbol,owner,p,cfg):
         if (not cfg.sma_exit_enabled and owner.get('strategy')!='sr_hourly_intrabar') or owner['close_link']:return
         tracker=owner.setdefault('sma_exit',{})
@@ -517,6 +546,7 @@ class TestnetSupervisor:
                             self.save()
                         if not owner['close_link'] and dec(p.get('stopLoss','0'))==dec(expected):
                             self._manage_trailing(symbol,owner,p,record,desired)
+                            self._manage_take_profit(symbol,owner,p,record)
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)
                 if p:
@@ -542,7 +572,7 @@ class TestnetSupervisor:
             risk=sample(self.state['risk'],equity,self.transfers(),cfg,self.clock())
             if self.state['risk']['day']!=previous_day:
                 self.event('New UTC daily period '+self.state['risk']['day']+': starting equity '+format(equity,'.2f')+' USDT; fresh allowance '+format(self.state['risk']['loss_allowance'],'.2f')+' USDT; prior daily loss usage cleared')
-            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
+            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
             if risk=='daily_stop':
                 if self.state['status']!='daily_stop':self.state['daily_resume_intent']=self.state['entries']
                 self._lock('daily_stop','Daily account loss limit reached; closing all THOTH positions')
@@ -711,10 +741,11 @@ class TestnetSupervisor:
                     raise ValueError('Trailing distance is smaller than one price tick')
             initial_stop=stop_price(side,price,payload['qty'],cfg.stop_dollars,instrument['priceFilter']['tickSize'])
             payload.update(stopLoss=initial_stop,slTriggerBy='MarkPrice',tpslMode='Full')
+            if cfg.take_profit_enabled:payload.update(takeProfit=take_profit_price(side,price,payload['qty'],cfg.take_profit_dollars,instrument['priceFilter']['tickSize']),tpTriggerBy='MarkPrice',tpOrderType='Market')
             try:self.client.request('POST','/v5/position/set-leverage',dict(category='linear',symbol=symbol,buyLeverage=str(cfg.leverage),sellLeverage=str(cfg.leverage)),private=True)
             except BybitError as exc:
                 if exc.code!=110043:raise
-            metadata={**instrument,'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy=='sr_hourly_intrabar' else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy=='sr_hourly_intrabar' else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             self.journal.submit(payload,cfg.stop_dollars,metadata)
             self.event(symbol+(': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': 1h intrabar S/R breakout' if cfg.strategy=='sr_hourly_intrabar' else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))

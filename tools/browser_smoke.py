@@ -390,6 +390,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#strategyLogic','sma_cross')
    expect(page.locator('#strategyTf')).to_be_enabled();expect(page.locator('#sma_exit_enabled')).to_be_enabled()
    page.select_option('#strategyTf','1');page.click('#saveSymbols')
+   expect(page.locator('#take_profit_enabled')).not_to_be_checked()
+   page.check('#take_profit_enabled');page.fill('#take_profit_dollars','1.25');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.take_profit_enabled && lv.config.take_profit_dollars===1.25')
+   assert writes[-1][1]['take_profit_enabled'] and writes[-1][1]['take_profit_dollars']==1.25
+   page.uncheck('#take_profit_enabled');page.click('#saveSymbols')
    expect(page.locator('#lossStreakScope')).to_have_value('per_coin')
    page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
    expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')

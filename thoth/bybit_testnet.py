@@ -61,6 +61,19 @@ def stop_price(side, entry, qty, loss_dollars, tick):
     return format(result,'f')
 
 
+def take_profit_price(side,entry,qty,profit_dollars,tick):
+    values=[dec(v) for v in (entry,qty,profit_dollars,tick)]
+    if side not in ('Long','Short') or any(not v.is_finite() or v<=0 for v in values):
+        raise ValueError('Invalid dollar take-profit inputs')
+    entry,qty,dollars,tick=values
+    distance=dollars/qty
+    if distance<tick:raise ValueError('Take profit is smaller than one price tick')
+    raw=entry+(distance if side=='Long' else -distance)
+    target=grid(raw,tick,ROUND_UP if side=='Long' else ROUND_DOWN)
+    if target<=0:raise ValueError('Take profit implies a non-positive price')
+    return format(target.normalize(),'f')
+
+
 class TestnetClient:
     BASE='https://api-testnet.bybit.com'
 
