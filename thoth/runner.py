@@ -12,6 +12,7 @@ from .indicator_stream import IndicatorState,validate
 from .verification import source_fingerprint,strategy_fingerprint
 from .market import candles
 from .models import Settings
+from .intrabar_entry import observe_breakout,STRATEGY
 
 
 class Runner:
@@ -23,6 +24,7 @@ class Runner:
         self.source_fingerprint=source_fingerprint()
         self.history_path = str(Path(engine.path).with_suffix('.candles.sqlite'))
         with sqlite3.connect(self.history_path) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS intrabar_observations(symbol TEXT, strategy TEXT, payload TEXT, PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS candles(symbol TEXT, interval TEXT, time INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,time))')
             db.execute('CREATE TABLE IF NOT EXISTS checkpoints(symbol TEXT, interval TEXT, strategy TEXT, source TEXT, stamp INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS analyses(symbol TEXT, interval TEXT, strategy TEXT, source TEXT, stamp INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,strategy,stamp))')
@@ -70,6 +72,18 @@ class Runner:
             cached=[json.loads(r[0]) for r in db.execute('SELECT payload FROM analyses WHERE symbol=? AND interval=? AND strategy=? AND source=? ORDER BY stamp',(symbol,cfg.timeframe,strategy,self.source_fingerprint))]
         return cached,state.count
 
+    def intrabar_observation(self,symbol,cfg,history,result,now):
+        if not result or result[-1]['time']!=int(now)//3600*3600-3600:
+            raise ValueError('Latest confirmed hourly levels unavailable')
+        identity=strategy_fingerprint(cfg)
+        with sqlite3.connect(self.history_path) as db:
+            saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
+            tracker=json.loads(saved[0]) if saved else {}
+            observation=observe_breakout(tracker,history,result[-1]['levels'],cfg,now)
+            # Persist consumption before dispatch: a crash must not replay an entry.
+            db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
+        return observation
+
     def cycle(self, paced=True):
         state = self.engine.snapshot()
         cfg = Settings(**state['settings'])
@@ -115,8 +129,8 @@ class Runner:
                 if count < (201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
-                observations[symbol] = dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
-                statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': latest['signal']}
+                observations[symbol] = self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
+                statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
             except Exception as exc:
                 statuses[symbol] = {'status': 'error', 'message': str(exc)[:240]}
 
@@ -128,7 +142,7 @@ class Runner:
         self.engine.market_cycle(cfg.model_dump(), observations)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),
-                       'note': 'Confirmed-candle strategy feed'}
+                       'note': 'Sampled 1h intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

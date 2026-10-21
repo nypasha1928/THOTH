@@ -377,6 +377,18 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   page.select_option('#strategyLogic','sr_hourly_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#major')).to_be_visible();expect(page.locator('#minor')).to_be_visible()
+   expect(page.locator('#strategyDescription')).to_contain_text('1-minute SMA exits')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_hourly_intrabar'")
+   assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
+   expect(page.locator('#tf')).to_have_value('1')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R 1h → Exit 1m');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','sma_cross')
+   expect(page.locator('#strategyTf')).to_be_enabled();expect(page.locator('#sma_exit_enabled')).to_be_enabled()
+   page.select_option('#strategyTf','1');page.click('#saveSymbols')
    expect(page.locator('#lossStreakScope')).to_have_value('per_coin')
    page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
    expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')
