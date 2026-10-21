@@ -14,7 +14,7 @@ from urllib.request import urlopen
 from .verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
 
 from .intrabar_exit import observe_exit
-from .timeframes import interval_seconds
+from .timeframes import interval_seconds,HOURLY_MINUTE_STRATEGIES
 from .account_risk import new_risk, sample, closure, day, symbol_paused
 from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
 from .credentials import runtime_secret
@@ -336,7 +336,7 @@ class TestnetSupervisor:
             close_link=None,close_attempt=0,reason=None,
             strategy=record.get('instrument',{}).get('thoth_strategy',self.state['config']['strategy']),
             entry_timeframe=record.get('instrument',{}).get('thoth_entry_timeframe',self.state['config']['timeframe']),
-            exit_timeframe=record.get('instrument',{}).get('thoth_exit_timeframe','1' if self.state['config']['strategy']=='sr_hourly_intrabar' else self.state['config']['timeframe']),trailing=new_trailing((record.get('instrument') or {}).get('thoth_trailing',{}),entry,filled,entry*filled/leverage,record['payload']['side']),protection_confirmed=record['phase']=='protected',
+            exit_timeframe=record.get('instrument',{}).get('thoth_exit_timeframe','1' if self.state['config']['strategy'] in HOURLY_MINUTE_STRATEGIES else self.state['config']['timeframe']),trailing=new_trailing((record.get('instrument') or {}).get('thoth_trailing',{}),entry,filled,entry*filled/leverage,record['payload']['side']),protection_confirmed=record['phase']=='protected',
             take_profit=dict(enabled=bool((record.get('instrument') or {}).get('thoth_take_profit',{}).get('enabled',False)),dollars=(record.get('instrument') or {}).get('thoth_take_profit',{}).get('dollars'),verified=False),
             source_fingerprint=self.state.get('source_fingerprint'),execution_fingerprint=self.state.get('execution_fingerprint'),strategy_fingerprint=self.state.get('strategy_fingerprint'),
             real_exchange=self.state.get('real_testnet_exchange',False))
@@ -481,10 +481,10 @@ class TestnetSupervisor:
             self.save()
 
     def _manage_sma_exit(self,symbol,owner,p,cfg):
-        if (not cfg.sma_exit_enabled and owner.get('strategy')!='sr_hourly_intrabar') or owner['close_link']:return
+        if (not cfg.sma_exit_enabled and owner.get('strategy') not in HOURLY_MINUTE_STRATEGIES) or owner['close_link']:return
         tracker=owner.setdefault('sma_exit',{})
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
-        timeframe='1' if owner.get('strategy')=='sr_hourly_intrabar' else cfg.timeframe
+        timeframe='1' if owner.get('strategy') in HOURLY_MINUTE_STRATEGIES else cfg.timeframe
         rows=self.client.candles(symbol,timeframe,limit=51)
         reason=observe_exit(tracker,rows,timeframe,p['side'],self.clock())
         if tracker.get('waiting_for_candle') is not None:
@@ -672,12 +672,12 @@ class TestnetSupervisor:
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
                 if previous is None or observation.get('signal') not in ('Long','Short'):continue
-                if not 0<=self.clock()-stamp<=(30 if current.strategy=='sr_hourly_intrabar' else 2*interval_seconds(current.timeframe)):continue
+                if not 0<=self.clock()-stamp<=(30 if current.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(current.timeframe)):continue
                 side='Buy' if observation['signal']=='Long' else 'Sell'
                 owner=self.state['owned'].get(symbol)
                 if owner:
                     if owner['side']==side:continue
-                    reason='Opposite SMA crossover' if current.strategy=='sma_cross' else 'Opposite breakout'
+                    reason='Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite SMA crossover' if current.strategy=='sma_cross' else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
@@ -702,7 +702,7 @@ class TestnetSupervisor:
         if self.clock()<block['retry_after']:return False
         try:
             tracker={}
-            timeframe='1' if cfg.strategy=='sr_hourly_intrabar' else cfg.timeframe
+            timeframe='1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe
             observe_exit(tracker,self.client.candles(symbol,timeframe,limit=51),timeframe,'Buy',self.clock())
             if tracker.get('waiting_for_candle') is not None:return False
         except Exception as exc:
@@ -745,9 +745,9 @@ class TestnetSupervisor:
             try:self.client.request('POST','/v5/position/set-leverage',dict(category='linear',symbol=symbol,buyLeverage=str(cfg.leverage),sellLeverage=str(cfg.leverage)),private=True)
             except BybitError as exc:
                 if exc.code!=110043:raise
-            metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy=='sr_hourly_intrabar' else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             self.journal.submit(payload,cfg.stop_dollars,metadata)
-            self.event(symbol+(': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': 1h intrabar S/R breakout' if cfg.strategy=='sr_hourly_intrabar' else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': corrected RSI 1h signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': 1h intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))
         except Exception:self._lock('safety_lock','Testnet entry operation failed; reconcile before enabling entries')
         self.save()
@@ -756,7 +756,7 @@ class TestnetSupervisor:
         for symbol,intent in list(self.state['pending_signals'].items()):
             if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
                 del self.state['pending_signals'][symbol];continue
-            if self.clock()-intent['time']>(30 if cfg.strategy=='sr_hourly_intrabar' else 2*interval_seconds(cfg.timeframe)):
+            if self.clock()-intent['time']>(30 if cfg.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(cfg.timeframe)):
                 del self.state['pending_signals'][symbol];continue
             if self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
@@ -770,7 +770,7 @@ class TestnetSupervisor:
                 del self.state['reversals'][symbol]
                 self.event(symbol+": replacement entry blocked by this coin’s consecutive-loss cooldown")
                 continue
-            if self.clock()-reversal['time']>(30 if cfg.strategy=='sr_hourly_intrabar' else 2*interval_seconds(cfg.timeframe)):
+            if self.clock()-reversal['time']>(30 if cfg.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(cfg.timeframe)):
                 del self.state['reversals'][symbol]
                 self.event(symbol+': reverse signal expired; no replacement position opened')
                 continue

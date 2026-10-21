@@ -1,23 +1,12 @@
-# ML RSI draft for tomorrow
+# Corrected ML RSI — source review and implementation
 
-Status: offline source review and default-settings calculation prototype only. This branch does **not** add an app indicator, a selectable RSI strategy, a live signal feed, or order execution. Do not deploy it as a completed trading feature. Existing strategy modules and deployment configuration are untouched.
+The operator selected **corrected ML + static signals** after the array defect was disclosed. This branch adds the chart indicator, its independent display controls and **RSI 1h → Exit 1m**. No running server or exchange account was accessed or activated during development. TradingView parity and actual exchange acceptance remain unverified.
 
-## Requested behavior
+## Original source
 
-- Independently selectable chart indicator with an RSI pane, its 30/70 and adaptive threshold lines, plus separate visibility toggles for RSI signal markers in the pane and on the price chart. Hiding signals must never disable trading or change its calculation. Keep S/R arrows independently selectable.
-- New strategy name proposed: **RSI 1h → Exit 1m**. Existing strategies remain available.
-- Entries use the uploaded indicator's combined bullish/bearish alerts on forming hourly candles, without waiting for the hourly close. Static 30/70 and ML signal families must be separately selectable for trading, independently of display toggles. Default intent is combined alerts, matching the source's Combined Bullish/Bearish conditions.
-- Long exits when the **1-minute** SMA 7 crosses below SMA 50; Short exits when it crosses above. No minute-close wait. Keep fixed-dollar Bybit stops and account/coin risk controls, original position ownership and restart recovery.
-- Persist strategy and entry/exit timeframes in journal, owned positions and history. RSI entries must not inherit S/R entry filters: use the RSI script's own filter settings.
-- Polling is sampled, not every exchange tick. Prevent duplicate orders when multiple signal families agree. No retrospective entries after a restart, stale market observation, pause, or missed crossing. Conflicting bullish/bearish events produce no entry.
+`reference/ml_rsi_900_uploaded.pine` preserves the uploaded source byte for byte, including CRLF line endings. SHA-256: `cf415bc7edbd732e04bf2c11148a2a04d06c4ff5dc418625134fd3a43e3078df`.
 
-## Source preserved exactly
-
-`reference/ml_rsi_900_uploaded.pine` is the uploaded source, including its original CRLF line endings. SHA-256: `cf415bc7edbd732e04bf2c11148a2a04d06c4ff5dc418625134fd3a43e3078df`.
-
-Its six signal families are:
-
-| Source alert | Entry |
+| Signal | Direction |
 | --- | --- |
 | RSI crosses above 30 | Long |
 | RSI crosses below 70 | Short |
@@ -26,33 +15,55 @@ Its six signal families are:
 | RSI crosses above lower ML threshold | Long |
 | RSI crosses below upper ML threshold | Short |
 
-Defaults: close-source RSI 14, EMA smoothing 4, volume greater than its SMA 20 × 1.0, daily hlc3 VWAP filter, SMA 7/50 alignment filter, MACD histogram filter disabled. The source allows bypassing volume for static signals while keeping it for ML. These are RSI-specific settings; do not silently reuse the existing S/R filter flags.
+Default calculations: close-source RSI 14, EMA smoothing 4, volume greater than its SMA 20 × 1, daily UTC hlc3 VWAP, SMA 7/50 alignment, MACD histogram filter disabled. Static signals can bypass the volume condition independently. The RSI settings and filters are separate from S/R entry filters.
 
-The source's Show All/Static/ML Signals variables gate plots, **not** combined alerts. This distinction must remain explicit in THOTH's display and execution settings.
+The source's Show All/Static/ML variables control plots, not combined alerts. THOTH therefore separates **chart visibility** from **entry signal selection**. Multiple agreeing signal families produce one entry; conflicting directions produce no entry.
 
-## Source defects and comparison decisions
+## Disclosed defects and explicit corrections
 
-1. Lines 185 and 216 allocate `array.new_float(3)` for distances, then append distances. That creates six slots rather than an empty list with three distances; the cluster index no longer represents the intended three centers.
-2. Line 197 allocates `new_centroids = array.new_float(3)` and appends three means. After assignment, threshold slots 0 and 2 refer to the initially empty values rather than the appended means. A literal port cannot honestly be presented as a working adaptive-threshold indicator.
-3. `maxData` selects history using `last_bar_index - bar_index`, then appends to a persistent array without trimming on subsequent live bars. That is not a consistent rolling window: historical recomputation can differ from an indefinitely running session. The proposed corrected draft uses a causal last `maxData + 1` valid RSI observations, explicitly a semantic correction.
-4. Empty clusters require a defined policy. The prototype retains that cluster's previous center; this differs from an empty-array mean producing an unavailable value. It must be reviewed alongside a corrected Pine reference.
-5. Performance Memory (`perfAlpha`) and the threshold range/step (`factors`) do not feed the signal calculations. Do not invent effects for these settings.
-6. Flat zero-gain/zero-loss RSI seeding, all ten MA choices, alternate calculation sources, VWAP anchors/timezone and missing-value behavior require independent comparison. The prototype leaves all-zero seeds unavailable instead of inventing a numeric reading.
+- Source lines 185 and 216 allocate three empty distance slots before appending the actual distances. Corrected working arrays contain only actual values.
+- Line 197 similarly preallocates three empty centroid slots before appending means. Threshold slots 0/2 then refer to empty values. Corrected centers contain the three actual means.
+- The source's `last_bar_index` history selection appends without trimming during live operation. The corrected calculation keeps the most recent `max_data + 1` **valid RSI observations**, with bounded checkpoint storage.
+- Empty clusters would have unavailable means. The corrected calculation retains the previous center for an empty cluster and keeps centers ordered so lower/upper thresholds retain their meaning.
+- Clustering has a bounded iteration count and a numerical convergence tolerance. Unconverged results do not emit ML signals.
+- Performance Memory (`perfAlpha`) and threshold range/step (`factors`) do not feed the uploaded signal calculations. They are omitted rather than given invented effects.
 
-Tomorrow's key decision: compare against a corrected Pine reference with empty distance/centroid arrays, or initially enable only the valid static 30/70 signal families. Do not silently describe corrected ML calculations as equivalent to the uploaded script. No TradingView parity claim has been established.
+These are intentional corrections, not a claim of literal equivalence to the supplied script. A corrected Pine comparison is still required. Flat all-zero RSI seeds remain unavailable rather than inventing a numeric value. All supported MA/source/anchor combinations are configurable but not individually certified against TradingView's imported library.
 
-## Work completed on this branch
+## Calculation and state
 
-`tools/ml_rsi_draft.py` is an offline calculation prototype. It has no API client, credentials, database, dispatch loop, app imports or order submission. It handles the supplied **default calculation choices** (close, EMA smoothing, daily UTC hlc3 VWAP), configurable lengths and filters, all six signal-family definitions, and an explicitly opt-in corrected ML calculation (`experimental_ml=True`). Experimental ML is off by default. Alternative MA/source/VWAP-anchor choices are not implemented and are not exposed as if supported.
+`thoth/rsi.py` implements Wilder RSI, the ten source smoothing choices (SMA, Hull, Ema, Wma, Dema, RMA, LINREG, TEMA, ALMA, T3), explicit OHLC/hlc3/ohlc4 sources, volume/SMA/MACD filters and UTC VWAP anchors. ALMA uses the source's offset 0; T3 uses its factor 0.7.
 
-Tests cover a known Wilder RSI seed, default EMA smoothing, all six crossing directions, strict crossing boundaries, filter independence, volume bypass, anchored volume-weighted VWAP reset, explicit experimental ML, empty clusters, causal prefix results, tentative forming-candle recalculation, invalid candles and gaps. These synthetic checks do not validate TradingView parity or profitability.
+Sorted prefix sums and nearest-center partition boundaries avoid repeated allocation of a three-distance array for every sample at every iteration. An independent nearest-center implementation tests the corrected result, including tied/empty clusters. A synthetic local check replayed 4,000 hourly bars in approximately 0.7 seconds and recalculated a tentative forming observation in approximately 1 ms. This does not establish the VPS's capacity at a large watchlist size.
 
-## Next implementation steps
+Only closed candles advance checkpoint state. Each forming preview uses a temporary copy and cannot alter prior results or commit the unfinished candle. The original offline default-settings prototype remains in `tools/ml_rsi_draft.py` as a reference; trading uses `thoth/rsi.py`.
 
-1. Review the ML defects and establish a corrected comparison reference or a clearly static-only initial scope. Choose meaningful TradingView samples and matching inputs, symbol, timezone and hourly data.
-2. Finish the supported settings schema and numerical comparisons, including the selected MA/source/anchor options. Unsupported choices must be rejected, never silently approximated.
-3. Benchmark corrected clustering at the intended history/watchlist size on a small server before enabling live polling. The source's maximum-iteration/data settings can be expensive; do not lower them silently. Reuse confirmed RSI state and bound concurrent work while preserving the defined calculation.
-4. Add the chart pane, threshold lines and independent signal visibility controls. Label historical candle-close reference markers separately from recorded live intrabar triggers. Record actual sampled live signal events if the chart is to show them as strategy evidence.
-5. Add a durable RSI hourly feed. Prime without orders on startup/gaps, validate warm-up and contiguous data, recalculate the forming candle without committing it to confirmed RSI state, consume each family/direction at most once per hourly candle, and deduplicate combined entries. Account for the source's 3,001-point history rather than silently using the default 1,000-candle fetch.
-6. Generalize the current hourly-entry/minute-exit strategy routing so both S/R and RSI use correct freshness limits and one-minute exit readiness/management after restart. Preserve existing strategies' behavior. Add both-direction end-to-end and UI tests before offering a selectable strategy.
-7. Prepare a reviewable PR, merge/deploy only when the user resumes tomorrow, then inspect the live chart/Activity with trading still explicitly controlled by the operator.
+## Chart
+
+The RSI pane is available independently of selected trading strategy and chart timeframe. Appearance separately controls:
+
+- RSI pane visibility.
+- All RSI signal arrows.
+- Arrows on the price chart and arrows in the RSI pane.
+- Static 30/70 arrows and ML arrows.
+- RSI VWAP on the price chart.
+
+These are device-local display settings and generate no trading-settings writes. `R▲`/`R▼` identify RSI reference calculations. Ordinary triangles retain the existing strategy's chart reference; E/X mark recorded trades. Reference calculations do not prove that a live intrabar trade occurred. Partial ML windows are labelled. Chart refresh cadence can differ from the execution worker's cadence.
+
+## Strategy
+
+**RSI 1h → Exit 1m** fixes entries to forming hourly candles and requires the existing one-minute SMA exit. Long closes when SMA 7 crosses below SMA 50; Short closes when it crosses above. Neither waits for candle close. Observation is sampled, nominally about every five seconds, with network/quota/watchlist delays possible.
+
+The source's six signal families are combined according to the saved static/ML entry switches and RSI filters. A durable cursor consumes each family at most once per hourly candle, including when blocked/paused; initial or stale observations prime without replaying an entry. Multiple agreeing events collapse to one directional signal; conflicts suppress entry. Entry/reversal intents expire after 30 seconds.
+
+When ML entry signals are selected, new entries require the full configured valid-RSI window plus contiguous indicator warm-up. Initial bootstrap requests at most four older pages through the shared paced client and persists them. Normal cycles then reuse durable history and fetch only the newest page. Static-only mode avoids the extra ML bootstrap. A newly listed coin without enough history stays in warm-up. Missing RSI data blocks that coin's RSI entries; independent minute exits and account risk management continue.
+
+The order journal, owned positions and closed history retain strategy/entry/exit timeframe metadata. Restart recovery restores management with entries paused and preserves minute exit routing. All existing dollar stops, account risk limits, per-coin cooldowns, opposite-signal settings and optional dollar take profit apply. Changing strategy still requires paused entries, flat managed positions and reconciled orders.
+
+## Validation and remaining external checks
+
+Synthetic tests cover a known Wilder RSI seed, default static signals/filter comparison, independent corrected clustering, all smoothing choices' checkpoint equivalence, bounded history, causal previews, invalid/gapped data, VWAP resets, MACD direction gates, independent S/R settings, duplicate/conflicting/stale events, bootstrap reuse, both actual synthetic hourly entry directions, minute exits after restart and timeframe metadata in history.
+
+Desktop/mobile browser fixtures check pane/arrow visibility without settings writes, nested RSI settings saves, strategy selection, mandatory minute exits, independent chart timeframe, take-profit controls and existing navigation/chart interactions. No test places a real order.
+
+Before treating this as verified live behavior: compare the corrected RSI against a corrected Pine reference using identical inputs/history/timezone, then inspect deployed indicator values and actual Bybit order/protection/exit results. Existing unverified-live authorization remains explicit; no new automatic activation or mandatory testnet gate is introduced.

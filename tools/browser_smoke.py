@@ -30,9 +30,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
-  chart=dict(indicator_status='S/R reference arrows: confirmed candle-close breakouts; not historical live intrabar triggers',source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
+  rsi_bars=[dict(time=row['time'],rsi=50+math.sin(i/9)*20,thresholds={'ml_long':60,'ml_short':40},vwap=row['close']-1,ml_ready=True,rsi_samples=3001,events=[dict(kind='static30_up' if i%2 else 'ml_short_down',side='Long' if i%2 else 'Short')] if i%13==0 else []) for i,row in enumerate(rows)]
+  chart=dict(rsi_analysis=rsi_bars,rsi_status='Corrected ML RSI · synthetic fixture',indicator_status='S/R reference arrows: confirmed candle-close breakouts; not historical live intrabar triggers',source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
   chart_daily=copy.deepcopy(chart)
-  for array in ('candles','analysis','sma'):
+  for array in ('candles','analysis','sma','rsi_analysis'):
    for i,row in enumerate(chart_daily[array]):
     row['time']=1700006400+i*86400
     if array=='analysis':
@@ -40,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_intervals={'1':chart,'D':chart_daily}
   for interval,duration in [('5',300),('60',3600),('240',14400)]:
    item=copy.deepcopy(chart);origin=1792300000//duration*duration
-   for array in ('candles','analysis','sma'):
+   for array in ('candles','analysis','sma','rsi_analysis'):
     for i,row in enumerate(item[array]):
      row['time']=origin+i*duration
      if array=='analysis':
@@ -336,6 +337,18 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
    expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
    page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
+   expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   assert page.locator('[data-rsi-signal]').count()>0
+   display_write_count=len(writes)
+   page.get_by_label('Show RSI signal arrows',exact=True).uncheck()
+   expect(page.locator('[data-rsi-signal]')).to_have_count(0)
+   expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   page.get_by_label('Show RSI signal arrows',exact=True).check()
+   page.get_by_label('Show RSI indicator pane',exact=True).uncheck()
+   expect(page.locator('[data-rsi-line=rsi]')).to_have_count(0)
+   assert page.locator('[data-rsi-signal]').count()>0
+   page.get_by_label('Show RSI indicator pane',exact=True).check()
+   assert len(writes)==display_write_count
    expect(page.locator('#chartStatus')).to_contain_text('S/R reference arrows')
    expect(page.locator('[data-signal="Long"]').first).to_have_attribute('fill','#aabbcc')
    page.get_by_label('Long-term major Support',exact=True).fill('#33bb77')
@@ -387,6 +400,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
    expect(page.locator('#tf')).to_have_value('1')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R 1h → Exit 1m');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','rsi_hourly_intrabar')
+   expect(page.locator('#strategyDescription')).to_contain_text('Corrected ML + static RSI')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
+   expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
+   page.fill('#rsi_max_data','50');page.uncheck('#rsi_volume_filter');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.strategy==='rsi_hourly_intrabar' && lv.config.rsi.max_data===50")
+   assert not writes[-1][1]['rsi']['volume_filter']
    page.select_option('#strategyLogic','sma_cross')
    expect(page.locator('#strategyTf')).to_be_enabled();expect(page.locator('#sma_exit_enabled')).to_be_enabled()
    page.select_option('#strategyTf','1');page.click('#saveSymbols')
@@ -450,10 +471,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.evaluate('() => chartTouches.size===0 && chartPinch===null')
    page.click('#resetChartView')
    # Display-only trailing overlays use the managed position's frozen settings.
-   page.evaluate("() => {lv.positions=[{symbol:$('symbol').value,side:'Long',qty:'.02',entry:'2410',mark:'2420',pnl:.2,stop:'2415',stop_dollars:1,trailing:{enabled:true,active:true,activation_price:'2412',stop:'2415'}}];draw();}")
+   page.evaluate("() => {lv.positions=[{symbol:$('symbol').value,side:'Long',qty:'.02',entry:'2410',mark:'2420',pnl:.2,stop:'2415',stop_dollars:1,take_profit:{enabled:true,dollars:1,verified:true,exchange_price:'2425'},trailing:{enabled:true,active:true,activation_price:'2412',stop:'2415'}}];draw();}")
    expect(page.locator('[data-price-line="Trailing exchange stop"]')).to_have_count(1)
    expect(page.locator('[data-price-line="Trailing activated"]')).to_have_count(1)
    page.locator('#chartCard').screenshot(path=str(root/'docs/mobile-trailing-fixture.png'))
+   expect(page.locator('[data-price-line="Exchange take profit"]')).to_have_count(1)
    page.evaluate('() => {lv.positions=[];draw();}')
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
    page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)

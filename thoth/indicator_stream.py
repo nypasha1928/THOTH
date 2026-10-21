@@ -45,6 +45,8 @@ def prune(machine):
 class IndicatorState:
     def __init__(self,cfg,checkpoint=None):
         from .sma_cross import SMACross
+        from .rsi import RSIState
+        self.rsi=RSIState(cfg.rsi,checkpoint.get('rsi') if checkpoint else None)
         self.cross=SMACross(checkpoint.get('cross') if checkpoint else None)
         self.cfg=cfg
         self.buffer=[];self.total=0.;self.count=0;self.previous={};self.last_time=None
@@ -60,13 +62,17 @@ class IndicatorState:
                 machine.arrays=[PineArray(a) for a in machine.arrays]
 
     def checkpoint(self):
-        return encode(dict(version=1,cross=self.cross.checkpoint(),buffer=self.buffer,total=self.total,count=self.count,previous=self.previous,
+        return encode(dict(version=1,rsi=self.rsi.checkpoint(),cross=self.cross.checkpoint(),buffer=self.buffer,total=self.total,count=self.count,previous=self.previous,
             last_time=self.last_time,high_info=self.high_info,low_info=self.low_info,machines=[m.__dict__ for m in self.machines]))
 
     def step(self,row):
         validate(row)
         cfg=self.cfg;duration=interval_seconds(cfg.timeframe)
         if self.last_time is not None and row['time']<=self.last_time:raise ValueError('Candle checkpoint must advance')
+        if cfg.strategy=='rsi_hourly_intrabar':
+            result=self.rsi.step(row,duration)
+            self.count+=1;self.last_time=row['time']
+            return result
         if cfg.strategy=='sma_cross':
             result=self.cross.step(row,duration)
             self.count+=1;self.last_time=row['time']

@@ -1,3 +1,6 @@
 # Preserve the uploaded reference and upstream license byte for byte.
 reference/support_resistance.pine -text -whitespace
 reference/LICENSE-MPL-2.0.txt -text -whitespace
+
+# Keep the uploaded RSI reference unchanged for comparison.
+reference/ml_rsi_900_uploaded.pine -text -whitespace
