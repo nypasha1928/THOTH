@@ -30,7 +30,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
-  rsi_bars=[dict(time=row['time'],rsi=50+math.sin(i/9)*20,thresholds={'ml_long':60,'ml_short':40},vwap=row['close']-1,ml_ready=True,rsi_samples=3001,events=[dict(kind='static30_up' if i%2 else 'ml_short_down',side='Long' if i%2 else 'Short')] if i%13==0 else []) for i,row in enumerate(rows)]
+  rsi_bars=[dict(time=row['time'],rsi=50+math.sin(i/9)*20,thresholds={'static30':30,'static70':70,'ml_long':60,'ml_short':40},vwap=row['close']-1,ml_ready=True,rsi_samples=3001,rsi_cluster=0 if math.sin(i/9)<-.3 else 2 if math.sin(i/9)>.3 else 1,events=[dict(kind=['static30_up','static70_down','ml_long_up','ml_short_down','ml_short_up','ml_long_down'][(i//10)%6],side='Long' if (i//10)%6 in (0,2,4) else 'Short')] if i%10==0 else []) for i,row in enumerate(rows)]
+  rsi_bars[980]['events'].append(dict(kind='static30_up',side='Long'))
   chart=dict(rsi_analysis=rsi_bars,rsi_status='Corrected ML RSI · synthetic fixture',indicator_status='S/R reference arrows: confirmed candle-close breakouts; not historical live intrabar triggers',source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
   chart_daily=copy.deepcopy(chart)
   for array in ('candles','analysis','sma','rsi_analysis'):
@@ -233,6 +234,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.mouse.move(ax,ay);page.mouse.down();page.mouse.move(ax,ay+40,steps=5);page.mouse.up()
    assert page.evaluate('() => chartPriceZoom')<.85
    page.mouse.dblclick(ax,ay);assert page.evaluate('() => chartPriceZoom')==1
+   page.uncheck('#autoChart');page.wait_for_function('() => !chartLoading')
+   before_refresh=len(chart_queries)
+   page.evaluate('async () => {chartPriceZoom=.8;chartPriceShift=2;chartOffset=0;await loadChart(true)}')
+   assert len(chart_queries)>before_refresh
+   assert page.evaluate('() => chartPriceZoom')==.8 and page.evaluate('() => chartPriceShift')==2
+   page.click('#autoPriceScale');page.check('#autoChart')
    expect(page.locator('[data-extreme="Now"]')).to_contain_text('2,412.34')
    expect(page.locator('#quoteStatus')).to_contain_text('Current price:')
    expect(page.locator('[data-extreme="High"]')).to_contain_text('High')
@@ -336,9 +343,43 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert saved_colors['sma7']=='#eeeeee' and saved_colors['sma50']=='#55bbdd' and saved_colors['sma']=='#3344cc'
    page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
    expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
-   page.get_by_label('Bullish signal',exact=True).fill('#aabbcc')
+   page.get_by_label('S/R / SMA bullish arrow',exact=True).fill('#aabbcc')
    expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   for color in ['#00ff00','#ff0000','#808080']:
+    assert page.locator('[data-rsi-segment="'+color+'"]').count()>0
+   for value in [30,70]:expect(page.locator('[data-rsi-static-level="'+str(value)+'"]')).to_have_attribute('stroke','#81d4fa')
+   expected_levels={'static30_up':27,'static70_down':73,'ml_long_up':57,'ml_short_down':43,'ml_short_up':37,'ml_long_down':63}
+   expected_colors={'static30_up':'#4caf50','static70_down':'#ff5252','ml_long_up':'#00e676','ml_short_down':'#ffeb3b','ml_short_up':'#2962ff','ml_long_down':'#ff9800'}
+   for kind,level in expected_levels.items():
+    pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="'+kind+'"]').first
+    chart_marker=page.locator('[data-rsi-signal][data-rsi-kind="'+kind+'"]').first
+    expect(pane).to_have_attribute('data-rsi-value',str(level))
+    expect(chart_marker).to_have_attribute('fill',expected_colors[kind])
+    assert pane.get_attribute('x')==chart_marker.get_attribute('x')
+   pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first
+   pane.hover();expect(page.locator('[data-signal-tooltip]')).to_have_attribute('visibility','visible')
+   expect(page.locator('[data-signal-tooltip]')).to_contain_text('Bullish ML Short Up')
+   expect(page.locator('#rsiHoverReadout')).to_contain_text('RSI at ')
+   cross_d=page.locator('[data-chart-crosshair]').get_attribute('d');geometry=page.evaluate('() => chartGeometry')
+   assert 'V'+str(int(geometry['H']-55)) in cross_d,cross_d
+   page.get_by_label('Color candles on S/R signals',exact=True).check()
+   assert page.locator('[data-sr-candle="Long"]').count()>0
+   page.get_by_label('Show S/R breakout arrows',exact=True).uncheck()
+   expect(page.locator('[data-signal-source="S/R"]')).to_have_count(0)
+   assert page.locator('[data-sr-candle="Long"]').count()>0
+   page.get_by_label('Show S/R breakout arrows',exact=True).check()
+   page.get_by_label('Color candles on S/R signals',exact=True).uncheck()
+   expect(page.locator('[data-sr-candle="Long"]')).to_have_count(0)
    assert page.locator('[data-rsi-signal]').count()>0
+   page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=true')
+   page.locator('[data-rsi-style="ml_short_up"]').evaluate('(el)=>el.open=true')
+   page.get_by_label('Bullish ML Short Up chart color',exact=True).fill('#2244ff')
+   expect(page.locator('[data-rsi-signal][data-rsi-kind="ml_short_up"]').first).to_have_attribute('fill','#2244ff')
+   expect(page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first).to_have_attribute('fill','#2962ff')
+   stored_rsi=page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey)).rsiSignalStyles.ml_short_up')
+   assert stored_rsi['chartColor']=='#2244ff' and stored_rsi['paneColor']=='#2962ff'
+   page.get_by_label('Bullish ML Short Up chart color',exact=True).fill('#2962ff')
+   page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=false')
    display_write_count=len(writes)
    page.get_by_label('Show RSI signal arrows',exact=True).uncheck()
    expect(page.locator('[data-rsi-signal]')).to_have_count(0)
@@ -435,7 +476,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Real touch events exercise Android measurement without native page scrolling.
    page.click('#measureChart');page.locator('#chart').scroll_into_view_if_needed()
    expect(page.locator('#chart')).to_have_css('touch-action','none')
-   box=page.locator('#chart').bounding_box();tx=box['x']+box['width']*.2;ty=box['y']+box['height']*.3
+   box=page.locator('#chart').bounding_box();geometry=page.evaluate('() => chartGeometry');tx=box['x']+box['width']*.2;ty=box['y']+box['height']*(geometry['T']+geometry['B'])/2/geometry['H']
    touch=page.context.new_cdp_session(page);touch.send('Emulation.setTouchEmulationEnabled',{'enabled':True,'maxTouchPoints':1})
    touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':tx,'y':ty}]})
    for step in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':tx+step*10,'y':ty-step*4}]})
@@ -471,11 +512,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.evaluate('() => chartTouches.size===0 && chartPinch===null')
    page.click('#resetChartView')
    # Display-only trailing overlays use the managed position's frozen settings.
-   page.evaluate("() => {lv.positions=[{symbol:$('symbol').value,side:'Long',qty:'.02',entry:'2410',mark:'2420',pnl:.2,stop:'2415',stop_dollars:1,take_profit:{enabled:true,dollars:1,verified:true,exchange_price:'2425'},trailing:{enabled:true,active:true,activation_price:'2412',stop:'2415'}}];draw();}")
+   overlay_position=dict(symbol=page.locator('#symbol').input_value(),side='Long',qty='.02',entry='2410',mark='2420',pnl=.2,stop='2415',stop_dollars=1,take_profit=dict(enabled=True,dollars=1,verified=True,exchange_price='2425'),trailing=dict(enabled=True,active=True,activation_price='2412',stop='2415'))
+   payloads['live']['positions']=[overlay_position]
+   page.evaluate('(position) => {lv.positions=[position];draw()}',overlay_position)
    expect(page.locator('[data-price-line="Trailing exchange stop"]')).to_have_count(1)
    expect(page.locator('[data-price-line="Trailing activated"]')).to_have_count(1)
    page.locator('#chartCard').screenshot(path=str(root/'docs/mobile-trailing-fixture.png'))
    expect(page.locator('[data-price-line="Exchange take profit"]')).to_have_count(1)
+   payloads['live']['positions']=[]
    page.evaluate('() => {lv.positions=[];draw();}')
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
    page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)

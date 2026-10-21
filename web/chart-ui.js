@@ -1,5 +1,5 @@
 // Appearance is device-local display state; never included in trading settings.
-const chartStyleDefaults={background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,showVolume:true,showRSI:true,showRSISignals:true,showRSIPriceSignals:true,showRSIPaneSignals:true,showRSIStatic:true,showRSIML:true,showRSIVWAP:false,
+const chartStyleDefaults={...rsiVisualDefaults,background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,showVolume:true,showRSI:true,showRSISignals:true,showRSIPriceSignals:true,showRSIPaneSignals:true,showRSIStatic:true,showRSIML:true,showRSIVWAP:false,showSRArrows:true,showSMAArrows:true,paintSRCandles:false,srLongCandle:'#81d4fa',srShortCandle:'#ffb3ba',
  long_major:{support:'#085d31',resistance:'#b70909',style:'solid',width:4,visible:true},
  long_minor:{support:'#3e7d5c',resistance:'#b14848',style:'dotted',width:2,visible:true},
  short_major:{support:'#83a091',resistance:'#986464',style:'dashed',width:3,visible:true},
@@ -10,8 +10,9 @@ const chartTouches=new Map();
 let chartPinch=null;
 let chartStyle=copyStyle(),chartDrag=null,suppressChartClick=false,chartPriceShift=0,chartPriceZoom=1,chartGeometry=null;
 try{const stored=JSON.parse(localStorage.getItem(chartStyleKey)||'null');if(stored&&typeof stored==='object'){
- for(const key of ['bull','bear','longSignal','shortSignal','sma','sma7','sma50','background'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
- for(const key of ['showVolume','showLastPrice','showRSI','showRSISignals','showRSIPriceSignals','showRSIPaneSignals','showRSIStatic','showRSIML','showRSIVWAP'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
+ for(const key of ['bull','bear','longSignal','shortSignal','sma','sma7','sma50','background','srLongCandle','srShortCandle'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
+ for(const key of ['showVolume','showLastPrice','showRSI','showRSISignals','showRSIPriceSignals','showRSIPaneSignals','showRSIStatic','showRSIML','showRSIVWAP','showSRArrows','showSMAArrows','paintSRCandles'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
+ restoreRSIVisual(stored,chartStyle);
  if(Number.isInteger(stored.rightGap)&&stored.rightGap>=0&&stored.rightGap<=100)chartStyle.rightGap=stored.rightGap;
  if(Number.isInteger(stored.signalSize)&&stored.signalSize>=10&&stored.signalSize<=32)chartStyle.signalSize=stored.signalSize;
  for(const key of ['long_major','long_minor','short_major','short_minor']){const value=stored[key];if(!value||typeof value!=='object')continue;for(const side of ['support','resistance'])if(/^#[0-9a-f]{6}$/i.test(value[side]))chartStyle[key][side]=value[side];if(['solid','dotted','dashed'].includes(value.style))chartStyle[key].style=value.style;if(Number.isInteger(value.width)&&value.width>=1&&value.width<=6)chartStyle[key].width=value.width;if(typeof value.visible==='boolean')chartStyle[key].visible=value.visible}
@@ -21,10 +22,14 @@ function appearanceInput(label,type,value,oninput,options={}){const row=document
 function renderAppearance(){const target=$('appearanceFields');target.replaceChildren();
  target.append(appearanceInput('Chart background','color',chartStyle.background,v=>chartStyle.background=v));
  target.append(appearanceInput('Show current price line and label','checkbox',chartStyle.showLastPrice,v=>chartStyle.showLastPrice=v));
- for(const [key,label]of [['bull','Bullish candle'],['bear','Bearish candle'],['longSignal','Bullish signal'],['shortSignal','Bearish signal'],['sma7','SMA 7 color'],['sma50','SMA 50 color'],['sma','SMA 200 color']])target.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
+ for(const [key,label]of [['bull','Bullish candle'],['bear','Bearish candle'],['longSignal','S/R / SMA bullish arrow'],['shortSignal','S/R / SMA bearish arrow'],['sma7','SMA 7 color'],['sma50','SMA 50 color'],['sma','SMA 200 color']])target.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
  target.append(appearanceInput('Right spacing (bars)','number',chartStyle.rightGap,v=>{if(Number.isInteger(v)&&v>=0&&v<=100)chartStyle.rightGap=v},{min:0,max:100}));
  target.append(appearanceInput('Volume with MA 20','checkbox',chartStyle.showVolume,v=>chartStyle.showVolume=v));
  for(const [key,label]of [['showRSI','Show RSI indicator pane'],['showRSISignals','Show RSI signal arrows'],['showRSIPriceSignals','Show RSI arrows on price chart'],['showRSIPaneSignals','Show RSI arrows in RSI pane'],['showRSIStatic','Show static RSI 30/70 arrows'],['showRSIML','Show ML RSI arrows'],['showRSIVWAP','Show RSI VWAP on price chart']])target.append(appearanceInput(label,'checkbox',chartStyle[key],v=>chartStyle[key]=v));
+ const srGroup=document.createElement('fieldset'),srTitle=document.createElement('legend');srTitle.textContent='S/R arrows and signal candles';srGroup.append(srTitle);
+ for(const [key,label]of [['showSRArrows','Show S/R breakout arrows'],['showSMAArrows','Show SMA 7/200 reference arrows'],['paintSRCandles','Color candles on S/R signals']])srGroup.append(appearanceInput(label,'checkbox',chartStyle[key],value=>chartStyle[key]=value));
+ for(const [key,label]of [['srLongCandle','S/R bullish signal candle color'],['srShortCandle','S/R bearish signal candle color']])srGroup.append(appearanceInput(label,'color',chartStyle[key],value=>chartStyle[key]=value));target.append(srGroup);
+ renderRSIAppearance(target);
  target.append(appearanceInput('Signal size','number',chartStyle.signalSize,v=>{if(Number.isInteger(v)&&v>=10&&v<=32)chartStyle.signalSize=v},{min:10,max:32}));
  for(const [key,label]of [['long_major','Long-term major'],['long_minor','Long-term minor'],['short_major','Short-term major'],['short_minor','Short-term minor']]){const group=document.createElement('fieldset'),legend=document.createElement('legend');legend.textContent=label;group.append(legend);for(const [property,type,name]of [['visible','checkbox','Show'],['support','color','Support'],['resistance','color','Resistance'],['style','select','Line style'],['width','number','Line width']])group.append(appearanceInput(label+' '+name,type,chartStyle[key][property],v=>{if(property!=='width'||Number.isInteger(v)&&v>=1&&v<=6)chartStyle[key][property]=v},property==='width'?{min:1,max:6}:{}));target.append(group)}
 }

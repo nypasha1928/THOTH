@@ -48,7 +48,7 @@ The RSI pane is available independently of selected trading strategy and chart t
 - Static 30/70 arrows and ML arrows.
 - RSI VWAP on the price chart.
 
-These are device-local display settings and generate no trading-settings writes. `R▲`/`R▼` identify RSI reference calculations. Ordinary triangles retain the existing strategy's chart reference; E/X mark recorded trades. Reference calculations do not prove that a live intrabar trade occurred. Partial ML windows are labelled. Chart refresh cadence can differ from the execution worker's cadence.
+These are device-local display settings and generate no trading-settings writes. Per-family colored triangles identify RSI reference calculations; hover labels distinguish them from independently selectable S/R/SMA references; E/X mark recorded trades. Reference calculations do not prove that a live intrabar trade occurred. Partial ML windows are labelled. Chart refresh cadence can differ from the execution worker's cadence.
 
 ## Strategy
 

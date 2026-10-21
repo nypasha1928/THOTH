@@ -81,7 +81,7 @@ def clusters(values,iterations):
         if all(abs(a-b)<=1e-10 for a,b in zip(updated,centers)):
             centers=updated;converged=True;break
         centers=updated
-    return dict(short=centers[0],long=centers[2],converged=converged)
+    return dict(short=centers[0],long=centers[2],centers=centers,converged=converged)
 
 
 def anchor_key(stamp,period):
@@ -169,4 +169,4 @@ class RSIState:
             events.append(event)
         sides={event['side'] for event in events}
         s.update(count=s['count']+1,last_time=stamp,last_source=value,rsi=rsi,thresholds=thresholds)
-        return dict(time=stamp,close=close,levels={},sma=None,rsi=rsi,thresholds=thresholds,vwap=vwap,volume_ma=average,histogram=histogram,events=events,signal=next(iter(sides)) if len(sides)==1 else None,conflict=len(sides)>1,ml_ready=len(s['rsi_values'])>=cfg.max_data+1 and bool(ml and ml['converged']),rsi_samples=len(s['rsi_values']))
+        return dict(time=stamp,close=close,levels={},sma=None,rsi=rsi,thresholds=thresholds,vwap=vwap,volume_ma=average,histogram=histogram,events=events,signal=next(iter(sides)) if len(sides)==1 else None,conflict=len(sides)>1,ml_ready=len(s['rsi_values'])>=cfg.max_data+1 and bool(ml and ml['converged']),rsi_samples=len(s['rsi_values']),cluster_centers=ml['centers'] if ml and ml['converged'] else None,rsi_cluster=min(range(3),key=lambda i:abs(rsi-ml['centers'][i])) if rsi is not None and ml and ml['converged'] else None)

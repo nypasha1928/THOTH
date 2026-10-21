@@ -4,22 +4,22 @@ function draw(){
  const svg=$('chart');svg.replaceChildren();svg.style.backgroundColor=chartStyle.background;svg.classList.toggle('ruler-mode',rulerMode);
  const rgb=chartStyle.background.slice(1).match(/../g).map(v=>parseInt(v,16)),light=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]>160,axisText=light?'#314138':'#a9bbb0',gridColor=light?'#d5ddd8':'#263c32';
  const expanded=$('chartCard').classList.contains('chart-expanded');
- const W=Math.max(410,Math.min(1800,svg.clientWidth||800)),H=expanded?Math.max(480,window.innerHeight-270):(W<600?370:460)+(chartStyle.showRSI?140:0),L=12,R=W-112,T=30,axisBottom=H-55,rsiHeight=chartStyle.showRSI?115:0,volumeBottom=axisBottom-rsiHeight-(rsiHeight?20:0),volumeHeight=chartStyle.showVolume?Math.max(65,Math.min(130,H*.2)):0,B=volumeBottom-volumeHeight-(chartStyle.showVolume?22:0),P=R-L;
+ const W=Math.max(410,Math.min(1800,svg.clientWidth||800)),H=expanded?Math.max(560,window.innerHeight-270):(W<600?370:460)+(chartStyle.showRSI?chartStyle.rsiPaneHeight+25:0),L=12,R=W-112,T=30,axisBottom=H-55,rsiHeight=chartStyle.showRSI?Math.min(chartStyle.rsiPaneHeight,H*.4):0,volumeBottom=axisBottom-rsiHeight-(rsiHeight?20:0),volumeHeight=chartStyle.showVolume?Math.max(65,Math.min(130,H*.2)):0,B=volumeBottom-volumeHeight-(chartStyle.showVolume?22:0),P=R-L;
  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
  const ns='http://www.w3.org/2000/svg';
  function shape(tag,attrs,parent=svg){const node=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))node.setAttribute(k,v);parent.append(node);return node}
  const synchronized=synchronizeFormingCandle(chartRows,currentQuote,{symbol:$('symbol').value,environment:mode,interval:$('tf').value},formingDisplayState);formingDisplayState=synchronized.state;const displayRows=synchronized.rows;
  const end=displayRows.length-chartOffset,rows=displayRows.slice(Math.max(0,end-visibleBars),end);
- $('chartNavigationStatus').textContent=chartLookback>1000||chartOffset>0||chartPriceShift!==0||chartPriceZoom!==1?'Exploring chart · auto refresh paused. Latest candle returns to the live edge and auto scale.':'Finger drag: time/price · Pinch or wheel: candle zoom · Right price scale: price zoom · Scroll outside the chart to move the page';
+ $('chartNavigationStatus').textContent=chartLookback>1000||chartOffset>0?'Exploring chart · auto refresh paused. Latest candle returns to the live edge and auto scale.':'Finger drag: time/price · Pinch or wheel: candle zoom · Right price scale: price zoom · Scroll outside the chart to move the page';
  $('title').textContent=$('symbol').value+' · '+$('tf').selectedOptions[0].textContent;
  $('oldest').disabled=!chartRows.length||chartOffset>=Math.max(0,chartRows.length-visibleBars);
  $('older').disabled=chartOffset>=Math.max(0,chartRows.length-visibleBars);$('newer').disabled=chartOffset===0;$('latest').disabled=chartLookback===1000&&chartOffset===0&&chartPriceShift===0&&chartPriceZoom===1;
  if(!rows.length){chartGeometry=null;for(const key of ['onpointerdown','onpointermove','onpointerup','onpointercancel','onclick','ondblclick'])svg[key]=null;$('candleInfo').textContent=chartLoading?'Loading candles…':'No candles available for this chart.';return}
  const start=rows[0].time,finish=rows.at(-1).time,step=P/(rows.length+chartStyle.rightGap),x=i=>L+(i+.5)*step;
- const levelSnapshot=analysis.filter(b=>b.time<=finish).at(-1);
+ const levelSnapshot=srAnalysis.filter(b=>b.time<=finish).at(-1);
  const family=key=>(key.startsWith('long_')?'long_':'short_')+(key.endsWith('_major')?'major':'minor');
  const displaySmas=[{period:7,color:chartStyle.sma7},{period:50,color:chartStyle.sma50},{period:200,color:chartStyle.sma}].map(line=>({...line,values:displayAverage(displayRows,line.period,'close')})),volumeMA=displayAverage(chartRows,20,'volume');
- const byTime=new Map(analysis.map(b=>[b.time,b]));
+ const byTime=new Map(analysis.map(b=>[b.time,b])),srByTime=new Map(srAnalysis.map(b=>[b.time,b]));
  const settings=current().settings,showLevels=$('showLevels').checked;
  const enabled=key=>(!key.endsWith('_major')||settings.major)&&(!key.endsWith('_minor')||settings.minor)&&chartStyle[family(key)]?.visible;
  const active=rows.map(r=>byTime.get(r.time)).filter(Boolean),positions=current().positions.filter(p=>p.symbol===$('symbol').value);
@@ -60,17 +60,39 @@ function draw(){
   shape('text',{x:R+8,y:volumeTop+22,fill:axisText,'font-size':10}).textContent=marketPrice(maxVolume);
  }
  const rsiByTime=new Map(rsiRows.map(bar=>[bar.time,bar]));
- const visibleRSIEvents=bar=>(bar?.events||[]).filter(event=>event.kind.startsWith('static')?chartStyle.showRSIStatic:chartStyle.showRSIML);
- if(chartStyle.showRSI){const paneTop=axisBottom-rsiHeight,paneBottom=axisBottom-5,ry=value=>paneBottom-Math.max(0,Math.min(100,value))/100*(paneBottom-paneTop-20),latestRSI=rsiRows.filter(bar=>bar.time<=finish).at(-1);
+ const visibleRSIEvents=bar=>(bar?.events||[]).filter(event=>rsiSignalTypes[event.kind]&&(event.kind.startsWith('static')?chartStyle.showRSIStatic:chartStyle.showRSIML));
+ if(chartStyle.showRSI){
+  const paneTop=axisBottom-rsiHeight,paneBottom=axisBottom-5,ry=value=>paneBottom-Math.max(0,Math.min(100,value))/100*(paneBottom-paneTop-20),latestRSI=rsiRows.filter(bar=>bar.time<=finish).at(-1);
   shape('path',{d:`M${L} ${paneTop-10} H${R}`,stroke:gridColor});
   shape('text',{x:L,y:paneTop+8,fill:axisText,'font-size':10,'data-rsi-heading':'true'}).textContent='Corrected ML RSI'+(Number.isFinite(latestRSI?.rsi)?' '+latestRSI.rsi.toFixed(2):' · warming up')+(latestRSI?.ml_ready?'':' · partial ML window');
-  for(const value of [0,30,50,70,100]){const yy=ry(value);shape('path',{d:`M${L} ${yy} H${R}`,stroke:gridColor,'stroke-dasharray':'2 4'});shape('text',{x:R+8,y:yy+3,fill:axisText,'font-size':10}).textContent=value}
-  for(const [key,color]of [['ml_long',chartStyle.longSignal],['ml_short',chartStyle.shortSignal],['rsi','#b58cf4']]){let d='',connected=false;rows.forEach((r,i)=>{const bar=rsiByTime.get(r.time),value=key==='rsi'?bar?.rsi:bar?.thresholds?.[key];if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${ry(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:color,'stroke-width':key==='rsi'?2:1.2,'data-rsi-line':key})}
-  if(chartStyle.showRSISignals&&chartStyle.showRSIPaneSignals)for(const [i,row]of rows.entries()){const bar=rsiByTime.get(row.time);for(const side of new Set(visibleRSIEvents(bar).map(event=>event.side))){if(!Number.isFinite(bar?.rsi))continue;shape('text',{x:x(i),y:ry(bar.rsi)+(side==='Long'?10:-4),fill:side==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'font-size':12,'text-anchor':'middle','data-rsi-pane-signal':side}).textContent=side==='Long'?'▲':'▼'}}
+  // Source backgrounds are independent of the Static/ML marker visibility groups.
+  if(chartStyle.showRSISignals)for(const [i,row]of rows.entries())for(const event of rsiByTime.get(row.time)?.events||[]){const style=chartStyle.rsiSignalStyles[event.kind];if(style?.backgroundVisible&&style.backgroundOpacity>0)shape('rect',{x:x(i)-step/2,y:paneTop+15,width:step,height:paneBottom-paneTop-15,fill:style.backgroundColor,opacity:style.backgroundOpacity,'data-rsi-background':event.kind})}
+  for(const value of [0,30,50,70,100]){const yy=ry(value);shape('path',{d:`M${L} ${yy} H${R}`,stroke:[30,70].includes(value)?chartStyle.rsiStaticLevelColor:gridColor,'stroke-width':[30,70].includes(value)?.8:1,opacity:[30,70].includes(value)?.65:1,'data-rsi-static-level':[30,70].includes(value)?value:'','stroke-dasharray':'2 4'});shape('text',{x:R+8,y:yy+3,fill:axisText,'font-size':10}).textContent=value}
+  if(chartStyle.showRSIThresholds)for(const [key,color]of [['ml_long',chartStyle.rsiUpperColor],['ml_short',chartStyle.rsiLowerColor]]){let d='',connected=false;rows.forEach((r,i)=>{const value=rsiByTime.get(r.time)?.thresholds?.[key];if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${ry(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:color,'stroke-width':1.2,'data-rsi-line':key})}
+  const rsiLine=shape('g',{'data-rsi-line':'rsi'});let segment='',segmentColor=null,previous=null;
+  function flushRSI(){if(segment)shape('path',{d:segment,fill:'none',stroke:segmentColor,'stroke-width':chartStyle.rsiLineWidth,'data-rsi-segment':segmentColor},rsiLine);segment=''}
+  rows.forEach((row,i)=>{const bar=rsiByTime.get(row.time);if(!Number.isFinite(bar?.rsi)){flushRSI();previous=null;return}const point=[x(i),ry(bar.rsi)],color=rsiTrendColor(bar,chartStyle);if(color!==segmentColor||!previous){flushRSI();segmentColor=color;segment=previous?`M${previous[0]} ${previous[1]} L${point[0]} ${point[1]}`:`M${point[0]} ${point[1]}`}else segment+=` L${point[0]} ${point[1]}`;previous=point});flushRSI();
+  if(chartStyle.showRSIClusters)for(const [i,row]of rows.entries()){const bar=rsiByTime.get(row.time);if(Number.isFinite(bar?.rsi)&&Number.isInteger(bar?.rsi_cluster)&&bar.rsi_cluster>=0&&bar.rsi_cluster<3)shape('circle',{cx:x(i),cy:ry(bar.rsi),r:2,fill:chartStyle['rsiCluster'+(bar.rsi_cluster+1)],'data-rsi-cluster':bar.rsi_cluster})}
+  if(chartStyle.showRSISignals&&chartStyle.showRSIPaneSignals)for(const [i,row]of rows.entries()){const bar=rsiByTime.get(row.time);for(const event of visibleRSIEvents(bar)){const style=chartStyle.rsiSignalStyles[event.kind],value=rsiEventLevel(bar,event,style.panePosition);if(!style.paneVisible||!Number.isFinite(value))continue;const marker=shape('text',{x:x(i),y:ry(value),fill:style.paneColor,'font-size':chartStyle.rsiSignalSize,'text-anchor':'middle','dominant-baseline':'central','data-rsi-pane-signal':event.side,'data-rsi-kind':event.kind,'data-rsi-value':value,'data-signal-time':row.time});marker.textContent=rsiMarkerSymbol(event,style.paneShape);shape('title',{},marker).textContent=rsiSignalTypes[event.kind].label+' · '+value.toFixed(2)+' RSI'}}
+  const tags=[['rsi',latestRSI?.rsi,latestRSI?rsiTrendColor(latestRSI,chartStyle):chartStyle.rsiNeutralColor],...(chartStyle.showRSIThresholds?[['ml_long',latestRSI?.thresholds?.ml_long,chartStyle.rsiUpperColor],['ml_short',latestRSI?.thresholds?.ml_short,chartStyle.rsiLowerColor]]:[])].filter(([,value])=>Number.isFinite(value)).sort((a,b)=>b[1]-a[1]);let tagY=paneTop+14;
+  for(const [key,value,color]of tags){const yy=Math.max(paneTop+23,Math.min(paneBottom-9,Math.max(ry(value),tagY+18)));tagY=yy;shape('rect',{x:R+3,y:yy-8,width:W-R-6,height:16,fill:color,rx:2,'data-rsi-value-tag':key});shape('text',{x:R+7,y:yy+4,fill:['#00ff00','#ffeb3b','#00e676'].includes(color.toLowerCase())?'#101918':'#ffffff','font-size':10}).textContent=value.toFixed(2)}
  }
  if(chartStyle.showRSIVWAP){let d='',connected=false;rows.forEach((r,i)=>{const value=rsiByTime.get(r.time)?.vwap;if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:'#58c9c4','stroke-width':1.4,'data-rsi-vwap':'true'},plot)}
- if(chartStyle.showRSISignals&&chartStyle.showRSIPriceSignals)for(const [i,row]of rows.entries()){const bar=rsiByTime.get(row.time),events=visibleRSIEvents(bar);for(const side of new Set(events.map(event=>event.side))){const marker=shape('text',{x:x(i),y:y(side==='Long'?row.low:row.high)+(side==='Long'?chartStyle.signalSize+14:-24),fill:side==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'font-size':12,'text-anchor':'middle','data-rsi-signal':side},plot);marker.textContent=side==='Long'?'R▲':'R▼';shape('title',{},marker).textContent='RSI reference · '+events.filter(event=>event.side===side).map(event=>event.kind).join(', ')}}
- rows.forEach((r,i)=>{const color=r.close>=r.open?chartStyle.bull:chartStyle.bear;shape('path',{d:`M${x(i)} ${y(r.high)} V${y(r.low)}`,stroke:color,'stroke-width':1.2},plot);shape('rect',{x:x(i)-Math.max(.7,step*.3),y:Math.min(y(r.open),y(r.close)),width:Math.max(1.4,step*.6),height:Math.max(1.5,Math.abs(y(r.open)-y(r.close))),fill:color,rx:.5,'data-candle':r.close>=r.open?'bull':'bear','data-candle-close':r.close,'data-candle-time':r.time},plot);const bar=byTime.get(r.time);if($('showSignals').checked&&bar?.signal)shape('text',{x:x(i),y:y(bar.signal==='Long'?r.low:r.high)+(bar.signal==='Long'?chartStyle.signalSize:-9),fill:bar.signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':bar.signal},plot).textContent=bar.signal==='Long'?'▲':'▼'});
+ if(chartStyle.showRSISignals&&chartStyle.showRSIPriceSignals)for(const [i,row]of rows.entries()){const bar=rsiByTime.get(row.time),stack={};for(const event of visibleRSIEvents(bar)){const style=chartStyle.rsiSignalStyles[event.kind];if(!style.chartVisible)continue;const where=style.chartPosition,slot=stack[where]||0;stack[where]=slot+1;const above=where==='above'||where==='top',base=where==='top'?T+10:where==='bottom'?B-10:y(above?row.high:row.low)+(above?-12:12);const marker=shape('text',{x:x(i),y:base+(above?-1:1)*slot*(chartStyle.rsiSignalSize+2),fill:style.chartColor,'font-size':chartStyle.rsiSignalSize,'text-anchor':'middle','dominant-baseline':'central','data-rsi-signal':event.side,'data-rsi-kind':event.kind,'data-rsi-position':where,'data-signal-time':row.time},plot);marker.textContent=rsiMarkerSymbol(event,style.chartShape);shape('title',{},marker).textContent='RSI reference · '+rsiSignalTypes[event.kind].label}}
+ rows.forEach((r,i)=>{
+  const srBar=srByTime.get(r.time),srSignal=srBar?.signal;
+  const tinted=chartStyle.paintSRCandles&&['Long','Short'].includes(srSignal);
+  const color=tinted?(srSignal==='Long'?chartStyle.srLongCandle:chartStyle.srShortCandle):(r.close>=r.open?chartStyle.bull:chartStyle.bear);
+  shape('path',{d:`M${x(i)} ${y(r.high)} V${y(r.low)}`,stroke:color,'stroke-width':1.2},plot);
+  const candle=shape('rect',{x:x(i)-Math.max(.7,step*.3),y:Math.min(y(r.open),y(r.close)),width:Math.max(1.4,step*.6),height:Math.max(1.5,Math.abs(y(r.open)-y(r.close))),fill:color,rx:.5,'data-candle':r.close>=r.open?'bull':'bear','data-candle-close':r.close,'data-candle-time':r.time,'data-sr-candle':tinted?srSignal:''},plot);
+  if(tinted)shape('title',{},candle).textContent='S/R '+srSignal+' signal candle · display tint only';
+  const markers=[];if(chartStyle.showSRArrows&&srSignal)markers.push([srSignal,'S/R']);
+  const bar=byTime.get(r.time);if(referenceSignalStrategy==='sma_cross'&&chartStyle.showSMAArrows&&bar?.signal)markers.push([bar.signal,'SMA 7/200']);
+  if($('showSignals').checked)for(const [slot,[signal,source]]of markers.entries()){
+   const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
+   marker.textContent=source==='SMA 7/200'?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
+  }
+ });
  function line(value,color,label,dash=''){const yy=y(value);if(yy<T||yy>B)return;shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':dash,'data-price-line':label},plot);shape('text',{x:L+5,y:yy-5,fill:color,'font-size':11},plot).textContent=label+' '+price(value)}
  for(const p of positions){if(Number(p.take_profit?.exchange_price)>0)line(Number(p.take_profit.exchange_price),'#7be3a4',p.take_profit.verified?'Exchange take profit':'Take profit (verification pending)','5 4');line(p.entry,'#edf3e8','Entry '+p.side,'6 4');line(stop(p),p.trailing?.active?'#b7a4ff':'#ff9b91',p.trailing?.active?'Trailing exchange stop':Number(p.stop)>0?'Exchange stop':'Estimated dollar stop','3 4');if(p.trailing?.enabled)line(Number(p.trailing.activation_price),'#58c9c4',p.trailing.active?'Trailing activated':'Trailing activation','8 5')}
  const last=rows.at(-1);
@@ -87,12 +109,35 @@ function draw(){
  }else $('measurementReadout').textContent=rulerMode?'Measure ON · Hold and drag to the second point, then release. Or click the first and second points. The result stays on the chart.':'Measure: enable the ruler to compare signals. No orders are placed.';
  function chartPointer(e){const matrix=svg.getScreenCTM();if(matrix)return new DOMPoint(e.clientX,e.clientY).matrixTransform(matrix.inverse());const rect=svg.getBoundingClientRect();return {x:(e.clientX-rect.left)/rect.width*W,y:(e.clientY-rect.top)/rect.height*H}}
  function rulerPoint(e){const point=chartPointer(e),px=point.x,py=point.y,index=Math.max(0,Math.min(rows.length-1,Math.floor((px-L)/step)));return {time:rows[index].time,price:Math.max(.000000000001,min+(B-py)/(B-T)*(max-min))}}
- const cross=shape('path',{d:'',stroke:'#d8e5dd','stroke-dasharray':'3 4',opacity:.5,'pointer-events':'none'},plot);
+ const cross=shape('path',{d:'',stroke:'#d8e5dd','stroke-dasharray':'3 4',opacity:.65,'pointer-events':'none','data-chart-crosshair':'true'});
  const dot=shape('circle',{r:3,fill:'#edf3e8',visibility:'hidden','pointer-events':'none'},plot);
  const timeTag=shape('g',{'data-crosshair-time':'true',visibility:'hidden','pointer-events':'none'}),timeBox=shape('rect',{height:20,rx:3,fill:'#354d40'},timeTag),timeText=shape('text',{fill:'#f4f7f2','font-size':10,'text-anchor':'middle'},timeTag);
- function inspect(i,show=true){const r=rows[i];$('candleInfo').textContent=new Date(r.time*1000).toISOString().replace('T',' ').slice(0,16)+' UTC · O '+price(r.open)+'  H '+price(r.high)+'  L '+price(r.low)+'  C '+price(r.close);if(show){cross.setAttribute('d',`M${x(i)} ${T} V${B} M${L} ${y(r.close)} H${R}`);dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(r.close));dot.setAttribute('visibility','visible');const text=new Date(r.time*1000).toISOString();timeText.textContent=(daily?text.slice(0,10):text.slice(0,10)+' '+text.slice(11,16))+' UTC';const width=daily?100:145,xx=Math.max(L+width/2,Math.min(R-width/2,x(i)));timeBox.setAttribute('x',xx-width/2);timeBox.setAttribute('y',H-20);timeBox.setAttribute('width',width);timeText.setAttribute('x',xx);timeText.setAttribute('y',H-6);timeTag.setAttribute('visibility','visible')}}
+ let hoverReadout=$('rsiHoverReadout');if(!hoverReadout){hoverReadout=document.createElement('p');hoverReadout.id='rsiHoverReadout';hoverReadout.className='note';hoverReadout.setAttribute('role','status');$('candleInfo').after(hoverReadout)}
+ const signalTooltip=shape('g',{'data-signal-tooltip':'true',visibility:'hidden','pointer-events':'none'});let hoveredMarker=null;
+ function inspect(i,show=true,pointerY=null){
+  const r=rows[i],bar=rsiByTime.get(r.time),stamp=new Date(r.time*1000).toISOString().replace('T',' ').slice(0,16)+' UTC';
+  $('candleInfo').textContent=stamp+' · O '+price(r.open)+'  H '+price(r.high)+'  L '+price(r.low)+'  C '+price(r.close);
+  const number=value=>Number.isFinite(value)?value.toFixed(2):'—';
+  hoverReadout.textContent=chartStyle.showRSI?'RSI at '+stamp+': '+number(bar?.rsi)+' · ML upper '+number(bar?.thresholds?.ml_long)+' · ML lower '+number(bar?.thresholds?.ml_short)+(bar?.events?.length?' · '+bar.events.map(event=>rsiSignalTypes[event.kind]?.label||event.kind).join(', '):' · no RSI signal'):'';
+  if(show){const horizontal=pointerY===null?y(r.close):Math.max(T,Math.min(axisBottom,pointerY));cross.setAttribute('d',`M${x(i)} ${T} V${axisBottom} M${L} ${horizontal} H${R}`);dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(r.close));dot.setAttribute('visibility','visible');const text=new Date(r.time*1000).toISOString();timeText.textContent=(daily?text.slice(0,10):text.slice(0,10)+' '+text.slice(11,16))+' UTC';const width=daily?100:145,xx=Math.max(L+width/2,Math.min(R-width/2,x(i)));timeBox.setAttribute('x',xx-width/2);timeBox.setAttribute('y',H-20);timeBox.setAttribute('width',width);timeText.setAttribute('x',xx);timeText.setAttribute('y',H-6);timeTag.setAttribute('visibility','visible')}
+ }
  const inspectedIndex=rows.findIndex(r=>r.time===inspectedCandle);inspect(inspectedIndex>=0?inspectedIndex:rows.length-1,false);
- function point(e){const rect=svg.getBoundingClientRect(),px=(e.clientX-rect.left)/rect.width*W;const i=Math.max(0,Math.min(rows.length-1,Math.floor((px-L)/step)));inspectedCandle=rows[i].time;inspect(i)}
+ function point(e){
+  const pointer=chartPointer(e),target=e.target.closest?.('[data-rsi-kind], [data-signal-source]');
+  const markedTime=Number(target?.getAttribute('data-signal-time'));
+  const marked=target?rows.findIndex(row=>row.time===markedTime):-1;
+  const i=marked>=0?marked:Math.max(0,Math.min(rows.length-1,Math.floor((pointer.x-L)/step)));
+  inspectedCandle=rows[i].time;inspect(i,true,pointer.y);
+  if(hoveredMarker&&hoveredMarker!==target)hoveredMarker.classList.remove('signal-hovered');hoveredMarker=target||null;
+  signalTooltip.replaceChildren();signalTooltip.setAttribute('visibility','hidden');
+  if(target){target.classList.add('signal-hovered');const bar=rsiByTime.get(rows[i].time),kind=target.getAttribute('data-rsi-kind'),meta=rsiSignalTypes[kind],name=meta?.label||target.getAttribute('data-signal-source')+' reference signal';
+   const width=Math.min(285,P-10),height=58,xx=Math.max(L,Math.min(R-width,pointer.x+14)),yy=Math.max(T,Math.min(axisBottom-height,pointer.y-65));
+   shape('rect',{x:xx,y:yy,width,height,rx:5,fill:chartStyle.background,stroke:'#aabbb2'},signalTooltip);
+   const details=meta?'RSI '+(Number.isFinite(bar?.rsi)?bar.rsi.toFixed(2):'—')+' · threshold '+(Number.isFinite(bar?.thresholds?.[meta.threshold])?bar.thresholds[meta.threshold].toFixed(2):'—'):'Candle close '+price(rows[i].close);
+   [name,new Date(rows[i].time*1000).toISOString().slice(0,16).replace('T',' ')+' UTC',details].forEach((text,lineIndex)=>{shape('text',{x:xx+7,y:yy+15+lineIndex*16,fill:axisText,'font-size':10},signalTooltip).textContent=text});signalTooltip.setAttribute('visibility','visible');
+  }
+ }
+
  svg.onpointerdown=e=>{if(e.button!==0)return;
   if(e.pointerType==='touch'&&!rulerMode){
    e.preventDefault();chartTouches.set(e.pointerId,{x:e.clientX,y:e.clientY});svg.setPointerCapture(e.pointerId);
@@ -117,12 +162,12 @@ function draw(){
  svg.onpointerup=endDrag;svg.onpointercancel=endDrag;svg.onlostpointercapture=e=>{if(e.target!==svg||svg.hasPointerCapture(e.pointerId))return;chartTouches.delete(e.pointerId);chartPinch=null;rulerPointer=null;chartDrag=null;svg.classList.remove('dragging')};
  svg.ondblclick=e=>{const rect=svg.getBoundingClientRect();if((e.clientX-rect.left)/rect.width*W>=R){chartPriceZoom=1;chartPriceShift=0;draw()}};
  svg.onclick=e=>{if(rulerMode)return;if(suppressChartClick){suppressChartClick=false;return}point(e)};
- svg.onpointerleave=()=>{if(!chartDrag){cross.setAttribute('d','');dot.setAttribute('visibility','hidden');timeTag.setAttribute('visibility','hidden')}};
+ svg.onpointerleave=()=>{if(!chartDrag){cross.setAttribute('d','');dot.setAttribute('visibility','hidden');timeTag.setAttribute('visibility','hidden');signalTooltip.setAttribute('visibility','hidden');if(hoveredMarker)hoveredMarker.classList.remove('signal-hovered')}};
 }
 $('zoom').oninput=()=>{visibleBars=Number($('zoom').value);chartOffset=Math.min(chartOffset,Math.max(0,chartRows.length-visibleBars));draw()};
 $('older').onclick=()=>{chartOffset=Math.min(Math.max(0,chartRows.length-visibleBars),chartOffset+Math.max(10,Math.floor(visibleBars/3)));draw()};
 $('newer').onclick=()=>{chartOffset=Math.max(0,chartOffset-Math.max(10,Math.floor(visibleBars/3)));draw()};
-$('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;if(chartLookback>1000){chartLookback=1000;historyExhausted=false;loadChart();return;}draw()};
+$('latest').onclick=()=>{chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;chartLookback=1000;historyExhausted=false;loadChart()};
 $('resetChartView').onclick=()=>{visibleBars=70;$('zoom').value='70';chartOffset=0;chartPriceShift=0;chartPriceZoom=1;inspectedCandle=null;draw()};
 $('autoPriceScale').onclick=()=>{chartPriceZoom=1;chartPriceShift=0;draw()};
 $('refresh').onclick=()=>loadChart();
