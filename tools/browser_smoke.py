@@ -125,8 +125,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#dailyBudget')).not_to_contain_text('$3.00')
    page.evaluate("() => { lv.risk.baseline_required=false; renderRiskOverview(); }")
    expect(page.locator('#coinCooldowns')).to_contain_text('XVGUSDT')
-   first_timer=page.locator('#coinCooldowns').inner_text();page.wait_for_timeout(1200)
-   assert page.locator('#coinCooldowns').inner_text()!=first_timer
+   first_timer=page.locator('#coinCooldowns').inner_text()
+   expect(page.locator('#coinCooldowns')).not_to_have_text(first_timer,timeout=5000)
    expect(page.locator('#events li')).to_have_count(30)
    expect(page.locator('#events li').first).to_contain_text('Synthetic activity 39')
    expect(page.locator('#events li').last).to_contain_text('Synthetic activity 10')
@@ -363,8 +363,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    pane.hover();expect(page.locator('[data-signal-tooltip]')).to_have_attribute('visibility','visible')
    expect(page.locator('[data-signal-tooltip]')).to_contain_text('Bullish ML Short Up')
    expect(page.locator('#rsiHoverReadout')).to_contain_text('RSI at ')
-   cross_d=page.locator('[data-chart-crosshair]').get_attribute('d');geometry=page.evaluate('() => chartGeometry')
-   assert 'V'+str(int(geometry['H']-55)) in cross_d,cross_d
+   # Sample hover and geometry atomically: the quote timer may redraw between calls.
+   hover_geometry=pane.evaluate("el => {const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H};}")
+   assert 'V'+str(int(hover_geometry['height']-55)) in hover_geometry['path'],hover_geometry
    page.get_by_label('Color candles on S/R signals',exact=True).check()
    assert page.locator('[data-sr-candle="Long"]').count()>0
    page.get_by_label('Show S/R breakout arrows',exact=True).uncheck()
@@ -445,13 +446,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#tf')).to_have_value('1')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R 1h → Exit 1m');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','rsi_hourly_intrabar')
-   expect(page.locator('#strategyDescription')).to_contain_text('Corrected ML + static RSI')
+   expect(page.locator('#strategyDescription')).to_contain_text('Selected RSI calculation version')
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
    page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
    expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('corrected')
+   page.select_option('#rsi_calculation_mode','uploaded_pine')
    page.fill('#rsi_max_data','50');page.uncheck('#rsi_volume_filter');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='rsi_hourly_intrabar' && lv.config.rsi.max_data===50")
    assert not writes[-1][1]['rsi']['volume_filter']
+   assert writes[-1][1]['rsi']['calculation_mode']=='uploaded_pine'
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('uploaded_pine')
    page.select_option('#strategyLogic','sma_cross')
    expect(page.locator('#strategyTf')).to_be_enabled();expect(page.locator('#sma_exit_enabled')).to_be_enabled()
    page.select_option('#strategyTf','1');page.click('#saveSymbols')

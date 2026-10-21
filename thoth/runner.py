@@ -96,7 +96,7 @@ class Runner:
 
     def rsi_observation(self,symbol,cfg,history,now):
         preview=self.rsi_preview(symbol,cfg,history,now)
-        if preview['rsi'] is None or (cfg.rsi.ml_signals and not preview['ml_ready']):raise ValueError('RSI/ML history warming up; no entry')
+        if preview['rsi'] is None or (cfg.rsi.calculation_mode=='corrected' and cfg.rsi.ml_signals and not preview['ml_ready']):raise ValueError('RSI/ML history warming up; no entry')
         identity=strategy_fingerprint(cfg);start=preview['time']
         with sqlite3.connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
