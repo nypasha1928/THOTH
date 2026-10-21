@@ -52,6 +52,10 @@ def evaluate(rows, cfg, now=None):
             raise ValueError('Invalid candle price')
         if not (r['low'] <= min(r['open'],r['close']) <= max(r['open'],r['close']) <= r['high']):
             raise ValueError('Invalid candle range')
+    if cfg.strategy=='rsi_hourly_intrabar':
+        from .rsi import RSIState
+        state=RSIState(cfg.rsi)
+        return [state.step(row,duration) for row in rows if row['time']+duration<=now]
     if cfg.strategy=='sma_cross':
         from .sma_cross import SMACross
         cross=SMACross()

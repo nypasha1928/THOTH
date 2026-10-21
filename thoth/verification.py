@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
-STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','minor','sma_enabled','sma_length','sma_7_50_filter_enabled')
+STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','minor','sma_enabled','sma_length','sma_7_50_filter_enabled','rsi')
 
 
 def source_fingerprint():
     h=hashlib.sha256()
-    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/intrabar_entry.py','thoth/timeframes.py','reference/support_resistance.pine'):
+    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/intrabar_entry.py','thoth/rsi.py','reference/ml_rsi_900_uploaded.pine','thoth/timeframes.py','reference/support_resistance.pine'):
         path=ROOT/relative
         h.update(relative.encode());h.update(path.read_bytes())
     return h.hexdigest()
@@ -24,7 +24,7 @@ def execution_fingerprint():
 
 def strategy_fingerprint(cfg):
     values=cfg.model_dump() if hasattr(cfg,'model_dump') else cfg
-    return hashlib.sha256(json.dumps({k:values.get(k,'sr_breakout') if k=='strategy' else values[k] for k in STRATEGY_FIELDS},sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps({k:values.get(k,'sr_breakout') if k=='strategy' else values.get(k,{}) if k=='rsi' else values[k] for k in STRATEGY_FIELDS},sort_keys=True).encode()).hexdigest()
 
 
 def reference_status(cfg,directory):

@@ -84,6 +84,33 @@ class Runner:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation
 
+    def rsi_preview(self,symbol,cfg,history,now):
+        strategy=strategy_fingerprint(cfg);duration=interval_seconds(cfg.timeframe)
+        with sqlite3.connect(self.history_path) as db:
+            checkpoint=db.execute('SELECT source,payload FROM checkpoints WHERE symbol=? AND interval=? AND strategy=?',(symbol,cfg.timeframe,strategy)).fetchone()
+        if not checkpoint or checkpoint[0]!=self.source_fingerprint:raise ValueError('RSI warm-up checkpoint unavailable')
+        state=IndicatorState(cfg,json.loads(checkpoint[1]))
+        start=int(now)//duration*duration
+        if not history or history[-1]['time']!=start or state.last_time!=start-duration:raise ValueError('RSI forming candle or contiguous history unavailable')
+        return state.step(history[-1])  # Temporary state; never commits an unfinished candle.
+
+    def rsi_observation(self,symbol,cfg,history,now):
+        preview=self.rsi_preview(symbol,cfg,history,now)
+        if preview['rsi'] is None or (cfg.rsi.ml_signals and not preview['ml_ready']):raise ValueError('RSI/ML history warming up; no entry')
+        identity=strategy_fingerprint(cfg);start=preview['time']
+        with sqlite3.connect(self.history_path) as db:
+            saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
+            tracker=json.loads(saved[0]) if saved else {}
+            fresh=0<now-tracker.get('observed_at',0)<=30 and tracker.get('bar') in (start,start-3600)
+            fired=set(tracker.get('fired',[])) if tracker.get('bar')==start else set()
+            events=[event for event in preview['events'] if event['kind'] not in fired]
+            fired.update(event['kind'] for event in preview['events'])
+            sides={event['side'] for event in events}
+            signal=next(iter(sides)) if fresh and len(sides)==1 and not preview['conflict'] else None
+            tracker.update(bar=start,observed_at=now,fired=sorted(fired))
+            db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
+        return dict(time=now,mark=history[-1]['close'],signal=signal,entry_bar=start,entry_timeframe='60',exit_timeframe='1')
+
     def cycle(self, paced=True):
         state = self.engine.snapshot()
         cfg = Settings(**state['settings'])
@@ -126,10 +153,10 @@ class Runner:
                     raise ValueError('Stale or future market data')
                 history = self.history(symbol, cfg.timeframe, rows)
                 result,count = self.analysis(symbol,cfg,history,now)
-                if count < (201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
+                if count < (cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
-                observations[symbol] = self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
+                observations[symbol] = self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
                 statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
             except Exception as exc:
                 statuses[symbol] = {'status': 'error', 'message': str(exc)[:240]}
@@ -137,12 +164,12 @@ class Runner:
         # Missing held-position data blocks new entries. An unavailable unheld symbol
         # does not suppress otherwise valid signals on unrelated symbols.
         held={p['symbol'] for p in state['positions']}
-        if held-set(observations):
+        if held-set(observations) and cfg.strategy!='rsi_hourly_intrabar':
             for observation in observations.values(): observation['signal'] = None
         self.engine.market_cycle(cfg.model_dump(), observations)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),
-                       'note': 'Sampled 1h intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': 'Sampled 1h corrected RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled 1h intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

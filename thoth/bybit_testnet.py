@@ -61,6 +61,19 @@ def stop_price(side, entry, qty, loss_dollars, tick):
     return format(result,'f')
 
 
+def take_profit_price(side,entry,qty,profit_dollars,tick):
+    values=[dec(v) for v in (entry,qty,profit_dollars,tick)]
+    if side not in ('Long','Short') or any(not v.is_finite() or v<=0 for v in values):
+        raise ValueError('Invalid dollar take-profit inputs')
+    entry,qty,dollars,tick=values
+    distance=dollars/qty
+    if distance<tick:raise ValueError('Take profit is smaller than one price tick')
+    raw=entry+(distance if side=='Long' else -distance)
+    target=grid(raw,tick,ROUND_UP if side=='Long' else ROUND_DOWN)
+    if target<=0:raise ValueError('Take profit implies a non-positive price')
+    return format(target.normalize(),'f')
+
+
 class TestnetClient:
     BASE='https://api-testnet.bybit.com'
 
@@ -155,8 +168,10 @@ class TestnetClient:
         return self.request('POST','/v5/position/trading-stop',dict(category='linear',symbol=symbol,
             tpslMode='Full',positionIdx=0,stopLoss=stop,slTriggerBy='MarkPrice'),private=True)
 
-    def candles(self,symbol,interval,limit=1000):
-        rows=self.request('GET','/v5/market/kline',dict(category='linear',symbol=symbol,interval=interval,limit=limit))['list']
+    def candles(self,symbol,interval,limit=1000,end=None):
+        params=dict(category='linear',symbol=symbol,interval=interval,limit=limit)
+        if end is not None:params['end']=end
+        rows=self.request('GET','/v5/market/kline',params)['list']
         return sorted([dict(time=int(r[0])//1000,open=float(r[1]),high=float(r[2]),low=float(r[3]),close=float(r[4]),volume=float(r[5])) for r in rows],key=lambda r:r['time'])
 
     def close_payload(self,symbol,side,qty,identifier):
