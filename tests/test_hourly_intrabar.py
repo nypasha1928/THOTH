@@ -122,7 +122,27 @@ class IntrabarBreakoutTests(unittest.TestCase):
             response=TestClient(app).get('/api/chart/ETHUSDT?interval=1')
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(len(response.json()['analysis']),300)
-        self.assertIn('cannot be reconstructed',response.json()['indicator_status'])
+        self.assertIn('S/R reference arrows',response.json()['indicator_status'])
+
+    def test_sr_reference_arrows_are_visible_on_every_chart_without_changing_execution(self):
+        import _environment
+        from fastapi.testclient import TestClient
+        from thoth.app import app
+        from test_indicator import fixture
+        config=self.cfg.model_dump()
+        for interval,duration in [('1',60),('5',300),('60',3600),('240',14400),('D',86400)]:
+            rows=fixture(1000)
+            for i,row in enumerate(rows):row['time']=i*duration
+            display=Settings(**{**config,'strategy':'sr_breakout','timeframe':interval})
+            expected=evaluate(rows,display,now=1000*duration)
+            self.assertTrue(any(r['signal'] for r in expected))
+            with patch('thoth.app.live.snapshot',return_value={'config':config}),patch('thoth.app.live_feed',None),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=1000*duration):
+                response=TestClient(app).get('/api/chart/ETHUSDT?interval='+interval)
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()['analysis'],expected)
+            self.assertIn('not historical live intrabar triggers',response.json()['indicator_status'])
+        self.assertEqual(config['strategy'],'sr_hourly_intrabar')
+        self.assertEqual(config['timeframe'],'60')
 
     def test_historical_ohlc_does_not_claim_reconstructed_intrabar_signals(self):
         from test_indicator import fixture
