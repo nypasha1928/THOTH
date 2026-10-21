@@ -317,6 +317,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert ' V' not in major.get_attribute('d')
    expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
    page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
+   assert page.locator('#appearanceFields > details.indicator-dropdown').count()==8
+   assert page.locator('#appearanceFields > details.indicator-dropdown[open]').count()==0
+   page.locator('#appearanceFields > details.indicator-dropdown').evaluate_all('(items)=>items.forEach(el=>el.open=true)')
    candle=page.locator('[data-candle]').last
    before_x=float(candle.get_attribute('x'))
    page.get_by_label('Chart background',exact=True).fill('#f1f5f2')
