@@ -68,9 +68,19 @@ class TestnetClient:
         self.key,self.secret,self.armed,self.transport=key,secret,armed,transport
 
     def request(self, method, path, params, private=False):
+        # Retry only explicit rate-limit rejections of reads, never writes or
+        # transport failures with an ambiguous order outcome.
+        attempts=3 if method=='GET' else 1
+        for attempt in range(attempts):
+            try:return self._request_once(method,path,params,private)
+            except BybitError as exc:
+                if exc.code!=10006 or attempt+1==attempts:raise
+
+    def _request_once(self, method, path, params, private=False):
         if not path.startswith('/v5/') or method not in ('GET','POST'):
             raise ValueError('Unsupported Bybit request')
-        BYBIT_PACER.wait()  # Pace before signing so timestamps remain fresh.
+        endpoint=(self.BASE,path)
+        BYBIT_PACER.wait(endpoint,.5 if path=='/v5/position/list' else 0)
         encoded=urlencode(sorted(params.items())) if method=='GET' else json.dumps(params,separators=(',',':'))
         headers={'Content-Type':'application/json'}
         if private:
@@ -82,13 +92,31 @@ class TestnetClient:
         url=self.BASE+path+('?' + encoded if method=='GET' and encoded else '')
         req=Request(url,data=encoded.encode() if method=='POST' else None,headers=headers,method=method)
         try:
-            with self.transport(req,timeout=10) as response:body=json.load(response)
-            if body.get('retCode')==10006:BYBIT_PACER.backoff(2)
-            if body.get('retCode')!=0:raise BybitError(f"Bybit rejected request ({body.get('retCode')}): {body.get('retMsg')}",code=body.get('retCode'))
+            with self.transport(req,timeout=10) as response:
+                body=json.load(response)
+                rate_headers=getattr(response,'headers',{})
+            if body.get('retCode')==10006:
+                delay=2.
+                try:
+                    # Compare exchange timestamps rather than trusting local clock skew.
+                    reset=float(rate_headers.get('X-Bapi-Limit-Reset-Timestamp',0))
+                    server=float(body.get('time',time.time()*1000))
+                    if reset>server:delay=max(delay,min(10.,(reset-server)/1000+.1))
+                except (TypeError,ValueError):pass
+                BYBIT_PACER.backoff(delay)
+            if body.get('retCode')!=0:
+                error=BybitError(f"Bybit rejected request ({body.get('retCode')}): {body.get('retMsg')}",code=body.get('retCode'))
+                if error.code==10006:
+                    quota={}
+                    for name,header in [('limit','X-Bapi-Limit'),('remaining','X-Bapi-Limit-Status'),('reset_ms','X-Bapi-Limit-Reset-Timestamp')]:
+                        try:
+                            value=int(rate_headers.get(header,''))
+                            if 0<=value<=10**16:quota[name]=value
+                        except (TypeError,ValueError):pass
+                    error.rate_quota=quota
+                raise error
         except Exception as exc:
-            # Keep original exception classes so unknown order outcomes remain
-            # ambiguous; only attach the fixed endpoint, never signed headers.
-            try:exc.thoth_endpoint=path
+            try:exc.thoth_endpoint=path;exc.thoth_method=method
             except Exception:pass
             raise
         return body['result']

@@ -96,7 +96,7 @@ function render(){
  $('equityLabel').textContent='LIVE USDT equity'+(s.equity===null&&recent?' · read-only snapshot':'');$('pnlLabel').textContent='Open LIVE P&L';
  $('fundsBadge').textContent='LIVE · REAL FUNDS';$('positionsTitle').textContent='LIVE positions';
  $('start').textContent='Enable LIVE entries';$('close').textContent='Close all LIVE positions';
- $('start').disabled=!tn.enabled_on_server||tn.entries||tn.closing;$('start').title=!tn.enabled_on_server?'Server-side live activation is disabled':'';
+ $('start').disabled=!tn.enabled_on_server||tn.entries||tn.closing||tn.status==='rate_limited';$('start').title=tn.status==='rate_limited'?'Waiting for verified account reads; Pause entries cancels automatic recovery':!tn.enabled_on_server?'Server-side live activation is disabled':'';
  $('fundsBadge').classList.add('red');$('liveAccountState').textContent=lv.management?'Production execution: REAL funds management active or recovering':'Production execution: inactive';
  $('liveModeNote').textContent=tn.enabled_on_server?'Live server enabled. Account checks, risk controls and manual activation apply.':'Live execution is disabled on the server.';
  $('positionNote').textContent='Bot-managed LIVE positions. Dollar loss limits can be exceeded by fees, slippage or outages. Exchange stop verification is reported in Activity.';

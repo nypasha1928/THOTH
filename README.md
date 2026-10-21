@@ -150,3 +150,11 @@ Extended-history snapshots refresh only on request to limit server work. **Lates
 ### Measure move button
 
 The **Measure move** button is now in the chart's top toolbar. Activate it, then hold/drag/release or click a start and end point. Measurement input automatically stops at the second point; its percentage, signed price move, candle intervals and elapsed time stay visible on the chart. Ordinary dragging returns to panning. Click **Measure move** again for a new measurement or **Clear measure** to remove it. While measuring, Android touch drags stay in the chart instead of scrolling the page. The ruler uses SVG screen coordinates so responsive chart scaling does not shift the selected points. This remains a display-only price measurement, not an order or leveraged P&L calculation.
+
+### Temporary Bybit account rate limits
+
+Bybit code `10006` is a rate-limit rejection. Authenticated clients share pacing, with position-list reads spaced at least 0.5 seconds apart. GET requests retry explicit rate-limit rejections up to three total attempts, using a bounded shared backoff informed by numeric exchange reset headers. Each attempt signs a fresh timestamp. Order writes and ambiguous network failures are not automatically retried by this mechanism.
+
+If account reads remain rate-limited, new entries temporarily wait while existing exchange stops remain in place. Previously enabled entries resume only after a complete successful monitoring pass, including position ownership, protection, wallet, transfers, and risk checks. Pause, settings changes, restart, manual close-all, and genuine safety/risk locks cancel this automatic resume intent. Previously latched safety locks still require manual activation after review. This does not treat a write rejection or an unknown order outcome as a recoverable read interruption. Diagnostics retain only allowlisted numeric quota fields, never request authentication headers. Coin-specific SMA data interruptions remain scoped to the affected coin.
+
+Validation uses synthetic exchange responses and browser fixtures; it does not establish actual Bybit quota capacity or live recovery on the deployed server.
