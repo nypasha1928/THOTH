@@ -67,6 +67,7 @@ class TestnetSupervisor:
             link=trade.get('link') or 'legacy:'+hashlib.sha256(json.dumps(trade,sort_keys=True).encode()).hexdigest()
             self._record_trade(link,trade)
         # Persistence retains exit obligations, never permission to open new orders.
+        self.state['rate_limit_resume']=False
         self.state['entries']=False
         self.state['pending_signals']={}
         self.state['reversals']={}
@@ -81,6 +82,7 @@ class TestnetSupervisor:
         state.setdefault('pending_signals',{})
         state.setdefault('blocked_symbols',{})
         state.setdefault('sma_exit_blocks',{})
+        state.setdefault('rate_limit_resume',False)
         # First installation of selectable entry filters starts unfiltered.
         # Later explicitly saved selections survive reloads and restarts.
         if 'sma_7_50_filter_enabled' not in state['config']:
@@ -144,6 +146,7 @@ class TestnetSupervisor:
             if not cfg.sma_exit_enabled:
                 self.state['sma_exit_blocks']={}
                 for owner in self.state['owned'].values():owner.pop('sma_exit_error',None)
+            self.state['rate_limit_resume']=False
             self.state['config']=cfg.model_dump()
             self.state['cursors']={}
             self.save()
@@ -257,6 +260,7 @@ class TestnetSupervisor:
         with self.lock:
             self.state=self.load()
             if confirmation.strip()!=self.confirmation:raise ValueError('Type '+self.confirmation+' to enable '+self.label+' trading')
+            self.state['rate_limit_resume']=False
             if not recovery and self.state['config']['loss_streak_scope']=='account' and self.state['risk'].get('pause_until') and self.clock()<self.state['risk']['pause_until']:
                 raise ValueError('Consecutive-loss pause cannot be bypassed')
             self.state.update(entries=False,status='paused',reason='Checking '+self.label+' account prerequisites')
@@ -297,12 +301,13 @@ class TestnetSupervisor:
 
     def pause(self):
         with self.lock:
-            self.state=self.load();self.state.update(entries=False,status='paused',reason='Entries paused; risk management remains active',pending_signals={},reversals={},daily_resume_intent=False);self.save()
+            self.state=self.load();self.state.update(entries=False,status='paused',reason='Entries paused; risk management remains active',pending_signals={},reversals={},daily_resume_intent=False,rate_limit_resume=False);self.save()
         return self.snapshot()
 
     def _lock(self,status,reason):
         if self.environment=='live':reason=reason.replace('Testnet','LIVE').replace('testnet','live')
         changed=self.state['status']!=status or self.state['reason']!=reason
+        if status!='rate_limited':self.state['rate_limit_resume']=False
         self.state.update(entries=False,status=status,reason=reason,pending_signals={},reversals={})
         if changed:self.event(reason)
         self.save()
@@ -403,7 +408,11 @@ class TestnetSupervisor:
     def _monitor_failure(self,exc):
         details=failure_details(exc,'account_monitor')
         self.state['monitor_error']=details
-        self._lock('safety_lock','Account monitoring unavailable; new entries blocked · '+failure_summary(details))
+        if isinstance(exc,BybitError) and exc.code==10006 and getattr(exc,'thoth_method',None)=='GET' and self.state['status'] in ('running','cooldown','paused','rate_limited'):
+            if self.state['status']!='rate_limited':self.state['rate_limit_resume']=bool(self.state['entries'])
+            self._lock('rate_limited','Bybit account read rate-limited; entries waiting for verified recovery · '+failure_summary(details))
+        else:
+            self._lock('safety_lock','Account monitoring unavailable; new entries blocked · '+failure_summary(details))
 
     def _manage_trailing(self,symbol,owner,p,record,base_stop):
         trailing=owner.get('trailing',{})
@@ -567,6 +576,12 @@ class TestnetSupervisor:
             pending=self.journal.records()
             if any(r['phase']=='unknown' for r in pending):
                 self._lock('safety_lock','Order outcome is unknown; reconcile before new entries')
+            if self.state['status'] in ('rate_limited','cooldown') and risk in ('ok','cooldown'):
+                resume=self.state['rate_limit_resume']
+                if self.state['status']=='rate_limited' or resume:
+                    self.state.update(entries=resume,rate_limit_resume=False,monitor_error=None)
+                    if self.state['status']=='rate_limited':self.state.update(status='running' if resume else 'paused',reason='' if resume else 'Account reads recovered; entries remain paused')
+                    self.event('Bybit account monitoring recovered; '+('previously enabled entries resumed subject to risk checks' if resume else 'entries remain paused'))
             self._reversals(cfg)
             self._drain(cfg)
             self.save()

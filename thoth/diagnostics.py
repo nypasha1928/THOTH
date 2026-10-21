@@ -12,6 +12,9 @@ def failure_details(exc,stage):
     result={'stage':stage,'error_type':kind}
     if isinstance(exc,BybitError) and isinstance(exc.code,int):result['exchange_code']=exc.code
     if isinstance(exc,HTTPError):result['http_status']=exc.code
+    quota=getattr(exc,'rate_quota',{})
+    safe_quota={k:v for k,v in quota.items() if k in ('limit','remaining','reset_ms') and type(v) is int and 0<=v<=10**16} if isinstance(quota,dict) else {}
+    if safe_quota:result['rate_quota']=safe_quota
     reason=getattr(exc,'exit_data_reason',None)
     if reason in ('forming_candle_or_history_unavailable','candle_gap','invalid_price'):result['data_reason']=reason
     endpoint=getattr(exc,'thoth_endpoint',None)
