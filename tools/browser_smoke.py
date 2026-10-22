@@ -466,6 +466,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['take_profit_enabled'] and writes[-1][1]['take_profit_dollars']==1.25
    page.uncheck('#take_profit_enabled');page.click('#saveSymbols')
    expect(page.locator('#lossStreakScope')).to_have_value('per_coin')
+   expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
+   page.check('#pnl_trailing_enabled');page.fill('#pnl_trailing_activation_dollars','1');page.fill('#pnl_trailing_drop_dollars','0.10');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.pnl_trailing_enabled && lv.config.pnl_trailing_drop_dollars===0.1')
+   assert writes[-1][1]['pnl_trailing_activation_dollars']==1
+   page.evaluate("() => {lv.pnl_trailing={active:true,peak:'1.50',threshold:'1.40',current:'1.45',triggered:false};render();}")
+   expect(page.locator('#pnlTrailingStatus')).to_contain_text('peak $1.50')
+   expect(page.locator('#pnlTrailingStatus')).to_contain_text('close all at $1.40')
+   page.uncheck('#pnl_trailing_enabled');page.click('#saveSymbols')
    page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
    expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')
    page.click('#saveSymbols');page.wait_for_function('() => lv.config.trailing_enabled && lv.config.trailing_activation_pct===12.5')
