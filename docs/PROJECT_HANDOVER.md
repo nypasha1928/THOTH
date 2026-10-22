@@ -70,3 +70,9 @@ User authorized implementation on 2026-10-22. Branch codex/dynamic-trailing-obse
 - node --check on changed JS, git diff --check. Read applicable AGENTS if introduced.
 - After checks, commit/push branch and provide GitHub pull/new URL if no tool can create actual PR. User merges, then manually deploys.
 - Keep this handover current after each completed step. Record what is actually verified; do not infer deployment from merge.
+
+## Latest UI step: prominent combined trailing status
+
+Branch codex/prominent-trailing-status, based main 7051f35. User requested a clearer colored status beneath Open LIVE P&L. Added separate green Active, blue Waiting, amber Closing and neutral Off panels, with large Peak and Close-all threshold figures. Text labels supplement colors; no flashing. This is display-only: no changes to trailing math, fixed peaks, settings, order execution or observation. Validation: JS syntax/diff checks and full desktop/mobile browser smoke passed, including active-panel green border and large peak/threshold readouts. Ready for PR review on this branch; not yet merged/deployed. This UI step did not change backend logic; previous backend validation remains 260 tests.
+
+The user has supplied a five-position cycle: fixed gross trigger $0.99, actual realized about $0.5980, dynamic sampled gross $0.96. Fees confirmed $0.13727342 opening + $0.13679398 closing. Do not claim a guaranteed minimum or 200% actual margin return. Their chosen $0.50 sizing maps to $50 notional /20x=$2.50 margin; five such positions about $12.50 margin, $0.60 realized about4.8%. Their target mapping is chosen amount x2, not total portfolio margin x2. Preserve distinction between actual net reported P&L and simulated gross/assumed-fee estimates.
