@@ -253,9 +253,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert all(b-a==60 for a,b in zip(ticks,ticks[1:]))
    page.locator('#chart').click(position={'x':150,'y':120})
    expect(page.locator('[data-crosshair-time]')).to_be_visible()
-   expect(page.locator('[data-crosshair-time]')).to_contain_text('UTC')
+   expect(page.locator('[data-crosshair-time]')).to_contain_text('EDT')
    page.select_option('#tf','D');expect(page.locator('#title')).to_contain_text('1D')
    expect(page.locator('[data-time-label]').first).to_contain_text('2026-')
+   # Chart timezone is independent of the browser and handles both DST changes.
+   assert page.evaluate("() => chartTime(Date.parse('2026-10-22T08:36:44Z')/1000)")=='2026-10-22 04:36 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-01-22T08:36:44Z')/1000)")=='2026-01-22 03:36 EST'
+   assert page.evaluate("() => chartTime(Date.parse('2026-03-08T06:59:00Z')/1000)")=='2026-03-08 01:59 EST'
+   assert page.evaluate("() => chartTime(Date.parse('2026-03-08T07:00:00Z')/1000)")=='2026-03-08 03:00 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-11-01T05:30:00Z')/1000)")=='2026-11-01 01:30 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-11-01T06:30:00Z')/1000)")=='2026-11-01 01:30 EST'
+   expect(page.locator('#historyStatus')).to_contain_text('New York')
+   expect(page.locator('#candleCountdown')).to_contain_text('New York display')
+
    expect(page.locator('[data-time-tick]')).to_have_count(70)
    expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
@@ -366,7 +376,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first
    pane.hover()
    # Quote polling replaces the SVG; verify one hover event's results atomically.
-   hover_geometry=pane.evaluate("el => {const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
+   hover_geometry=page.evaluate("() => {const el=document.querySelector('[data-rsi-pane-signal][data-rsi-kind=ml_short_up]');const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
    assert hover_geometry['visible']=='visible'
    assert 'Bullish ML Short Up' in hover_geometry['tooltip']
    assert 'RSI at ' in hover_geometry['readout']
@@ -481,6 +491,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.locator('#pnlTrailingStatus').evaluate("el=>[el,el.querySelector('strong'),el.querySelector('small')].every(node=>getComputedStyle(node).color===getComputedStyle(document.querySelector('#pnl')).color)&&getComputedStyle(el).borderTopColor===getComputedStyle(document.querySelector('#pnl')).color&&getComputedStyle(el).backgroundColor===getComputedStyle(document.querySelector('#pnl').closest('.card')).backgroundColor&&getComputedStyle(el.querySelector('.pnl-trailing-values strong')).fontWeight===getComputedStyle(document.querySelector('#pnl')).fontWeight")
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('Peak $1.50')
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('Close all at or below $1.40')
+   mobile_stats=page.locator('.account-stats').evaluate("el=>{const rect=q=>{const r=el.querySelector(q).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width}};return {equity:rect('.account-equity'),loss:rect('.account-loss'),pnl:rect('.account-pnl'),peak:rect('.pnl-trailing-values>div:first-child'),threshold:rect('.pnl-trailing-values>div:last-child')}}")
+   assert abs(mobile_stats['equity']['y']-mobile_stats['loss']['y'])<1
+   assert mobile_stats['loss']['x']>mobile_stats['equity']['x']
+   assert mobile_stats['pnl']['y']>mobile_stats['equity']['y']
+   assert mobile_stats['pnl']['width']>mobile_stats['equity']['width']*1.9
+   assert abs(mobile_stats['peak']['y']-mobile_stats['threshold']['y'])<1
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+
    page.uncheck('#pnl_trailing_enabled');page.click('#saveSymbols')
    page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
    expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')

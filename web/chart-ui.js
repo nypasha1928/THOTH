@@ -92,7 +92,7 @@ function candleCountdown(nowMilliseconds=marketNow(),interval=$('tf').value){
 }
 function updateCandleCountdown(){
  const text=candleCountdown();for(const node of document.querySelectorAll('[data-candle-countdown]'))node.textContent=text;
- $('candleCountdown').textContent='Current '+$('tf').selectedOptions[0].textContent+' candle closes in '+text+' · UTC';
+ $('candleCountdown').textContent='Current '+$('tf').selectedOptions[0].textContent+' candle closes in '+text+' · New York display';
 }
 setInterval(updateCandleCountdown,1000);
 
