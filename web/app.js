@@ -5,7 +5,7 @@ let riskClockOffset=0;
 let currentQuote=null,quotePending=null,marketClockOffset=0;
 const marketNow=()=>Date.now()+marketClockOffset;
 const chartIntervalSeconds=interval=>({'1':60,'5':300,'60':3600,'240':14400,'D':86400})[interval];
-async function refreshQuote(){if(!state||!$('symbol').value)return;const symbol=$('symbol').value,environment=mode,key=environment+':'+symbol;if(quotePending===key)return;quotePending=key;const clockStarted=Date.now();try{const data=await api('quote/'+symbol+'?environment='+environment);if(mode!==environment||$('symbol').value!==symbol)return;if(Number.isFinite(data.server_time)){const exchangeOffset=Number.isFinite(data.exchange_clock_offset)?data.exchange_clock_offset:0;marketClockOffset=(data.server_time+exchangeOffset)*1000-(clockStarted+Date.now())/2;}currentQuote=data;$('quoteStatus').textContent='Current price: '+marketPrice(data.price)+' USDT · Last trade quote at '+new Date(data.observed_at*1000).toLocaleTimeString()+' · refreshes every 5 seconds';draw();const last=chartRows.at(-1);if(last&&$('autoChart').checked&&!chartLoading&&Date.now()/1000>=last.time+chartIntervalSeconds($('tf').value))loadChart(true)}catch{if(mode===environment&&$('symbol').value===symbol){currentQuote=null;$('quoteStatus').textContent='Current price unavailable · historical candles remain visible';draw()}}finally{if(quotePending===key)quotePending=null}}
+async function refreshQuote(){if(!state||!$('symbol').value)return;const symbol=$('symbol').value,environment=mode,key=environment+':'+symbol;if(quotePending===key)return;quotePending=key;const clockStarted=Date.now();try{const data=await api('quote/'+symbol+'?environment='+environment);if(mode!==environment||$('symbol').value!==symbol)return;if(Number.isFinite(data.server_time)){const exchangeOffset=Number.isFinite(data.exchange_clock_offset)?data.exchange_clock_offset:0;marketClockOffset=(data.server_time+exchangeOffset)*1000-(clockStarted+Date.now())/2;}currentQuote=data;$('quoteStatus').textContent='Current price: '+marketPrice(data.price)+' USDT · Last trade quote at '+chartTime(data.observed_at,{date:false,showSeconds:true})+' · refreshes every 5 seconds';draw();const last=chartRows.at(-1);if(last&&$('autoChart').checked&&!chartLoading&&Date.now()/1000>=last.time+chartIntervalSeconds($('tf').value))loadChart(true)}catch{if(mode===environment&&$('symbol').value===symbol){currentQuote=null;$('quoteStatus').textContent='Current price unavailable · historical candles remain visible';draw()}}finally{if(quotePending===key)quotePending=null}}
 let chartLookback=1000,chartContext=null,historyExhausted=false,historyError='';
 const mode='live';
 let rsiRows=[],srAnalysis=[],referenceSignalStrategy='sr_breakout';
@@ -19,6 +19,12 @@ async function api(path,method='GET',body){
  if(response.status===401){location.href='/login';throw Error('Sign in required')}
  const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));return data;
  }finally{clearTimeout(timeout)}
+}
+const chartNYFormatter=new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23',timeZoneName:'short'});
+function chartTime(seconds,{date=true,time=true,zone=true,showSeconds=false}={}){
+ const value=new Date(seconds*1000);if(!Number.isFinite(value.getTime()))return '—';
+ const p=Object.fromEntries(chartNYFormatter.formatToParts(value).map(part=>[part.type,part.value]));
+ return [date?p.year+'-'+p.month+'-'+p.day:'',time?p.hour+':'+p.minute+(showSeconds?':'+p.second:''):'',zone?p.timeZoneName:''].filter(Boolean).join(' ');
 }
 function tradeTimestamp(value,milliseconds=false,showDate=true){
  const stamp=Number(value)*(milliseconds?1:1000);
@@ -165,7 +171,7 @@ function renderHistoryStatus(){
  const historical=chartLookback>1000||chartOffset>0,behind=Number.isFinite(lastStamp)?Math.max(0,Math.floor(now/seconds)*seconds-lastStamp):0;
  notice.textContent=historical?'Historical view: candle/RSI auto refresh is paused; the separate price quote may still be live. Use Latest candle to compare current signals.':Number.isFinite(lastStamp)&&behind>=seconds&&now-lastStamp-seconds>10?'Candle/RSI data is behind the live market by '+Math.floor(behind/60)+' minutes. Use Latest candle or Refresh chart; a live price quote does not refresh RSI by itself.':!$('autoChart').checked?'Candle/RSI auto refresh is off. Use Refresh chart for a current comparison.':'';
  notice.classList.toggle('red',Boolean(behind>=seconds&&!historical));
- const first=chartRows[0],last=chartRows.at(-1);$('historyStatus').textContent=chartRows.length+' candles loaded'+(first?' · '+new Date(first.time*1000).toISOString().slice(0,16).replace('T',' ')+' → '+new Date(last.time*1000).toISOString().slice(0,16).replace('T',' ')+' UTC':'')+(chartLookback>1000?' · Historical replay snapshot; refresh manually. Latest candle returns to the 1,000-candle live view. Early signals may change as warm-up expands':'')+(historyExhausted?' · End of available exchange history':'');
+ const first=chartRows[0],last=chartRows.at(-1);$('historyStatus').textContent=chartRows.length+' candles loaded'+(first?' · '+chartTime(first.time)+' → '+chartTime(last.time)+' · New York':'')+(chartLookback>1000?' · Historical replay snapshot; refresh manually. Latest candle returns to the 1,000-candle live view. Early signals may change as warm-up expands':'')+(historyExhausted?' · End of available exchange history':'');
  if(historyError)$('historyStatus').textContent=historyError;
  $('loadOlderHistory').disabled=chartLoading||historyExhausted||chartLookback>=5000||!chartRows.length;
  $('loadOlderHistory').textContent=chartLookback>=5000?'5,000-candle limit reached':chartLoading?'Loading history…':'Load 1,000 older candles';

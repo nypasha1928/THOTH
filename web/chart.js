@@ -35,8 +35,8 @@ function draw(){
  const defs=shape('defs',{}),clip=shape('clipPath',{id:'plotClip'},defs);shape('rect',{x:L,y:T-10,width:P,height:B-T+20},clip);
  const plot=shape('g',{'clip-path':'url(#plotClip)'});
  const daily=$('tf').value==='D',labelWidth=daily?94:45,labelEvery=Math.max(1,Math.ceil(labelWidth/step));
- rows.forEach((r,i)=>{shape('path',{d:`M${x(i)} ${axisBottom} v5`,stroke:axisText,'data-time-tick':r.time});if(i%labelEvery===0){const stamp=new Date(r.time*1000).toISOString();shape('path',{d:`M${x(i)} ${T} V${B}`,stroke:gridColor});shape('text',{x:x(i),y:H-22,fill:axisText,'font-size':10,'text-anchor':i===0?'start':'middle','data-time-label':r.time}).textContent=daily?stamp.slice(0,10):stamp.slice(11,16)}});
- shape('text',{x:R+8,y:H-22,fill:axisText,'font-size':10}).textContent='UTC';
+ rows.forEach((r,i)=>{shape('path',{d:`M${x(i)} ${axisBottom} v5`,stroke:axisText,'data-time-tick':r.time});if(i%labelEvery===0){const stamp=chartTime(r.time,{time:!daily,zone:false});shape('path',{d:`M${x(i)} ${T} V${B}`,stroke:gridColor});shape('text',{x:x(i),y:H-22,fill:axisText,'font-size':10,'text-anchor':i===0?'start':'middle','data-time-label':r.time}).textContent=daily?stamp:stamp.slice(11,16)}});
+ shape('text',{x:R+8,y:H-22,fill:axisText,'font-size':10}).textContent='NY';
  if(showLevels){for(const [key,level]of Object.entries(levelSnapshot?.levels||{})){
   if(!enabled(key)||!Number.isFinite(level.value))continue;
   const style=chartStyle[family(key)],color=style[key.includes('_support_')?'support':'resistance'];
@@ -49,7 +49,7 @@ function draw(){
   const ray=shape('path',{d:`M${anchor} ${y(level.value)} H${R}`,fill:'none',stroke:color,'stroke-width':style.width,
     'stroke-dasharray':style.style==='dashed'?'12 10':style.style==='dotted'?'1 6':'','stroke-linecap':style.style==='dotted'?'round':'butt',
     'data-sr-key':key},plot);
-  shape('title',{},ray).textContent=key.replaceAll('_',' ')+' · '+price(level.value)+' · active at '+new Date(levelSnapshot.time*1000).toISOString();
+  shape('title',{},ray).textContent=key.replaceAll('_',' ')+' · '+price(level.value)+' · active at '+chartTime(levelSnapshot.time);
  }}
  for(const line of displaySmas){let d='',connected=false;rows.forEach((r,i)=>{const value=line.values.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:line.color,'stroke-width':line.period===7?1.6:2,['data-sma'+line.period]:'true'},plot)}
  if(chartStyle.showVolume){const volumeTop=B+25,validVolumes=rows.filter(r=>Number.isFinite(r.volume)&&r.volume>=0),maxVolume=Math.max(1,...validVolumes.map(r=>r.volume),...rows.map(r=>volumeMA.get(r.time)||0)),vy=v=>volumeBottom-(v/maxVolume)*(volumeBottom-volumeTop-18);
@@ -115,11 +115,11 @@ function draw(){
  let hoverReadout=$('rsiHoverReadout');if(!hoverReadout){hoverReadout=document.createElement('p');hoverReadout.id='rsiHoverReadout';hoverReadout.className='note';hoverReadout.setAttribute('role','status');$('candleInfo').after(hoverReadout)}
  const signalTooltip=shape('g',{'data-signal-tooltip':'true',visibility:'hidden','pointer-events':'none'});let hoveredMarker=null;
  function inspect(i,show=true,pointerY=null){
-  const r=rows[i],bar=rsiByTime.get(r.time),stamp=new Date(r.time*1000).toISOString().replace('T',' ').slice(0,16)+' UTC';
+  const r=rows[i],bar=rsiByTime.get(r.time),stamp=chartTime(r.time);
   $('candleInfo').textContent=stamp+' · O '+price(r.open)+'  H '+price(r.high)+'  L '+price(r.low)+'  C '+price(r.close);
   const number=value=>Number.isFinite(value)?value.toFixed(2):'—';
   hoverReadout.textContent=chartStyle.showRSI?'RSI at '+stamp+': '+number(bar?.rsi)+' · ML upper '+number(bar?.thresholds?.ml_long)+' · ML lower '+number(bar?.thresholds?.ml_short)+(bar?.events?.length?' · '+bar.events.map(event=>rsiSignalTypes[event.kind]?.label||event.kind).join(', '):' · no RSI signal'):'';
-  if(show){const horizontal=pointerY===null?y(r.close):Math.max(T,Math.min(axisBottom,pointerY));cross.setAttribute('d',`M${x(i)} ${T} V${axisBottom} M${L} ${horizontal} H${R}`);dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(r.close));dot.setAttribute('visibility','visible');const text=new Date(r.time*1000).toISOString();timeText.textContent=(daily?text.slice(0,10):text.slice(0,10)+' '+text.slice(11,16))+' UTC';const width=daily?100:145,xx=Math.max(L+width/2,Math.min(R-width/2,x(i)));timeBox.setAttribute('x',xx-width/2);timeBox.setAttribute('y',H-20);timeBox.setAttribute('width',width);timeText.setAttribute('x',xx);timeText.setAttribute('y',H-6);timeTag.setAttribute('visibility','visible')}
+  if(show){const horizontal=pointerY===null?y(r.close):Math.max(T,Math.min(axisBottom,pointerY));cross.setAttribute('d',`M${x(i)} ${T} V${axisBottom} M${L} ${horizontal} H${R}`);dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(r.close));dot.setAttribute('visibility','visible');timeText.textContent=chartTime(r.time,{time:!daily});const width=daily?110:155,xx=Math.max(L+width/2,Math.min(R-width/2,x(i)));timeBox.setAttribute('x',xx-width/2);timeBox.setAttribute('y',H-20);timeBox.setAttribute('width',width);timeText.setAttribute('x',xx);timeText.setAttribute('y',H-6);timeTag.setAttribute('visibility','visible')}
  }
  const inspectedIndex=rows.findIndex(r=>r.time===inspectedCandle);inspect(inspectedIndex>=0?inspectedIndex:rows.length-1,false);
  function point(e){
@@ -134,7 +134,7 @@ function draw(){
    const width=Math.min(285,P-10),height=58,xx=Math.max(L,Math.min(R-width,pointer.x+14)),yy=Math.max(T,Math.min(axisBottom-height,pointer.y-65));
    shape('rect',{x:xx,y:yy,width,height,rx:5,fill:chartStyle.background,stroke:'#aabbb2'},signalTooltip);
    const details=meta?'RSI '+(Number.isFinite(bar?.rsi)?bar.rsi.toFixed(2):'—')+' · threshold '+(Number.isFinite(bar?.thresholds?.[meta.threshold])?bar.thresholds[meta.threshold].toFixed(2):'—'):'Candle close '+price(rows[i].close);
-   [name,new Date(rows[i].time*1000).toISOString().slice(0,16).replace('T',' ')+' UTC',details].forEach((text,lineIndex)=>{shape('text',{x:xx+7,y:yy+15+lineIndex*16,fill:axisText,'font-size':10},signalTooltip).textContent=text});signalTooltip.setAttribute('visibility','visible');
+   [name,chartTime(rows[i].time),details].forEach((text,lineIndex)=>{shape('text',{x:xx+7,y:yy+15+lineIndex*16,fill:axisText,'font-size':10},signalTooltip).textContent=text});signalTooltip.setAttribute('visibility','visible');
   }
  }
 

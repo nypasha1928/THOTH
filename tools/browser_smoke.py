@@ -253,9 +253,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert all(b-a==60 for a,b in zip(ticks,ticks[1:]))
    page.locator('#chart').click(position={'x':150,'y':120})
    expect(page.locator('[data-crosshair-time]')).to_be_visible()
-   expect(page.locator('[data-crosshair-time]')).to_contain_text('UTC')
+   expect(page.locator('[data-crosshair-time]')).to_contain_text('EDT')
    page.select_option('#tf','D');expect(page.locator('#title')).to_contain_text('1D')
    expect(page.locator('[data-time-label]').first).to_contain_text('2026-')
+   # Chart timezone is independent of the browser and handles both DST changes.
+   assert page.evaluate("() => chartTime(Date.parse('2026-10-22T08:36:44Z')/1000)")=='2026-10-22 04:36 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-01-22T08:36:44Z')/1000)")=='2026-01-22 03:36 EST'
+   assert page.evaluate("() => chartTime(Date.parse('2026-03-08T06:59:00Z')/1000)")=='2026-03-08 01:59 EST'
+   assert page.evaluate("() => chartTime(Date.parse('2026-03-08T07:00:00Z')/1000)")=='2026-03-08 03:00 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-11-01T05:30:00Z')/1000)")=='2026-11-01 01:30 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-11-01T06:30:00Z')/1000)")=='2026-11-01 01:30 EST'
+   expect(page.locator('#historyStatus')).to_contain_text('New York')
+   expect(page.locator('#candleCountdown')).to_contain_text('New York display')
+
    expect(page.locator('[data-time-tick]')).to_have_count(70)
    expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
@@ -366,7 +376,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first
    pane.hover()
    # Quote polling replaces the SVG; verify one hover event's results atomically.
-   hover_geometry=pane.evaluate("el => {const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
+   hover_geometry=page.evaluate("() => {const el=document.querySelector('[data-rsi-pane-signal][data-rsi-kind=ml_short_up]');const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
    assert hover_geometry['visible']=='visible'
    assert 'Bullish ML Short Up' in hover_geometry['tooltip']
    assert 'RSI at ' in hover_geometry['readout']

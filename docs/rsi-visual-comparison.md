@@ -33,7 +33,7 @@ RSI line colors use the current displayed bar's actual upper/lower thresholds: g
 
 The S/R arrow switch and S/R signal-candle tint switch are independent. Tinting defaults off; it colors only candles with a confirmed S/R reference signal and uses its own bullish/bearish palette. S/R series are available independently of execution strategy, and SMA 7/200 reference markers retain their own switch. The top S/R/SMA arrows checkbox is their shared display master, not an RSI switch.
 
-The vertical crosshair spans price, volume and RSI at one candle time. Hovering either pane's arrow resolves its stored candle timestamp, highlights that arrow and shows a tooltip and RSI/threshold readout. Candle time is UTC; user history/account timestamps remain in New York time as previously configured. Hover does not submit an order or update settings.
+The vertical crosshair spans price, volume and RSI at one candle time. Hovering either pane's arrow resolves its stored candle timestamp, highlights that arrow and shows a tooltip and RSI/threshold readout. Candle labels now use America/New_York (EST/EDT), matching history/account display; underlying candle timestamps remain UTC. Hover does not submit an order or update settings.
 
 ## Refresh behavior
 
