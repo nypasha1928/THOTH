@@ -69,6 +69,17 @@ class ObservationTests(unittest.TestCase):
         self.assertAlmostEqual(row['gross_quote_difference'],.1)
         self.assertLess(row['estimate_after_assumed_fees_before_funding'],row['dynamic']['result_gross'])
 
+    def test_selected_coins_and_position_counts_are_not_hardcoded(self):
+        for offset,count in enumerate((2,11,5)):
+            positions=[dict(symbol='TOKEN'+str(offset)+'X'+str(i)+'USDT',link=str(offset)+':'+str(i),qty=1.,entry=100.,side='Buy') for i in range(count)]
+            self.observer.process(snapshot(100+offset*5,1.5,positions=positions))
+            report=self.observer.report()
+            current=report['items'][0]
+            self.assertEqual(current['position_count'],count)
+            self.assertEqual(current['symbols'],[p['symbol'] for p in positions])
+            self.assertAlmostEqual(current['dynamic']['current'],1.5)
+            if offset:self.assertTrue(report['items'][1]['basket_changed'])
+
     def test_restart_retains_cycle_settings_and_protected_threshold(self):
         self.observer.process(snapshot(100,1.5));old=self.observer.report()['items'][0]
         self.observer.configure(ObservationSettings(maximum=.8))
