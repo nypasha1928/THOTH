@@ -40,3 +40,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 .pnl-trailing-panel{margin-top:14px;padding:14px;background:inherit;color:#b9ee79;border:2px solid #b9ee79;border-radius:10px;line-height:1.4;overflow-wrap:anywhere}.pnl-trailing-heading{display:block;font-size:13px;letter-spacing:.05em}.pnl-trailing-values{display:flex;flex-wrap:wrap;gap:12px 24px;margin:12px 0}.pnl-trailing-values>div{flex:1 1 110px}.pnl-trailing-values span{display:block;font-size:12px}.pnl-trailing-values strong{display:block;font-size:24px;font-weight:400;line-height:1.25}.pnl-trailing-panel small{display:block;font-size:11px;color:inherit}
 
 @media(max-width:850px){.stats.account-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.account-stats>.account-equity{order:1}.account-stats>.account-loss{order:2}.account-stats>.account-pnl{order:3;grid-column:1/-1}.account-stats .pnl-trailing-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.account-stats .pnl-trailing-values>div{min-width:0}}
+
+.chart-pane-tools{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:10px 0}.chart-pane-tools button{font-size:12px;min-height:40px}

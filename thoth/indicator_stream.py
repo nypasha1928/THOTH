@@ -47,7 +47,7 @@ class IndicatorState:
         from .sma_cross import SMACross
         from .rsi import RSIState
         self.rsi=RSIState(cfg.rsi,checkpoint.get('rsi') if checkpoint else None)
-        self.cross=SMACross(checkpoint.get('cross') if checkpoint else None)
+        self.cross=SMACross(checkpoint.get('cross') if checkpoint else None,slow_period=50 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else 200)
         self.cfg=cfg
         self.buffer=[];self.total=0.;self.count=0;self.previous={};self.last_time=None
         self.machines=[ZigZag(),ZigZag()]
@@ -73,7 +73,7 @@ class IndicatorState:
             result=self.rsi.step(row,duration)
             self.count+=1;self.last_time=row['time']
             return result
-        if cfg.strategy=='sma_cross':
+        if cfg.strategy in ('sma_cross','sma_7_50'):
             result=self.cross.step(row,duration)
             self.count+=1;self.last_time=row['time']
             return result
@@ -115,4 +115,8 @@ class IndicatorState:
         self.previous=levels;self.last_time=row['time'];self.count+=1
         keep=max(51,cfg.sma_length+1,2*cfg.pivot_long+1,2*cfg.pivot_short+1)
         if len(self.buffer)>keep:del self.buffer[:-keep]
-        return dict(time=row['time'],levels=levels,sma=average,signal=signal,conflict=bullish and bearish,close=row['close'])
+        result=dict(time=row['time'],levels=levels,sma=average,signal=signal,conflict=bullish and bearish,close=row['close'])
+        if cfg.strategy=='sr_sma_7_50':
+            from .sma_cross import combine_sr_sma
+            result=combine_sr_sma(result,self.cross.step(row,duration))
+        return result
