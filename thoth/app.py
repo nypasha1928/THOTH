@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .market import candles, sma, quote, chart_history
 from .models import Settings, TestnetSettings, TestnetActivation
 from .timeframes import INTERVALS
+from .trailing_observation import TrailingObservation,ObservationSettings
 
 ROOT = Path(__file__).resolve().parent.parent
 live_feed = None
@@ -31,6 +32,8 @@ live_connection = Connection(ProductionClient,environment='live')
 @asynccontextmanager
 async def lifespan(app):
     global live_feed
+    trailing_observation.start()
+    live.trailing_observer=trailing_observation
     live.start()
     adapter=FeedAdapter(live)
     live_feed=Runner(adapter,fetch=adapter.fetch)
@@ -40,6 +43,7 @@ async def lifespan(app):
     finally:
         live_feed.stop()
         live.stop()
+        trailing_observation.stop()
 
 
 app = FastAPI(title='THOTH live trading desk', version='0.4.0', lifespan=lifespan)
@@ -48,6 +52,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=['localhost', '127.0.0.1
 # THOTH_DB remains a compatibility locator; no simulation database is opened.
 DATA = Path(os.environ.get('THOTH_DB',str(ROOT/'data'/'live.sqlite'))).parent
 live = ProductionSupervisor(DATA/'live.sqlite',enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD),allow_unverified=os.environ.get('THOTH_ALLOW_UNVERIFIED_LIVE')=='1')
+trailing_observation=TrailingObservation(DATA/'trailing-observation.sqlite',DATA/'live.sqlite')
 
 
 @app.middleware('http')
@@ -102,6 +107,16 @@ def exchange_status(request: Request):
     result=live.snapshot()
     result['feed_health']=live_feed.health if live_feed else None
     return result
+
+
+@app.get('/api/live/trailing-comparison')
+def trailing_comparison(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0)):
+    return trailing_observation.report(limit,offset)
+
+
+@app.put('/api/live/trailing-comparison/settings')
+def trailing_comparison_settings(settings: ObservationSettings):
+    return trailing_observation.configure(settings)
 
 
 @app.get('/api/live/history')

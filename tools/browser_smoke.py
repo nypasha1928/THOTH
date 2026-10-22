@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  writes=[];activation=[];errors=[];chart_queries=[];history_many=[]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -66,8 +66,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
    elif path=='security/status':result=dict(totp_enabled=False,recovery_codes_remaining=0,passkeys=[])
+   elif path=='live/trailing-comparison':
+    result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
+   elif path=='live/trailing-comparison/settings' and method=='PUT':
+    result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
    elif path=='live/history':
-    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Manual close',strategy='sr_breakout')],total=3,offset=0,limit=50)
+    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
     if history_many:
      params=parse_qs(url.split('?',1)[1] if '?' in url else '')
      offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
@@ -360,11 +364,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     expect(chart_marker).to_have_attribute('fill',expected_colors[kind])
     assert pane.get_attribute('x')==chart_marker.get_attribute('x')
    pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first
-   pane.hover();expect(page.locator('[data-signal-tooltip]')).to_have_attribute('visibility','visible')
-   expect(page.locator('[data-signal-tooltip]')).to_contain_text('Bullish ML Short Up')
-   expect(page.locator('#rsiHoverReadout')).to_contain_text('RSI at ')
-   # Sample hover and geometry atomically: the quote timer may redraw between calls.
-   hover_geometry=pane.evaluate("el => {const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H};}")
+   pane.hover()
+   # Quote polling replaces the SVG; verify one hover event's results atomically.
+   hover_geometry=pane.evaluate("el => {const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
+   assert hover_geometry['visible']=='visible'
+   assert 'Bullish ML Short Up' in hover_geometry['tooltip']
+   assert 'RSI at ' in hover_geometry['readout']
    assert 'V'+str(int(hover_geometry['height']-55)) in hover_geometry['path'],hover_geometry
    page.get_by_label('Color candles on S/R signals',exact=True).check()
    assert page.locator('[data-sr-candle="Long"]').count()>0
@@ -552,11 +557,24 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#positions time')).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
    expect(page.locator('#positions time')).to_contain_text('EDT')
    page.evaluate('() => {lv.positions=[];render();}')
+   page.click('[data-page-link=comparison]');expect(page.locator('#page-comparison')).to_be_visible()
+   expect(page.locator('#comparisonCycles')).to_contain_text('11 positions')
+   expect(page.locator('#comparisonCycles')).to_contain_text('Simulated gross result')
+   expect(page.locator('#comparisonCycles')).to_contain_text('Actual confirmed realized P&L')
+   expect(page.locator('#comparisonCycles')).to_contain_text('$1.25')
+   comparison_live_writes=len(writes)
+   page.fill('#observationMaximum','0.50');page.locator('#comparisonSettings button').click()
+   expect(page.locator('#comparisonStatus')).to_contain_text('Dynamic observation enabled')
+   assert comparison_writes[-1]['maximum']==.5
+   assert len(writes)==comparison_live_writes
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+   page.reload();expect(page.locator('#page-comparison')).to_be_visible()
    page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
    expect(page.locator('#historyRows')).to_contain_text('S/R Breakout')
    expect(page.locator('#historyRows tr').first.locator('time').first).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
    expect(page.locator('#historyRows tr').first.locator('time').first).to_contain_text('EDT')
    expect(page.locator('#historyRows .reason-cell').filter(has_text='SMA 7/50 (EXIT)')).to_have_count(2)
+   expect(page.locator('#historyRows .reason-cell').filter(has_text='Combined Trailing Stop')).to_have_count(1)
    expect(page.locator('#historyRows .reason-cell').first).to_have_attribute('title','SMA 7 crossed below SMA 50 (intrabar exit)')
    expect(page.locator('#historyRows tr').nth(1).locator('td').first).to_have_text('—')
 

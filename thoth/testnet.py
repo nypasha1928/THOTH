@@ -526,6 +526,10 @@ class TestnetSupervisor:
             self.state.update(pending_signals={},reversals={})
             self.event('Open P&L trailing drop reached at '+updated['current']+' USDT (peak '+updated['peak']+', close threshold '+updated['threshold']+'); closing all positions; entry permission retained')
             self.save()
+        observer=getattr(self,'trailing_observer',None)
+        if observer is not None:
+            try:observer.submit(active,cfg,updated,self.state['owned'],self.clock())
+            except Exception:pass  # Observation must never affect execution or its fixed tracker.
 
     def monitor(self):
         with self.lock:
