@@ -478,7 +478,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate("() => {lv.pnl_trailing={active:true,peak:'1.50',threshold:'1.40',current:'1.45',triggered:false};render();}")
    expect(page.locator('#pnlTrailingStatus')).to_have_attribute('data-phase','active')
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('TRAILING ACTIVE')
-   assert page.locator('#pnlTrailingStatus').evaluate("el=>[el,el.querySelector('strong'),el.querySelector('small')].every(node=>getComputedStyle(node).color===getComputedStyle(document.querySelector('#pnl')).color)&&getComputedStyle(el).borderTopColor===getComputedStyle(document.querySelector('#pnl')).color&&getComputedStyle(el).backgroundColor===getComputedStyle(document.body).backgroundColor")
+   assert page.locator('#pnlTrailingStatus').evaluate("el=>[el,el.querySelector('strong'),el.querySelector('small')].every(node=>getComputedStyle(node).color===getComputedStyle(document.querySelector('#pnl')).color)&&getComputedStyle(el).borderTopColor===getComputedStyle(document.querySelector('#pnl')).color&&getComputedStyle(el).backgroundColor===getComputedStyle(document.querySelector('#pnl').closest('.card')).backgroundColor&&getComputedStyle(el.querySelector('.pnl-trailing-values strong')).fontWeight===getComputedStyle(document.querySelector('#pnl')).fontWeight")
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('Peak $1.50')
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('Close all at or below $1.40')
    page.uncheck('#pnl_trailing_enabled');page.click('#saveSymbols')
