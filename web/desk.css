@@ -34,3 +34,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 #chart .signal-hovered{stroke:#fff;stroke-width:.6px;paint-order:stroke;filter:drop-shadow(0 0 3px #a8b5aa)}#chart [data-rsi-kind],#chart [data-signal-source]{cursor:crosshair}#chartFreshness:empty,#rsiHoverReadout:empty{display:none}
 
 .indicator-dropdown{border:1px solid #45533e;border-radius:6px;margin:7px 0;padding:8px}.indicator-dropdown>summary{cursor:pointer;font-size:13px;font-weight:600}.indicator-dropdown[open]>summary{margin-bottom:10px}.indicator-dropdown fieldset{min-width:0}
+
+.comparison-cycle dl{display:grid;grid-template-columns:minmax(120px,1fr) minmax(0,2fr);gap:10px;font-size:13px}.comparison-cycle dd{margin:0;overflow-wrap:anywhere}.comparison-cycle dt{color:#a8b5aa}@media(max-width:600px){.comparison-cycle dl{grid-template-columns:1fr}.comparison-cycle dd{margin-bottom:8px}}
