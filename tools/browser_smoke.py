@@ -420,6 +420,22 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.screenshot(path=str(root/'docs/desktop-interactive-chart-fixture.png'))
    page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','false')
    page.click('#closeAppearance')
+   pane_write_count=len(writes);expanded_price_height=page.evaluate('() => chartGeometry.B-chartGeometry.T')
+   page.click('#toggleVolumePane');expect(page.locator('[data-volume-bar]')).to_have_count(0)
+   expect(page.locator('[data-volume-minimized]')).to_have_count(1)
+   expect(page.locator('#toggleVolumePane')).to_have_text('Expand Volume')
+   assert page.evaluate('() => chartGeometry.B-chartGeometry.T')>expanded_price_height
+   page.click('#toggleVolumePane');expect(page.locator('[data-volume-bar]')).to_have_count(70)
+   page.click('#toggleRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(0)
+   expect(page.locator('[data-rsi-minimized]')).to_have_count(1)
+   assert page.evaluate('() => chartGeometry.B-chartGeometry.T')>expanded_price_height
+   page.click('#toggleRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   page.click('#closeRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(0)
+   expect(page.locator('[data-rsi-minimized]')).to_have_count(0)
+   expect(page.locator('#showRSIPane')).to_be_visible()
+   assert page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey)).showRSI') is False
+   page.click('#showRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   assert len(writes)==pane_write_count
    page.screenshot(path=str(root/'docs/desktop-watchlist-fixture.png'),full_page=True)
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#liveDialog')).to_be_visible();page.click('#activateLive');expect(page.locator('#activationError')).to_contain_text('Type ENABLE LIVE ORDERS exactly');assert not activation;page.keyboard.press('Escape');expect(page.locator('#liveDialog')).not_to_be_visible()
    # Poll update locks every mutation without discarding the form draft.
@@ -451,6 +467,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   for new_strategy in ['sma_7_50','sr_sma_7_50']:
+    page.select_option('#strategyLogic',new_strategy)
+    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+    expect(page.locator('#sma_exit_enabled')).to_be_enabled()
+    page.uncheck('#sma_exit_enabled');page.click('#saveSymbols')
+    page.wait_for_function('(name) => lv.config.strategy===name && !lv.config.sma_exit_enabled',arg=new_strategy)
+    assert writes[-1][1]['strategy']==new_strategy and writes[-1][1]['timeframe']=='1'
+    page.check('#sma_exit_enabled');page.click('#saveSymbols')
+    page.wait_for_function('() => lv.config.sma_exit_enabled')
    page.select_option('#strategyLogic','sr_hourly_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()

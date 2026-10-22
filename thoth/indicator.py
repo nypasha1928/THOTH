@@ -56,9 +56,14 @@ def evaluate(rows, cfg, now=None):
         from .rsi import RSIState
         state=RSIState(cfg.rsi)
         return [state.step(row,duration) for row in rows if row['time']+duration<=now]
-    if cfg.strategy=='sma_cross':
+    if cfg.strategy=='sr_sma_7_50':
+        from .sma_cross import SMACross,combine_sr_sma
+        sr=evaluate(rows,cfg.model_copy(update={'strategy':'sr_breakout'}),now)
+        cross=SMACross(slow_period=50)
+        return [combine_sr_sma(a,cross.step(row,duration)) for a,row in zip(sr,rows)]
+    if cfg.strategy in ('sma_cross','sma_7_50'):
         from .sma_cross import SMACross
-        cross=SMACross()
+        cross=SMACross(slow_period=50 if cfg.strategy=='sma_7_50' else 200)
         return [cross.step(row,duration) for row in rows if row['time']+duration<=now]
     machines = [ZigZag(), ZigZag()]
     high_info = [(nan, nan, nan), (nan, nan, nan)]

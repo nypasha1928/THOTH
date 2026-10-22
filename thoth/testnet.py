@@ -712,7 +712,7 @@ class TestnetSupervisor:
                 owner=self.state['owned'].get(symbol)
                 if owner:
                     if owner['side']==side:continue
-                    reason='Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite SMA crossover' if current.strategy=='sma_cross' else 'Opposite breakout'
+                    reason='Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
@@ -782,7 +782,7 @@ class TestnetSupervisor:
                 if exc.code!=110043:raise
             metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             self.journal.submit(payload,cfg.stop_dollars,metadata)
-            self.event(symbol+(': corrected RSI 1h signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': 1h intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': corrected RSI 1h signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': 1h intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))
         except Exception:self._lock('safety_lock','Testnet entry operation failed; reconcile before enabling entries')
         self.save()

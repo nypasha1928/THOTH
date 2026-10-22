@@ -153,7 +153,7 @@ class Runner:
                     raise ValueError('Stale or future market data')
                 history = self.history(symbol, cfg.timeframe, rows)
                 result,count = self.analysis(symbol,cfg,history,now)
-                if count < (cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
+                if count < (cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
                 observations[symbol] = self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
