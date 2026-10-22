@@ -48,6 +48,9 @@ class Settings(BaseModel):
     take_profit_enabled: bool = False
     take_profit_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     sma_exit_enabled: bool = True
+    pnl_trailing_enabled: bool = False
+    pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)
     trailing_enabled: bool = False
     trailing_activation_basis: str = Field(default='margin',pattern=r'^(price|margin)$')
     trailing_activation_pct: float = Field(default=10,ge=0,le=10000,allow_inf_nan=False)

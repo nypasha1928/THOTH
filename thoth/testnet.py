@@ -23,6 +23,7 @@ from .diagnostics import failure_details, failure_summary
 from .models import TestnetSettings, Settings
 from .bybit_testnet import take_profit_price
 from .trailing import FIELDS as TRAILING_FIELDS,new_trailing,advance as advance_trailing
+from .portfolio_trailing import new_state as new_pnl_trailing,advance as advance_pnl_trailing
 
 
 class TestnetSupervisor:
@@ -92,6 +93,7 @@ class TestnetSupervisor:
         for key,value in new_risk().items():state['risk'].setdefault(key,value)
         state.setdefault('daily_resume_intent',False)
         state.setdefault('flatten_reason',None)
+        state.setdefault('pnl_trailing',new_pnl_trailing())
         return state
 
     def save(self,state=None):
@@ -104,6 +106,7 @@ class TestnetSupervisor:
     def snapshot(self):
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
+            'pnl_trailing':s['pnl_trailing'],
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
@@ -148,6 +151,10 @@ class TestnetSupervisor:
                 self.state['sma_exit_blocks']={}
                 for owner in self.state['owned'].values():owner.pop('sma_exit_error',None)
             self.state['rate_limit_resume']=False
+            pnl_keys=('pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars')
+            if any(self.state['config'][key]!=getattr(cfg,key) for key in pnl_keys) and not self.state['pnl_trailing']['triggered']:
+                self.state['pnl_trailing']=new_pnl_trailing()
+                self.event('Open P&L trailing settings changed; a new trailing cycle starts at the next verified position sample')
             self.state['config']=cfg.model_dump()
             self.state['cursors']={}
             self.save()
@@ -502,6 +509,24 @@ class TestnetSupervisor:
             self.save()
             self._close(symbol,p,reason)
 
+    def _manage_pnl_trailing(self,active,cfg):
+        before=self.state['pnl_trailing']
+        # positions() is a fresh verified, ownership-checked account read.
+        # Include winners AND losers exactly as the Open LIVE P&L card does.
+        pnl=sum((dec(p['unrealisedPnl']) for p in active.values()),dec(0))
+        updated=advance_pnl_trailing(before,pnl,bool(active),cfg.pnl_trailing_enabled,
+            cfg.pnl_trailing_activation_dollars,cfg.pnl_trailing_drop_dollars,self.clock())
+        self.state['pnl_trailing']=updated
+        if updated['active'] and not before['active']:
+            self.event('Open P&L trailing activated at '+updated['current']+' USDT')
+        if updated['triggered'] and not before['triggered']:
+            # Persist the close-all obligation BEFORE cancellation/close requests.
+            # Existing flatten reconciliation handles late entry fills and retries.
+            self.state['flatten_reason']='Open P&L trailing stop'
+            self.state.update(pending_signals={},reversals={})
+            self.event('Open P&L trailing drop reached at '+updated['current']+' USDT (peak '+updated['peak']+', close threshold '+updated['threshold']+'); closing all positions; entry permission retained')
+            self.save()
+
     def monitor(self):
         with self.lock:
             if not self.client or not self.state['management']:return
@@ -573,6 +598,7 @@ class TestnetSupervisor:
             if self.state['risk']['day']!=previous_day:
                 self.event('New UTC daily period '+self.state['risk']['day']+': starting equity '+format(equity,'.2f')+' USDT; fresh allowance '+format(self.state['risk']['loss_allowance'],'.2f')+' USDT; prior daily loss usage cleared')
             self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
+            self._manage_pnl_trailing(active,cfg)
             if risk=='daily_stop':
                 if self.state['status']!='daily_stop':self.state['daily_resume_intent']=self.state['entries']
                 self._lock('daily_stop','Daily account loss limit reached; closing all THOTH positions')
@@ -606,7 +632,11 @@ class TestnetSupervisor:
                 for symbol,p in active.items():
                     if symbol in self.state['owned']:self._close(symbol,p,self.state['flatten_reason'])
                 if not active and not self.state['owned'] and not any(r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records()):
+                    trailing_complete=self.state['flatten_reason']=='Open P&L trailing stop'
                     self.state['flatten_reason']=None
+                    if trailing_complete:
+                        self.state['pnl_trailing']=new_pnl_trailing()
+                        self.event('Open P&L trailing close-all settled; new trailing cycle ready; '+('entries remain enabled subject to risk checks' if self.state['entries'] else 'entries remain paused by the operator or another risk control'))
             pending=self.journal.records()
             if any(r['phase']=='unknown' for r in pending):
                 self._lock('safety_lock','Order outcome is unknown; reconcile before new entries')
@@ -671,6 +701,7 @@ class TestnetSupervisor:
                 if previous is not None and stamp<=previous:continue
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
+                if self.state['flatten_reason']:continue  # Consume signals while close-all settles; do not queue replays.
                 if previous is None or observation.get('signal') not in ('Long','Short'):continue
                 if not 0<=self.clock()-stamp<=(30 if current.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(current.timeframe)):continue
                 side='Buy' if observation['signal']=='Long' else 'Sell'
@@ -715,7 +746,7 @@ class TestnetSupervisor:
     def _entry(self,symbol,side,stamp,identity,cfg):
         if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):return
         if symbol in self.state['blocked_symbols']:return
-        if self.state['status']!='running' or not self.state['entries']:return
+        if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries']:return
         if len(self.state['owned'])>=cfg.max_positions:return
         if not self._sma_entry_ready(symbol,cfg):return
         if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
@@ -758,7 +789,7 @@ class TestnetSupervisor:
                 del self.state['pending_signals'][symbol];continue
             if self.clock()-intent['time']>(30 if cfg.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(cfg.timeframe)):
                 del self.state['pending_signals'][symbol];continue
-            if self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
+            if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
             del self.state['pending_signals'][symbol]
             self._entry(symbol,intent['side'],intent['time'],intent['identity'],cfg)
@@ -775,7 +806,7 @@ class TestnetSupervisor:
                 self.event(symbol+': reverse signal expired; no replacement position opened')
                 continue
             if symbol in self.state['owned']:continue
-            if self.state['status']!='running' or not self.state['entries']:continue
+            if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries']:continue
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
             if len(self.state['owned'])>=cfg.max_positions:continue
             del self.state['reversals'][symbol]
