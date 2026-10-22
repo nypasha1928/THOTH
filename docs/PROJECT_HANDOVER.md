@@ -84,3 +84,7 @@ User merged prominent status panel, then requested its box border/text use the s
 ### Trailing background and amount-weight correction
 
 User merged the site-color follow-up, then clarified that the panel background must match the **Open LIVE P&L card**, not the darker page/body. Branch codex/trailing-card-background uses inherited card background (#1a2521 currently) and normal 400 weight for dollar figures, matching the main Open P&L amount. The green border/text remain. Display-only change. Desktop/mobile browser smoke passed, including computed background matching the P&L card and dollar-figure weight matching the main P&L amount. Ready for PR review; not yet merged/deployed.
+
+### Mobile account summary layout
+
+User merged the card-background correction, then requested Equity + Daily loss limit on the top mobile row and a full-width Open LIVE P&L card below so trailing values sit horizontally. Branch codex/mobile-pnl-layout adds explicit classes to only the three account-summary cards and a <=850px layout override; it does not change Analysis-page stats or desktop card order. Peak and threshold stay in a two-column grid on mobile. Desktop/mobile browser smoke passed, including matching top-card row heights, full-width lower P&L, horizontal peak/threshold placement and no mobile page overflow. Display-only; ready for PR review, not yet merged/deployed.

@@ -481,6 +481,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.locator('#pnlTrailingStatus').evaluate("el=>[el,el.querySelector('strong'),el.querySelector('small')].every(node=>getComputedStyle(node).color===getComputedStyle(document.querySelector('#pnl')).color)&&getComputedStyle(el).borderTopColor===getComputedStyle(document.querySelector('#pnl')).color&&getComputedStyle(el).backgroundColor===getComputedStyle(document.querySelector('#pnl').closest('.card')).backgroundColor&&getComputedStyle(el.querySelector('.pnl-trailing-values strong')).fontWeight===getComputedStyle(document.querySelector('#pnl')).fontWeight")
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('Peak $1.50')
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('Close all at or below $1.40')
+   mobile_stats=page.locator('.account-stats').evaluate("el=>{const rect=q=>{const r=el.querySelector(q).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width}};return {equity:rect('.account-equity'),loss:rect('.account-loss'),pnl:rect('.account-pnl'),peak:rect('.pnl-trailing-values>div:first-child'),threshold:rect('.pnl-trailing-values>div:last-child')}}")
+   assert abs(mobile_stats['equity']['y']-mobile_stats['loss']['y'])<1
+   assert mobile_stats['loss']['x']>mobile_stats['equity']['x']
+   assert mobile_stats['pnl']['y']>mobile_stats['equity']['y']
+   assert mobile_stats['pnl']['width']>mobile_stats['equity']['width']*1.9
+   assert abs(mobile_stats['peak']['y']-mobile_stats['threshold']['y'])<1
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+
    page.uncheck('#pnl_trailing_enabled');page.click('#saveSymbols')
    page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
    expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')
