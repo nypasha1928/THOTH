@@ -17,10 +17,10 @@ class RSIAccountTests(unittest.TestCase):
     create=fixtures.TestnetIntegration.create
 
     def test_actual_hourly_feed_opens_both_directions_then_minute_exit_after_restart(self):
-        for direction in ('Long','Short'):
-            with self.subTest(direction=direction):
-                self.path=Path(self.temp.name)/(direction+'.sqlite');self.exchange=fixtures.Exchange(lambda:self.now[0]);self.service=self.create()
-                self.cfg=TestnetSettings(strategy='rsi_hourly_intrabar',symbols=['BTCUSDT'],dedicated_account=True,rsi=dict(ml_signals=False,volume_filter=False,vwap_filter=False,sma_filter=False,max_data=50))
+        for mode,direction in ((m,d) for m in ('corrected','uploaded_pine') for d in ('Long','Short')):
+            with self.subTest(direction=direction,mode=mode):
+                self.path=Path(self.temp.name)/(mode+direction+'.sqlite');self.exchange=fixtures.Exchange(lambda:self.now[0]);self.service=self.create()
+                self.cfg=TestnetSettings(strategy='rsi_hourly_intrabar',symbols=['BTCUSDT'],dedicated_account=True,rsi=dict(calculation_mode=mode,ml_signals=mode=='uploaded_pine',volume_filter=False,vwap_filter=False,sma_filter=False,max_data=50))
                 self.service.configure(self.cfg)
                 start=int(self.now[0])//3600*3600;self.now[0]=start+10
                 self.service.activate(self.service.confirmation)
@@ -96,3 +96,21 @@ class RSIBootstrapTests(unittest.TestCase):
         last=response.json()['rsi_analysis'][-1]
         self.assertEqual(len(last['cluster_centers']),3)
         self.assertEqual(last['rsi_cluster'],min(range(3),key=lambda i:abs(last['rsi']-last['cluster_centers'][i])))
+
+    def test_uploaded_mode_chart_reports_source_threshold_issue_without_corrections(self):
+        import _environment
+        from fastapi.testclient import TestClient
+        from thoth.app import app
+        rows=candles([100-i for i in range(20)]+[82+i for i in range(50)])
+        cfg=Settings(rsi={'calculation_mode':'uploaded_pine','volume_filter':False,'vwap_filter':False,'sma_filter':False}).model_dump()
+        with patch('thoth.app.live.snapshot',return_value={'config':cfg}),patch('thoth.app.live_feed',None),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=70*3600):
+            response=TestClient(app).get('/api/chart/ETHUSDT?interval=60&include_rsi=true')
+        self.assertEqual(response.status_code,200,response.text)
+        data=response.json()
+        self.assertIn('Uploaded Pine array behavior',data['rsi_status'])
+        self.assertTrue(any(e['kind']=='static30_up' for row in data['rsi_analysis'] for e in row['events']))
+        for row in data['rsi_analysis']:
+            self.assertEqual(row['calculation_mode'],'uploaded_pine')
+            self.assertIsNone(row['thresholds']['ml_short'])
+            self.assertIsNone(row['thresholds']['ml_long'])
+            self.assertFalse(any(e['kind'].startswith('ml_') for e in row['events']))

@@ -28,6 +28,49 @@ def naive_clusters(values,iterations):
 
 
 class RSITests(unittest.TestCase):
+    def test_uploaded_source_preserves_empty_threshold_slots_and_static_filters(self):
+        # Even valid cluster means are appended after three na slots by the
+        # uploaded code. Verify the port's outcome without repairing that source.
+        original=Path('reference/ml_rsi_900_uploaded.pine').read_text()
+        self.assertIn('new_centroids = array.new_float(3)',original)
+        self.assertIn('array.push(new_centroids, array.avg(cluster1))',original)
+        self.assertIn('long_S = array.get(centroids, 2)',original)
+        original_slots=[None]*3+[25.,50.,75.]
+        rows=candles([100+math.sin(i*.13)*10 for i in range(200)])
+        uploaded=RSIState(RSISettings(calculation_mode='uploaded_pine',volume_filter=False,vwap_filter=False,sma_filter=False))
+        reference=evaluate_default(rows,DraftConfig(volume_filter=False,vwap_filter=False,sma_filter=False))
+        seen=[]
+        with patch('thoth.rsi.clusters',side_effect=AssertionError('Must not substitute corrected ML')):
+            for row,expected in zip(rows,reference):
+                actual=uploaded.step(row,3600)
+                self.assertEqual(actual['rsi'],expected['rsi'])
+                self.assertEqual(actual['events'],expected['events'])
+                self.assertEqual(actual['thresholds']['ml_short'],original_slots[0])
+                self.assertEqual(actual['thresholds']['ml_long'],original_slots[2])
+                self.assertFalse(actual['ml_ready'])
+                self.assertIsNone(actual['cluster_centers'])
+                self.assertEqual(actual['ml_unavailable_reason'],'uploaded_pine_empty_threshold_slots')
+                seen.extend(actual['events'])
+        self.assertTrue(seen)
+        self.assertTrue(all(e['kind'].startswith('static') for e in seen))
+        filtered=RSIState(RSISettings(calculation_mode='uploaded_pine'))
+        for row,expected in zip(rows,evaluate_default(rows,DraftConfig())):
+            self.assertEqual(filtered.step(row,3600)['events'],expected['events'])
+
+    def test_uploaded_static_signals_are_not_blocked_by_unavailable_ml(self):
+        cfg=Settings(strategy='rsi_hourly_intrabar',rsi={'calculation_mode':'uploaded_pine'})
+        with tempfile.TemporaryDirectory() as d:
+            runner=Runner(Engine(Path(d)/'offline.sqlite'))
+            preview=dict(time=360000,rsi=50,ml_ready=False,events=[],conflict=False)
+            history=[dict(time=360000,close=100)]
+            with patch.object(runner,'rsi_preview',side_effect=lambda *a:preview):
+                self.assertIsNone(runner.rsi_observation('ETHUSDT',cfg,history,360010)['signal'])
+                preview['events']=[dict(kind='static30_up',side='Long')]
+                self.assertEqual(runner.rsi_observation('ETHUSDT',cfg,history,360015)['signal'],'Long')
+                self.assertIsNone(runner.rsi_observation('ETHUSDT',cfg,history,360020)['signal'])
+        self.assertEqual(RSISettings().calculation_mode,'corrected')
+        with self.assertRaises(ValueError):RSISettings(calculation_mode='unknown')
+
     def test_optimized_clustering_matches_independent_nearest_center_reference(self):
         rng=random.Random(29)
         for values in ([50]*30,[0]*9+[10],list(range(100)),[rng.randrange(5)*25 for _ in range(100)],[rng.random()*100 for _ in range(500)]):

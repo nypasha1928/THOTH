@@ -1,4 +1,4 @@
-"""Corrected, causal ML RSI. No trading or display permissions live here."""
+"""RSI calculations with explicit uploaded-array and corrected ML modes."""
 from bisect import bisect_right
 from copy import deepcopy
 from datetime import datetime,timezone
@@ -154,7 +154,11 @@ class RSIState:
         ml=None
         if rsi is not None:
             s['rsi_values'].append(rsi);s['rsi_values']=s['rsi_values'][-(cfg.max_data+1):]
-            ml=clusters(s['rsi_values'],cfg.max_iterations)
+            # Uploaded Pine starts new_centroids with three na slots and then
+            # appends means. Its reads at 0/2 therefore remain na on every bar,
+            # independently of window selection, distance results or iteration.
+            # Preserve that outcome; do not silently repair or substitute ML.
+            if cfg.calculation_mode=='corrected':ml=clusters(s['rsi_values'],cfg.max_iterations)
         thresholds=dict(static30=30.,static70=70.,ml_short=ml['short'] if ml and ml['converged'] else None,ml_long=ml['long'] if ml and ml['converged'] else None)
         events=[]
         volume_ok=not cfg.volume_filter or (average is not None and volume>average*cfg.volume_multiplier)
@@ -169,4 +173,4 @@ class RSIState:
             events.append(event)
         sides={event['side'] for event in events}
         s.update(count=s['count']+1,last_time=stamp,last_source=value,rsi=rsi,thresholds=thresholds)
-        return dict(time=stamp,close=close,levels={},sma=None,rsi=rsi,thresholds=thresholds,vwap=vwap,volume_ma=average,histogram=histogram,events=events,signal=next(iter(sides)) if len(sides)==1 else None,conflict=len(sides)>1,ml_ready=len(s['rsi_values'])>=cfg.max_data+1 and bool(ml and ml['converged']),rsi_samples=len(s['rsi_values']),cluster_centers=ml['centers'] if ml and ml['converged'] else None,rsi_cluster=min(range(3),key=lambda i:abs(rsi-ml['centers'][i])) if rsi is not None and ml and ml['converged'] else None)
+        return dict(time=stamp,close=close,levels={},sma=None,calculation_mode=cfg.calculation_mode,ml_unavailable_reason='uploaded_pine_empty_threshold_slots' if cfg.calculation_mode=='uploaded_pine' else None,rsi=rsi,thresholds=thresholds,vwap=vwap,volume_ma=average,histogram=histogram,events=events,signal=next(iter(sides)) if len(sides)==1 else None,conflict=len(sides)>1,ml_ready=len(s['rsi_values'])>=cfg.max_data+1 and bool(ml and ml['converged']),rsi_samples=len(s['rsi_values']),cluster_centers=ml['centers'] if ml and ml['converged'] else None,rsi_cluster=min(range(3),key=lambda i:abs(rsi-ml['centers'][i])) if rsi is not None and ml and ml['converged'] else None)

@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class RSISettings(BaseModel):
     model_config=ConfigDict(extra='forbid')
+    calculation_mode: str=Field(default='corrected',pattern=r'^(corrected|uploaded_pine)$')
     source: str=Field(default='close',pattern=r'^(close|open|high|low|hlc3|ohlc4)$')
     rsi_length: int=Field(default=14,ge=2,le=100)
     smooth: bool=True
