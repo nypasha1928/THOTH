@@ -68,7 +68,7 @@ class RSITests(unittest.TestCase):
                 preview['events']=[dict(kind='static30_up',side='Long')]
                 self.assertEqual(runner.rsi_observation('ETHUSDT',cfg,history,360015)['signal'],'Long')
                 self.assertIsNone(runner.rsi_observation('ETHUSDT',cfg,history,360020)['signal'])
-        self.assertEqual(RSISettings().calculation_mode,'uploaded_pine')
+        self.assertEqual(RSISettings().calculation_mode,'fixed')
         with self.assertRaises(ValueError):RSISettings(calculation_mode='unknown')
 
     def test_optimized_clustering_matches_independent_nearest_center_reference(self):

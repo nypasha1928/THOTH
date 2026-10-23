@@ -25,7 +25,7 @@ class FeedAdapter:
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         rows=self.supervisor.client.candles(symbol,interval)
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
-        if cfg.strategy!='rsi_hourly_intrabar' or not cfg.rsi.ml_signals or cfg.rsi.calculation_mode=='uploaded_pine':return rows
+        if cfg.strategy!='rsi_hourly_intrabar' or not cfg.rsi.ml_signals or cfg.rsi.calculation_mode!='corrected':return rows
         required=cfg.rsi.max_data+cfg.rsi.rsi_length+6*cfg.rsi.smooth_period+2
         path=str(Path(self.path).with_suffix('.candles.sqlite'))
         with sqlite3.connect(path) as db:

@@ -6,7 +6,7 @@ from thoth.testnet import TestnetSupervisor
 
 class OriginalSelectionTests(unittest.TestCase):
     def test_uploaded_default_and_source_are_preserved(self):
-        self.assertEqual(RSISettings().calculation_mode,'uploaded_pine')
+        self.assertEqual(RSISettings().calculation_mode,'fixed')
         self.assertEqual(hashlib.sha256(Path('reference/ml_rsi_900_uploaded.pine').read_bytes()).hexdigest(),
             'cf415bc7edbd732e04bf2c11148a2a04d06c4ff5dc418625134fd3a43e3078df')
 

@@ -160,6 +160,7 @@ class RSIState:
             # Preserve that outcome; do not silently repair or substitute ML.
             if cfg.calculation_mode=='corrected':ml=clusters(s['rsi_values'],cfg.max_iterations)
         thresholds=dict(static30=30.,static70=70.,ml_short=ml['short'] if ml and ml['converged'] else None,ml_long=ml['long'] if ml and ml['converged'] else None)
+        if cfg.calculation_mode=='fixed':thresholds.update(ml_long=cfg.fixed_long,ml_short=cfg.fixed_short)
         events=[]
         volume_ok=not cfg.volume_filter or (average is not None and volume>average*cfg.volume_multiplier)
         crossings=signal_events(s['rsi'],rsi,s['thresholds'],thresholds)
