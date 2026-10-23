@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -77,10 +77,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
      offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
    elif path=='live/analysis':
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
-    records=[dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24),dict(symbol='BTCUSDT',strategy='sr_breakout',pnl=-.31),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0)]
+    records=list(analysis_many) if analysis_many else [dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24,opened_at=1792501200,closed_at=1792508400),dict(symbol='BTCUSDT',strategy='sr_breakout',pnl=-.31,opened_at=1792504800,closed_at=1792512000),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0,closed_at=1792515600)]
     if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
     if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
-    result=analyze(records)
+    result=analyze(records,params.get('time_basis',['entry'])[0])
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:
     result=payloads[path]
@@ -649,6 +649,30 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   timing_writes=len(writes)
+   expect(page.locator('#timingCoverage')).to_contain_text('Opening time')
+   expect(page.locator('#timingCoverage')).to_contain_text('2 trades included · 1 excluded')
+   expect(page.locator('#timingHighlights article')).to_have_count(6)
+   expect(page.locator('#timingHighlights')).to_contain_text('09:00–09:59')
+   expect(page.locator('#timingHighlights')).to_contain_text('10:00–10:59')
+   expect(page.locator('#timingHours tr')).to_have_count(24)
+   expect(page.locator('#timingWeekdays tr')).to_have_count(7)
+   expect(page.locator('#timingHighlights')).to_contain_text('small sample')
+   page.select_option('#analysisTimeBasis','exit')
+   expect(page.locator('#timingCoverage')).to_contain_text('Closing time')
+   expect(page.locator('#timingCoverage')).to_contain_text('3 trades included · 0 excluded')
+   expect(page.locator('#timingHighlights')).to_contain_text('11:00–11:59')
+   page.select_option('#analysisTimeBasis','entry');expect(page.locator('#timingCoverage')).to_contain_text('Opening time')
+   analysis_many.extend(dict(symbol='ETHUSDT',strategy='sr_breakout',pnl=.01,opened_at=1792501200-i*86400,closed_at=1792501200-i*86400+60) for i in range(123))
+   page.click('#refreshAnalysis');expect(page.locator('#analysisStatus')).to_contain_text('123 confirmed')
+   expect(page.locator('#timingDates tr')).to_have_count(50)
+   page.click('#timingDatesNext');expect(page.locator('#timingDatesPage')).to_contain_text('51–100 of 123')
+   page.click('#timingDatesNext');expect(page.locator('#timingDates tr')).to_have_count(23)
+   expect(page.locator('#timingDatesPage')).to_contain_text('101–123 of 123')
+   analysis_many.clear();page.click('#refreshAnalysis');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   assert len(writes)==timing_writes
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+
    expect(page.locator('#coinAnalysis')).to_contain_text('BTCUSDT');expect(page.locator('#strategyAnalysis')).to_contain_text('SMA 7/200')
    page.fill('#analysisSymbol','ETHUSDT');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')
    expect(page.locator('#coinAnalysis tr.trade-win')).to_have_count(1)

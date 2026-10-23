@@ -125,8 +125,8 @@ def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$
 
 
 @app.get('/api/live/analysis')
-def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_hourly_intrabar|rsi_hourly_intrabar|unknown)$')):
-    return live.analysis(symbol,strategy)
+def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_hourly_intrabar|rsi_hourly_intrabar|unknown)$'),time_basis: str=Query('entry',pattern=r'^(entry|exit)$')):
+    return live.analysis(symbol,strategy,time_basis)
 
 
 @app.put('/api/live/settings')
