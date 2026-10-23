@@ -68,7 +68,7 @@ class RSITests(unittest.TestCase):
                 preview['events']=[dict(kind='static30_up',side='Long')]
                 self.assertEqual(runner.rsi_observation('ETHUSDT',cfg,history,360015)['signal'],'Long')
                 self.assertIsNone(runner.rsi_observation('ETHUSDT',cfg,history,360020)['signal'])
-        self.assertEqual(RSISettings().calculation_mode,'corrected')
+        self.assertEqual(RSISettings().calculation_mode,'uploaded_pine')
         with self.assertRaises(ValueError):RSISettings(calculation_mode='unknown')
 
     def test_optimized_clustering_matches_independent_nearest_center_reference(self):
@@ -147,7 +147,7 @@ class RSITests(unittest.TestCase):
             with patch.object(restored,'rsi_preview',return_value=preview):self.assertIsNone(restored.rsi_observation('ETHUSDT',cfg,history,360100)['signal'])
 
     def test_incomplete_ml_window_or_conflict_cannot_enter(self):
-        cfg=Settings(strategy='rsi_hourly_intrabar')
+        cfg=Settings(strategy='rsi_hourly_intrabar',rsi={'calculation_mode':'corrected'})
         with tempfile.TemporaryDirectory() as d:
             runner=Runner(Engine(Path(d)/'offline.sqlite'))
             preview=dict(time=360000,rsi=50,ml_ready=False,events=[],conflict=False)

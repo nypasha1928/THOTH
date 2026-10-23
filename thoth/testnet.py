@@ -49,7 +49,7 @@ class TestnetSupervisor:
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS supervisor(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
             if not db.execute('SELECT 1 FROM supervisor').fetchone():
-                self.save(dict(config=TestnetSettings().model_dump(),rsi_filters_off_v1=True,account_binding=None,
+                self.save(dict(config=TestnetSettings().model_dump(),rsi_filters_off_v1=True,rsi_original_mode_v1=True,account_binding=None,
                     management=False,entries=False,status='disabled',reason=self.label+' has not been activated',
                     owned={},risk=new_risk(),equity=None,positions=[],events=[],cursors={},
                     reversals={},pending_signals={},last_monitor=None,closures=[],feed_health=None))
@@ -72,6 +72,14 @@ class TestnetSupervisor:
             self.state['config']['rsi']=rsi
             self.state['rsi_filters_off_v1']=True
             self.event('RSI filters switched off for the updated crossing rules; optional filters can be enabled in Settings')
+        if not self.state.get('rsi_original_mode_v1'):
+            # Explicit user choice: original mode once, without changing signal/style inputs.
+            rsi={**TestnetSettings().rsi.model_dump(),**self.state['config'].get('rsi',{})}
+            self.state['rsi_previous_calculation']=dict(settings=dict(rsi),saved_at=self.clock())
+            rsi['calculation_mode']='uploaded_pine'
+            self.state['config']['rsi']=rsi
+            self.state['rsi_original_mode_v1']=True
+            self.event('RSI switched to uploaded-original mode; Corrected ML remains selectable. Original ML thresholds are unavailable; appearance and crossing rules retained')
         for trade in self.state['closures']:
             link=trade.get('link') or 'legacy:'+hashlib.sha256(json.dumps(trade,sort_keys=True).encode()).hexdigest()
             self._record_trade(link,trade)
