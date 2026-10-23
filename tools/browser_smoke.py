@@ -369,6 +369,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
    for color in ['#00ff00','#ff0000','#787b86']:
     assert page.locator('[data-rsi-segment="'+color+'"]').count()>0
+   expect(page.locator('[data-rsi-cluster]')).to_have_count(0)
    expect(page.locator('[data-rsi-segment]').first).to_have_attribute('stroke-width','3')
    for value in [30,70]:expect(page.locator('[data-rsi-static-level="'+str(value)+'"]')).to_have_attribute('stroke','#81d4fa')
    expected_levels={'static30_down':33,'static70_up':67,'static30_up':27,'static70_down':73,'ml_long_up':57,'ml_short_down':43,'ml_short_up':37,'ml_long_down':63}
