@@ -140,11 +140,11 @@ class TestnetSupervisor:
             self.state=self.load()
             if self.state['entries']:raise ValueError('Pause '+self.label+' entries before editing settings')
             if any(s not in cfg.symbols for s in self.state['owned']):raise ValueError('Close managed positions before removing their symbols')
-            if cfg.strategy!=self.state['config']['strategy']:
+            if cfg.strategy!=self.state['config']['strategy'] or cfg.timeframe!=self.state['config']['timeframe']:
                 if self.state['management'] and self.client is None:
-                    raise ValueError('Recover account management before changing strategy')
+                    raise ValueError('Recover account management before changing strategy or timeframe')
                 if self.state['owned'] or (self.journal and any(r['phase'] not in ('closed','cancelled','rejected') for r in self.journal.records())):
-                    raise ValueError('Close managed positions and reconcile pending orders before changing strategy')
+                    raise ValueError('Close managed positions and reconcile pending orders before changing strategy or timeframe')
             if self.state['owned'] and cfg.margin_mode!=self.state['config']['margin_mode']:
                 raise ValueError('Cannot change margin mode while positions are open')
             if not cfg.sma_exit_enabled:
@@ -155,6 +155,10 @@ class TestnetSupervisor:
             if any(self.state['config'][key]!=getattr(cfg,key) for key in pnl_keys) and not self.state['pnl_trailing']['triggered']:
                 self.state['pnl_trailing']=new_pnl_trailing()
                 self.event('Open P&L trailing settings changed; a new trailing cycle starts at the next verified position sample')
+            coin_keys=('coin_pnl_trailing_enabled','coin_pnl_trailing_activation_dollars','coin_pnl_trailing_drop_dollars')
+            if any(self.state['config'].get(key)!=getattr(cfg,key) for key in coin_keys):
+                for owner in self.state['owned'].values():
+                    if not owner.get('coin_pnl_trailing',{}).get('triggered'):owner['coin_pnl_trailing']=new_pnl_trailing()
             self.state['config']=cfg.model_dump()
             self.state['cursors']={}
             self.save()
@@ -509,6 +513,23 @@ class TestnetSupervisor:
             self.save()
             self._close(symbol,p,reason)
 
+    def _manage_coin_pnl_trailing(self,active,cfg):
+        for symbol,p in active.items():
+            owner=self.state['owned'][symbol]
+            if owner.get('close_link') or owner.get('signal_exit'):continue
+            before=owner.get('coin_pnl_trailing',new_pnl_trailing())
+            updated=advance_pnl_trailing(before,p['unrealisedPnl'],True,cfg.coin_pnl_trailing_enabled,
+                cfg.coin_pnl_trailing_activation_dollars,cfg.coin_pnl_trailing_drop_dollars,self.clock())
+            owner['coin_pnl_trailing']=updated
+            if updated['active'] and not before['active']:self.event(symbol+': per-coin P&L trailing activated')
+            if updated['triggered']:
+                # Durable symbol-only close obligation; retries use the normal close reconciler.
+                owner['signal_exit']='Per-coin Trailing Stop'
+                self.state['pending_signals'].pop(symbol,None)
+                self.state['reversals'].pop(symbol,None)
+                self.event(symbol+': per-coin trailing drop reached; closing this position; entry permission retained')
+            self.save()
+
     def _manage_pnl_trailing(self,active,cfg):
         before=self.state['pnl_trailing']
         # positions() is a fresh verified, ownership-checked account read.
@@ -591,6 +612,7 @@ class TestnetSupervisor:
                         if prior!=details:self.event(symbol+': SMA exit monitoring unavailable; only this coin’s new entries blocked · '+failure_summary(details))
                         self.save()
 
+            self._manage_coin_pnl_trailing(active,cfg)
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)
@@ -601,7 +623,7 @@ class TestnetSupervisor:
             risk=sample(self.state['risk'],equity,self.transfers(),cfg,self.clock())
             if self.state['risk']['day']!=previous_day:
                 self.event('New UTC daily period '+self.state['risk']['day']+': starting equity '+format(equity,'.2f')+' USDT; fresh allowance '+format(self.state['risk']['loss_allowance'],'.2f')+' USDT; prior daily loss usage cleared')
-            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
+            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},coin_pnl_trailing=self.state['owned'].get(s,{}).get('coin_pnl_trailing',new_pnl_trailing()),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
             self._manage_pnl_trailing(active,cfg)
             if risk=='daily_stop':
                 if self.state['status']!='daily_stop':self.state['daily_resume_intent']=self.state['entries']
@@ -782,7 +804,7 @@ class TestnetSupervisor:
                 if exc.code!=110043:raise
             metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             self.journal.submit(payload,cfg.stop_dollars,metadata)
-            self.event(symbol+(': corrected RSI 1h signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': 1h intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))
         except Exception:self._lock('safety_lock','Testnet entry operation failed; reconcile before enabling entries')
         self.save()

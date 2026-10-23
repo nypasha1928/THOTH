@@ -164,6 +164,6 @@ class RSITests(unittest.TestCase):
 
     def test_new_strategy_requires_one_signal_family_and_minute_exit(self):
         cfg=Settings(strategy='rsi_hourly_intrabar',timeframe='D',sma_exit_enabled=False,major=False,minor=False)
-        self.assertEqual(cfg.timeframe,'60');self.assertTrue(cfg.sma_exit_enabled)
+        self.assertEqual(cfg.timeframe,'D');self.assertTrue(cfg.sma_exit_enabled)
         with self.assertRaises(ValueError):Settings(strategy='rsi_hourly_intrabar',rsi={'static_signals':False,'ml_signals':False})
         with self.assertRaises(ValueError):RSISettings(ma_type='invented')

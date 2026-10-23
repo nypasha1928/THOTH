@@ -67,9 +67,9 @@ class IntrabarBreakoutTests(unittest.TestCase):
         self.cfg.sma_enabled=False
         self.assertIsNone(self.sample(102,360020)['signal'])
 
-    def test_strategy_fixes_entry_hour_and_requires_minute_exit(self):
+    def test_strategy_retains_entry_timeframe_and_requires_minute_exit(self):
         cfg=Settings(strategy='sr_hourly_intrabar',timeframe='240',sma_exit_enabled=False)
-        self.assertEqual(cfg.timeframe,'60');self.assertTrue(cfg.sma_exit_enabled)
+        self.assertEqual(cfg.timeframe,'240');self.assertTrue(cfg.sma_exit_enabled)
         self.assertTrue(cfg.major and cfg.minor)
         with self.assertRaises(ValueError):Settings(strategy='sr_hourly_intrabar',major=False,minor=False)
 
@@ -199,3 +199,16 @@ class HourlyPositionTests(unittest.TestCase):
         self.signal(self.now[0]-100,None)
         self.signal(self.now[0]-40,'Long')
         self.assertFalse(self.exchange.orders)
+
+    def test_intrabar_breakouts_use_each_selected_timeframe(self):
+        from thoth.timeframes import INTERVALS
+        for interval,duration in INTERVALS.items():
+            cfg=Settings(strategy='sr_hourly_intrabar',timeframe=interval)
+            tracker={};start=duration*100
+            self.levels={'long_resistance_major':dict(value=101,pivot_time=0)}
+            rows=[dict(time=start,close=100)]
+            self.assertIsNone(observe_breakout(tracker,rows,self.levels,cfg,start+10)['signal'])
+            rows[-1]['close']=102
+            result=observe_breakout(tracker,rows,self.levels,cfg,start+15)
+            self.assertEqual(result['signal'],'Long')
+            self.assertEqual((result['entry_timeframe'],result['exit_timeframe']),(interval,'1'))

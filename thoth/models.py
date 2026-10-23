@@ -51,6 +51,9 @@ class Settings(BaseModel):
     pnl_trailing_enabled: bool = False
     pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)
+    coin_pnl_trailing_enabled: bool = False
+    coin_pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    coin_pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)
     trailing_enabled: bool = False
     trailing_activation_basis: str = Field(default='margin',pattern=r'^(price|margin)$')
     trailing_activation_pct: float = Field(default=10,ge=0,le=10000,allow_inf_nan=False)
@@ -80,9 +83,8 @@ class Settings(BaseModel):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
-        if self.strategy in ('sma_7_50','sr_sma_7_50'):self.timeframe='1'
         if self.strategy in ('sr_hourly_intrabar','rsi_hourly_intrabar'):
-            self.timeframe='60'
+            if 'timeframe' not in self.model_fields_set:self.timeframe='60'
             self.sma_exit_enabled=True
         if self.strategy=='rsi_hourly_intrabar' and not (self.rsi.static_signals or self.rsi.ml_signals):
             raise ValueError('Enable at least one RSI entry signal family')

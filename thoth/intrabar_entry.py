@@ -1,19 +1,21 @@
-"""Sampled hourly breakouts of confirmed S/R; never replay intrabar extremes."""
+"""Sampled selected-timeframe breakouts of confirmed S/R; never replay intrabar extremes."""
 import math
+from .timeframes import interval_seconds
 
 STRATEGY='sr_hourly_intrabar'
 MAX_OBSERVATION_GAP=30
 
 
 def observe_breakout(tracker,rows,levels,cfg,now):
-    start=int(now)//3600*3600
+    duration=interval_seconds(cfg.timeframe)
+    start=int(now)//duration*duration
     if not rows or rows[-1]['time']!=start:
-        raise ValueError('Hourly forming candle unavailable')
+        raise ValueError('Selected timeframe forming candle unavailable')
     price=float(rows[-1]['close'])
     if not math.isfinite(price) or price<=0:raise ValueError('Invalid intrabar price')
     previous=tracker.get('price')
     fresh=0<now-tracker.get('observed_at',0)<=MAX_OBSERVATION_GAP
-    adjacent=tracker.get('bar') in (start,start-3600)
+    adjacent=tracker.get('bar') in (start,start-duration)
     old_levels=tracker.get('levels',{})
     fired=set(tracker.get('fired',[])) if tracker.get('bar')==start else set()
     candidates=[]
@@ -43,4 +45,4 @@ def observe_breakout(tracker,rows,levels,cfg,now):
     sides={side for _,side in candidates if side in allowed}
     signal=next(iter(sides)) if len(sides)==1 else None
     tracker.update(bar=start,observed_at=now,price=price,levels=levels,fired=sorted(fired))
-    return dict(time=now,mark=price,signal=signal,entry_bar=start,entry_timeframe='60',exit_timeframe='1')
+    return dict(time=now,mark=price,signal=signal,entry_bar=start,entry_timeframe=cfg.timeframe,exit_timeframe='1')
