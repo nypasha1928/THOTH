@@ -397,6 +397,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-sr-candle="Long"]')).to_have_count(0)
    assert page.locator('[data-rsi-signal]').count()>0
    page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=true')
+   page.get_by_label('RSI Long colour (curve and threshold)',exact=True).fill('#11ee55')
+   expect(page.locator('[data-rsi-line=ml_long]')).to_have_attribute('stroke','#11ee55')
+   assert page.locator('[data-rsi-segment="#11ee55"]').count()>0
+   expect(page.locator('[data-rsi-value-tag=ml_long]')).to_have_attribute('fill','#11ee55')
+   page.get_by_label('RSI Short colour (curve and threshold)',exact=True).fill('#ee2255')
+   expect(page.locator('[data-rsi-line=ml_short]')).to_have_attribute('stroke','#ee2255')
+   assert page.locator('[data-rsi-segment="#ee2255"]').count()>0
+   expect(page.locator('[data-rsi-value-tag=ml_short]')).to_have_attribute('fill','#ee2255')
+   page.get_by_label('RSI Long colour (curve and threshold)',exact=True).fill('#00ff00')
+   page.get_by_label('RSI Short colour (curve and threshold)',exact=True).fill('#ff0000')
    raw_arrow_count=page.locator('[data-rsi-signal]').count()
    page.get_by_label('Show only RSI crossings passing entry filters',exact=True).check()
    assert page.locator('[data-rsi-signal]').count()<raw_arrow_count
