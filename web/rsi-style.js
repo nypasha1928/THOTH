@@ -9,7 +9,7 @@ const rsiSignalTypes={
  ml_short_up:{label:'Bullish Signal (ML Short Up)',side:'Long',threshold:'ml_short',offset:-3,chart:'#2962ff',pane:'#2962ff',background:'#2962ff',opacity:0},
  ml_long_down:{label:'Bearish Signal (ML Long Down)',side:'Short',threshold:'ml_long',offset:3,chart:'#ff9800',pane:'#ff9800',background:'#ff9800',opacity:0}
 };
-const rsiVisualDefaults={rsiPaletteVersion:1,rsiSharedColorsVersion:1,rsiFilteredSignalsOnly:false,rsiPaneHeight:220,rsiLineWidth:3,rsiLineMode:'trend',rsiSolidColor:'#b58cf4',rsiLongColor:'#00ff00',rsiShortColor:'#ff0000',rsiNeutralColor:'#787b86',rsiStaticLevelColor:'#81d4fa',showRSIThresholds:true,showRSIClusters:true,rsiCluster1:'#008000',rsiCluster2:'#ff9800',rsiCluster3:'#ff5252',rsiSignalSize:11,
+const rsiVisualDefaults={rsiPaletteVersion:1,rsiSharedColorsVersion:1,rsiPlainCurveVersion:1,rsiFilteredSignalsOnly:false,rsiPaneHeight:220,rsiLineWidth:3,rsiLineMode:'trend',rsiSolidColor:'#b58cf4',rsiLongColor:'#00ff00',rsiShortColor:'#ff0000',rsiNeutralColor:'#787b86',rsiStaticLevelColor:'#81d4fa',showRSIThresholds:true,showRSIClusters:false,rsiCluster1:'#008000',rsiCluster2:'#ff9800',rsiCluster3:'#ff5252',rsiSignalSize:11,
  rsiSignalStyles:Object.fromEntries(Object.entries(rsiSignalTypes).map(([kind,meta])=>[kind,{chartVisible:true,paneVisible:true,chartColor:meta.chart,paneColor:meta.pane,chartShape:'triangle',paneShape:'triangle',chartPosition:meta.side==='Long'?'below':'above',panePosition:'threshold',backgroundVisible:meta.opacity>0,backgroundColor:meta.background,backgroundOpacity:meta.opacity}]))};
 function restoreRSIVisual(stored,target){
  for(const key of ['rsiSolidColor','rsiLongColor','rsiShortColor','rsiNeutralColor','rsiStaticLevelColor','rsiCluster1','rsiCluster2','rsiCluster3'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))target[key]=stored[key];
@@ -20,6 +20,8 @@ function restoreRSIVisual(stored,target){
  if(['trend','solid'].includes(stored.rsiLineMode))target.rsiLineMode=stored.rsiLineMode;
  // Adopt the requested Pine trend view once; later deliberate Solid choices persist.
  if(!stored.rsiSharedColorsVersion)target.rsiLineMode='trend';
+ // Requested plain curve also replaces the older saved cluster-dot default.
+ if(!stored.rsiPlainCurveVersion){target.showRSIClusters=false;target.rsiLineMode='trend';}
  for(const kind of Object.keys(rsiSignalTypes)){const from=stored.rsiSignalStyles?.[kind],to=target.rsiSignalStyles[kind];if(!from||typeof from!=='object')continue;
   for(const key of ['chartVisible','paneVisible','backgroundVisible'])if(typeof from[key]==='boolean')to[key]=from[key];
   for(const key of ['chartColor','paneColor','backgroundColor'])if(/^#[0-9a-f]{6}$/i.test(from[key]))to[key]=from[key];
