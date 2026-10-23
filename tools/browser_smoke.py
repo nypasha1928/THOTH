@@ -513,6 +513,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
    expect(page.locator('#tf')).to_have_value('1')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R intrabar → Exit 1m');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','sr_rsi_daily')
+   expect(page.locator('#strategyTf')).to_have_value('D');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
+   for filter_id in ['sma_enabled','sma_7_50_filter_enabled','rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter']:
+    expect(page.locator('#'+filter_id)).not_to_be_checked();expect(page.locator('#'+filter_id)).to_be_disabled()
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('fixed');expect(page.locator('#rsi_calculation_mode')).to_be_disabled()
+   expect(page.locator('#rsi_signal_rules')).to_have_value('eight_crossings')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_rsi_daily' && lv.config.timeframe==='D'")
+   assert writes[-1][1]['rsi']['calculation_mode']=='fixed' and writes[-1][1]['rsi']['signal_rules']=='eight_crossings'
+   expect(page.locator('#strategyDescription')).to_contain_text('Daily S/R breakout OR fixed RSI')
    page.select_option('#strategyLogic','rsi_hourly_intrabar')
    expect(page.locator('#strategyDescription')).to_contain_text('Selected RSI calculation version')
    expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','60')

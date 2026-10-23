@@ -43,7 +43,7 @@ class RSISettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     automatic_paper: bool = False
     portfolio_loss_enabled: bool = False
@@ -91,12 +91,18 @@ class Settings(BaseModel):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
+        if self.strategy=='sr_rsi_daily':
+            self.timeframe='D';self.sma_exit_enabled=True
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False
+            self.rsi=self.rsi.model_copy(update=dict(calculation_mode='fixed',signal_rules='eight_crossings',
+                static_signals=True,ml_signals=True,volume_filter=False,volume_for_static=False,
+                vwap_filter=False,sma_filter=False,histogram_filter=False))
         if self.strategy in ('sr_hourly_intrabar','rsi_hourly_intrabar'):
             if 'timeframe' not in self.model_fields_set:self.timeframe='60'
             self.sma_exit_enabled=True
         if self.strategy=='rsi_hourly_intrabar' and not (self.rsi.static_signals or self.rsi.ml_signals):
             raise ValueError('Enable at least one RSI entry signal family')
-        if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar') and not (self.major or self.minor):
+        if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar','sr_rsi_daily') and not (self.major or self.minor):
             raise ValueError('Enable at least one level family')
         return self
 

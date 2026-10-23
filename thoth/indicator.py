@@ -56,6 +56,12 @@ def evaluate(rows, cfg, now=None):
         from .rsi import RSIState
         state=RSIState(cfg.rsi)
         return [state.step(row,duration) for row in rows if row['time']+duration<=now]
+    if cfg.strategy=='sr_rsi_daily':
+        from .rsi import RSIState
+        from .daily_sr_rsi import combine
+        sr=evaluate(rows,cfg.model_copy(update={'strategy':'sr_breakout'}),now)
+        rsi=RSIState(cfg.rsi)
+        return [combine(bar,rsi.step(row,duration)) for bar,row in zip(sr,rows)]
     if cfg.strategy=='sr_sma_7_50':
         from .sma_cross import SMACross,combine_sr_sma
         sr=evaluate(rows,cfg.model_copy(update={'strategy':'sr_breakout'}),now)

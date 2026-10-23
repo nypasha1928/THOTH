@@ -13,6 +13,7 @@ from .verification import source_fingerprint,strategy_fingerprint
 from .market import candles
 from .models import Settings
 from .intrabar_entry import observe_breakout,STRATEGY
+from .daily_sr_rsi import observe as observe_daily,STRATEGY as DAILY_COMBINED
 
 
 class Runner:
@@ -112,6 +113,19 @@ class Runner:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return dict(time=now,mark=history[-1]['close'],signal=signal,entry_bar=start,entry_timeframe=cfg.timeframe,exit_timeframe='1')
 
+    def daily_sr_rsi_observation(self,symbol,cfg,history,result,now):
+        duration=interval_seconds(cfg.timeframe)
+        if not result or result[-1]['time']!=int(now)//duration*duration-duration:
+            raise ValueError('Latest confirmed Daily S/R levels unavailable')
+        preview=self.rsi_preview(symbol,cfg,history,now)
+        identity=strategy_fingerprint(cfg)
+        with sqlite3.connect(self.history_path) as db:
+            saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
+            tracker=json.loads(saved[0]) if saved else {}
+            observation=observe_daily(tracker,history,result[-1]['levels'],preview,cfg,now)
+            db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
+        return observation
+
     def cycle(self, paced=True):
         state = self.engine.snapshot()
         cfg = Settings(**state['settings'])
@@ -154,10 +168,10 @@ class Runner:
                     raise ValueError('Stale or future market data')
                 history = self.history(symbol, cfg.timeframe, rows)
                 result,count = self.analysis(symbol,cfg,history,now)
-                if count < (cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
+                if count < (2 if cfg.strategy==DAILY_COMBINED else cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
-                observations[symbol] = self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
+                observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
                 statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
             except Exception as exc:
                 statuses[symbol] = {'status': 'error', 'message': str(exc)[:240]}
@@ -165,12 +179,12 @@ class Runner:
         # Missing held-position data blocks new entries. An unavailable unheld symbol
         # does not suppress otherwise valid signals on unrelated symbols.
         held={p['symbol'] for p in state['positions']}
-        if held-set(observations) and cfg.strategy!='rsi_hourly_intrabar':
+        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED):
             for observation in observations.values(): observation['signal'] = None
         self.engine.market_cycle(cfg.model_dump(), observations)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),
-                       'note': 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

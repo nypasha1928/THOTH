@@ -6,4 +6,4 @@ def interval_seconds(interval):
     try:return INTERVALS[interval]
     except KeyError:raise ValueError('Unsupported candle interval') from None
 
-HOURLY_MINUTE_STRATEGIES=('sr_hourly_intrabar','rsi_hourly_intrabar')
+HOURLY_MINUTE_STRATEGIES=('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily')
