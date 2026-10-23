@@ -27,7 +27,7 @@ class EightCrossingTests(unittest.TestCase):
 
     def test_real_rsi_generates_all_eight_and_filters_never_erase_crossing_evidence(self):
         rows=candles([100+math.sin(i*.25)*20 for i in range(300)])
-        cfg=RSISettings(signal_rules='eight_crossings',rsi_length=2,smooth=False,max_data=50,
+        cfg=RSISettings(calculation_mode='corrected',signal_rules='eight_crossings',rsi_length=2,smooth=False,max_data=50,
             volume_filter=False,vwap_filter=False,sma_filter=False)
         state=RSIState(cfg);bars=[state.step(row,3600) for row in rows]
         self.assertEqual({e['kind'] for b in bars for e in b['crossings']},set(KINDS))
@@ -44,7 +44,7 @@ class EightCrossingTests(unittest.TestCase):
         self.assertEqual([b['crossings'] for b in original],[b['crossings'] for b in bars])
 
     def test_eight_crossings_survive_checkpoint_and_family_entry_switches(self):
-        cfg=RSISettings(signal_rules='eight_crossings',rsi_length=2,smooth=False,max_data=50,
+        cfg=RSISettings(calculation_mode='corrected',signal_rules='eight_crossings',rsi_length=2,smooth=False,max_data=50,
             volume_filter=False,vwap_filter=False,sma_filter=False,static_signals=False)
         state=RSIState(cfg);restored=RSIState(cfg);seen=set()
         for row in candles([100+math.sin(i*.25)*20 for i in range(150)]):
@@ -76,7 +76,7 @@ class EightCrossingTests(unittest.TestCase):
         from fastapi.testclient import TestClient
         from thoth.app import app
         rows=candles([100+math.sin(i*.25)*20 for i in range(150)])
-        cfg=Settings(strategy='sr_breakout',rsi={'signal_rules':'eight_crossings','rsi_length':2,'smooth':False,'max_data':50,
+        cfg=Settings(strategy='sr_breakout',rsi={'calculation_mode':'corrected','signal_rules':'eight_crossings','rsi_length':2,'smooth':False,'max_data':50,
             'volume_filter':True,'volume_for_static':True,'volume_multiplier':5,'vwap_filter':False,'sma_filter':False}).model_dump()
         with patch('thoth.app.live.snapshot',return_value={'config':cfg}),patch('thoth.app.live_feed',None),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=150*3600):
             response=TestClient(app).get('/api/chart/ETHUSDT?interval=60&include_rsi=true')

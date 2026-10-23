@@ -54,7 +54,7 @@ class RSIBootstrapTests(unittest.TestCase):
     def test_backfill_is_bounded_then_durable_history_avoids_repeated_pages(self):
         with tempfile.TemporaryDirectory() as d:
             engine=Engine(Path(d)/'offline.sqlite');runner=Runner(engine)
-            cfg=TestnetSettings(strategy='rsi_hourly_intrabar',rsi={'max_data':50})
+            cfg=TestnetSettings(strategy='rsi_hourly_intrabar',rsi={'calculation_mode':'corrected','max_data':50})
             rows=candles([100+i%5 for i in range(150)]);calls=[]
             def fetch(symbol,interval,limit=1000,end=None):
                 calls.append(end)
@@ -87,7 +87,7 @@ class RSIBootstrapTests(unittest.TestCase):
         from fastapi.testclient import TestClient
         from thoth.app import app
         rows=candles([100-i for i in range(20)]+[82+i for i in range(50)])
-        cfg=Settings(strategy='rsi_hourly_intrabar',rsi={'max_data':50,'static_signals':False,'ml_signals':True,'volume_filter':False,'vwap_filter':False,'sma_filter':False}).model_dump()
+        cfg=Settings(strategy='rsi_hourly_intrabar',rsi={'calculation_mode':'corrected','max_data':50,'static_signals':False,'ml_signals':True,'volume_filter':False,'vwap_filter':False,'sma_filter':False}).model_dump()
         with patch('thoth.app.live.snapshot',return_value={'config':cfg}),patch('thoth.app.live_feed',None),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=70*3600):
             response=TestClient(app).get('/api/chart/ETHUSDT?interval=60&include_rsi=true')
         self.assertEqual(response.status_code,200,response.text)
