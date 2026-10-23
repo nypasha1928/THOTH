@@ -103,8 +103,8 @@ def signal_events(previous,rsi,old_thresholds,thresholds):
     for name,level in thresholds.items():
         old=old_thresholds.get(name)
         if old is None or level is None:continue
-        if name!='static70' and previous<=old and rsi>level:events.append(dict(kind=name+'_up',side='Long'))
-        if name!='static30' and previous>=old and rsi<level:events.append(dict(kind=name+'_down',side='Short'))
+        if previous<=old and rsi>level:events.append(dict(kind=name+'_up',side='Long'))
+        if previous>=old and rsi<level:events.append(dict(kind=name+'_down',side='Short'))
     return events
 
 
@@ -162,7 +162,9 @@ class RSIState:
         thresholds=dict(static30=30.,static70=70.,ml_short=ml['short'] if ml and ml['converged'] else None,ml_long=ml['long'] if ml and ml['converged'] else None)
         events=[]
         volume_ok=not cfg.volume_filter or (average is not None and volume>average*cfg.volume_multiplier)
-        for event in signal_events(s['rsi'],rsi,s['thresholds'],thresholds):
+        crossings=signal_events(s['rsi'],rsi,s['thresholds'],thresholds)
+        for event in crossings:
+            if cfg.signal_rules=='original_six' and event['kind'] in ('static30_down','static70_up'):continue
             static=event['kind'].startswith('static');bull=event['side']=='Long'
             if static and not cfg.static_signals or not static and not cfg.ml_signals:continue
             if not volume_ok and (not static or cfg.volume_for_static):continue
@@ -173,4 +175,4 @@ class RSIState:
             events.append(event)
         sides={event['side'] for event in events}
         s.update(count=s['count']+1,last_time=stamp,last_source=value,rsi=rsi,thresholds=thresholds)
-        return dict(time=stamp,close=close,levels={},sma=None,calculation_mode=cfg.calculation_mode,ml_unavailable_reason='uploaded_pine_empty_threshold_slots' if cfg.calculation_mode=='uploaded_pine' else None,rsi=rsi,thresholds=thresholds,vwap=vwap,volume_ma=average,histogram=histogram,events=events,signal=next(iter(sides)) if len(sides)==1 else None,conflict=len(sides)>1,ml_ready=len(s['rsi_values'])>=cfg.max_data+1 and bool(ml and ml['converged']),rsi_samples=len(s['rsi_values']),cluster_centers=ml['centers'] if ml and ml['converged'] else None,rsi_cluster=min(range(3),key=lambda i:abs(rsi-ml['centers'][i])) if rsi is not None and ml and ml['converged'] else None)
+        return dict(time=stamp,close=close,levels={},sma=None,calculation_mode=cfg.calculation_mode,ml_unavailable_reason='uploaded_pine_empty_threshold_slots' if cfg.calculation_mode=='uploaded_pine' else None,rsi=rsi,thresholds=thresholds,vwap=vwap,volume_ma=average,histogram=histogram,crossings=crossings,events=events,signal=next(iter(sides)) if len(sides)==1 else None,conflict=len(sides)>1,ml_ready=len(s['rsi_values'])>=cfg.max_data+1 and bool(ml and ml['converged']),rsi_samples=len(s['rsi_values']),cluster_centers=ml['centers'] if ml and ml['converged'] else None,rsi_cluster=min(range(3),key=lambda i:abs(rsi-ml['centers'][i])) if rsi is not None and ml and ml['converged'] else None)

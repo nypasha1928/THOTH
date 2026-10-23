@@ -30,8 +30,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
    levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
    bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
-  rsi_bars=[dict(time=row['time'],rsi=50+math.sin(i/9)*20,thresholds={'static30':30,'static70':70,'ml_long':60,'ml_short':40},vwap=row['close']-1,ml_ready=True,rsi_samples=3001,rsi_cluster=0 if math.sin(i/9)<-.3 else 2 if math.sin(i/9)>.3 else 1,events=[dict(kind=['static30_up','static70_down','ml_long_up','ml_short_down','ml_short_up','ml_long_down'][(i//10)%6],side='Long' if (i//10)%6 in (0,2,4) else 'Short')] if i%10==0 else []) for i,row in enumerate(rows)]
-  rsi_bars[980]['events'].append(dict(kind='static30_up',side='Long'))
+  rsi_bars=[dict(time=row['time'],rsi=50+math.sin(i/9)*20,thresholds={'static30':30,'static70':70,'ml_long':60,'ml_short':40},vwap=row['close']-1,ml_ready=True,rsi_samples=3001,rsi_cluster=0 if math.sin(i/9)<-.3 else 2 if math.sin(i/9)>.3 else 1,events=[dict(kind=['static30_up','static70_down','ml_long_up','ml_short_down','ml_short_up','ml_long_down','static30_down','static70_up'][(i//8)%8],side='Long' if (i//8)%8 in (0,2,4,7) else 'Short')] if i%8==0 else []) for i,row in enumerate(rows)]
+  for bar in rsi_bars:bar['crossings']=copy.deepcopy(bar['events'])
+  rsi_bars[975]['crossings']=[dict(kind='static70_up',side='Long')]
+  rsi_bars[975]['events']=[]
+  rsi_bars[980]['events'].extend([dict(kind='static30_up',side='Long'),dict(kind='ml_long_up',side='Long')])
+  rsi_bars[980]['crossings']=copy.deepcopy(rsi_bars[980]['events'])
   chart=dict(rsi_analysis=rsi_bars,rsi_status='Corrected ML RSI · synthetic fixture',indicator_status='S/R reference arrows: confirmed candle-close breakouts; not historical live intrabar triggers',source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
   chart_daily=copy.deepcopy(chart)
   for array in ('candles','analysis','sma','rsi_analysis'):
@@ -366,8 +370,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    for color in ['#00ff00','#ff0000','#808080']:
     assert page.locator('[data-rsi-segment="'+color+'"]').count()>0
    for value in [30,70]:expect(page.locator('[data-rsi-static-level="'+str(value)+'"]')).to_have_attribute('stroke','#81d4fa')
-   expected_levels={'static30_up':27,'static70_down':73,'ml_long_up':57,'ml_short_down':43,'ml_short_up':37,'ml_long_down':63}
-   expected_colors={'static30_up':'#4caf50','static70_down':'#ff5252','ml_long_up':'#00e676','ml_short_down':'#ffeb3b','ml_short_up':'#2962ff','ml_long_down':'#ff9800'}
+   expected_levels={'static30_down':33,'static70_up':67,'static30_up':27,'static70_down':73,'ml_long_up':57,'ml_short_down':43,'ml_short_up':37,'ml_long_down':63}
+   expected_colors={'static30_down':'#e91e63','static70_up':'#26a69a','static30_up':'#4caf50','static70_down':'#ff5252','ml_long_up':'#00e676','ml_short_down':'#ffeb3b','ml_short_up':'#2962ff','ml_long_down':'#ff9800'}
    for kind,level in expected_levels.items():
     pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="'+kind+'"]').first
     chart_marker=page.locator('[data-rsi-signal][data-rsi-kind="'+kind+'"]').first
@@ -379,7 +383,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Quote polling replaces the SVG; verify one hover event's results atomically.
    hover_geometry=page.evaluate("() => {const el=document.querySelector('[data-rsi-pane-signal][data-rsi-kind=ml_short_up]');const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
    assert hover_geometry['visible']=='visible'
-   assert 'Bullish ML Short Up' in hover_geometry['tooltip']
+   assert 'Bullish Signal (ML Short Up)' in hover_geometry['tooltip']
    assert 'RSI at ' in hover_geometry['readout']
    assert 'V'+str(int(hover_geometry['height']-55)) in hover_geometry['path'],hover_geometry
    page.get_by_label('Color candles on S/R signals',exact=True).check()
@@ -392,13 +396,18 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-sr-candle="Long"]')).to_have_count(0)
    assert page.locator('[data-rsi-signal]').count()>0
    page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=true')
+   raw_arrow_count=page.locator('[data-rsi-signal]').count()
+   page.get_by_label('Show only RSI crossings passing entry filters',exact=True).check()
+   assert page.locator('[data-rsi-signal]').count()<raw_arrow_count
+   page.get_by_label('Show only RSI crossings passing entry filters',exact=True).uncheck()
+   assert page.locator('[data-rsi-signal]').count()==raw_arrow_count
    page.locator('[data-rsi-style="ml_short_up"]').evaluate('(el)=>el.open=true')
-   page.get_by_label('Bullish ML Short Up chart color',exact=True).fill('#2244ff')
+   page.get_by_label('Bullish Signal (ML Short Up) chart color',exact=True).fill('#2244ff')
    expect(page.locator('[data-rsi-signal][data-rsi-kind="ml_short_up"]').first).to_have_attribute('fill','#2244ff')
    expect(page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first).to_have_attribute('fill','#2962ff')
    stored_rsi=page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey)).rsiSignalStyles.ml_short_up')
    assert stored_rsi['chartColor']=='#2244ff' and stored_rsi['paneColor']=='#2962ff'
-   page.get_by_label('Bullish ML Short Up chart color',exact=True).fill('#2962ff')
+   page.get_by_label('Bullish Signal (ML Short Up) chart color',exact=True).fill('#2962ff')
    page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=false')
    display_write_count=len(writes)
    page.get_by_label('Show RSI signal arrows',exact=True).uncheck()
@@ -498,11 +507,13 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
    expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
    expect(page.locator('#rsi_calculation_mode')).to_have_value('corrected')
+   page.select_option('#rsi_signal_rules','eight_crossings')
    page.select_option('#rsi_calculation_mode','uploaded_pine')
    page.fill('#rsi_max_data','50');page.uncheck('#rsi_volume_filter');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='rsi_hourly_intrabar' && lv.config.rsi.max_data===50")
    assert not writes[-1][1]['rsi']['volume_filter']
    assert writes[-1][1]['rsi']['calculation_mode']=='uploaded_pine'
+   assert writes[-1][1]['rsi']['signal_rules']=='eight_crossings'
    expect(page.locator('#rsi_calculation_mode')).to_have_value('uploaded_pine')
    page.select_option('#strategyLogic','sma_cross')
    expect(page.locator('#strategyTf')).to_be_enabled();expect(page.locator('#sma_exit_enabled')).to_be_enabled()
