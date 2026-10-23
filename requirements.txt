@@ -22,3 +22,6 @@ pyasn1_modules==0.4.2
 pyOpenSSL==26.4.0
 cffi==2.1.1
 pycparser==3.0
+
+# Portable IANA timezone data for New York trade-time analysis
+tzdata==2025.2

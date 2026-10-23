@@ -128,12 +128,12 @@ class TestnetSupervisor:
             rows=db.execute('SELECT payload FROM trade_history'+where+' ORDER BY closed_at DESC,link LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
         return dict(items=[json.loads(row[0]) for row in rows],total=count,limit=limit,offset=offset)
 
-    def analysis(self,symbol=None,strategy=None):
+    def analysis(self,symbol=None,strategy=None,time_basis='entry'):
         from .analytics import analyze
         with self.db() as db:
             records=[json.loads(row[0]) for row in db.execute('SELECT payload FROM trade_history'+(' WHERE symbol=?' if symbol else ''),(symbol,) if symbol else ())]
         if strategy:records=[r for r in records if r.get('strategy','unknown')==strategy]
-        return analyze(records)
+        return analyze(records,time_basis)
 
     def configure(self,cfg):
         with self.lock:

@@ -42,3 +42,7 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 @media(max-width:850px){.stats.account-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.account-stats>.account-equity{order:1}.account-stats>.account-loss{order:2}.account-stats>.account-pnl{order:3;grid-column:1/-1}.account-stats .pnl-trailing-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.account-stats .pnl-trailing-values>div{min-width:0}}
 
 .chart-pane-tools{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:10px 0}.chart-pane-tools button{font-size:12px;min-height:40px}
+
+.timing-highlights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.timing-highlights>.card{margin:0;min-width:0}.timing-highlights h3{font-size:14px}.timing-highlights strong{overflow-wrap:anywhere}#timingHours td,#timingWeekdays td,#timingDates td{white-space:nowrap}@media(max-width:600px){.timing-highlights{grid-template-columns:1fr}}
+
+.timing-details{margin:16px 0}.timing-details>summary{cursor:pointer;font-weight:600;padding:10px 0}
