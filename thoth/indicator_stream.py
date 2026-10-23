@@ -116,6 +116,9 @@ class IndicatorState:
         keep=max(51,cfg.sma_length+1,2*cfg.pivot_long+1,2*cfg.pivot_short+1)
         if len(self.buffer)>keep:del self.buffer[:-keep]
         result=dict(time=row['time'],levels=levels,sma=average,signal=signal,conflict=bullish and bearish,close=row['close'])
+        if cfg.strategy=='sr_rsi_daily':
+            from .daily_sr_rsi import combine
+            result=combine(result,self.rsi.step(row,duration))
         if cfg.strategy=='sr_sma_7_50':
             from .sma_cross import combine_sr_sma
             result=combine_sr_sma(result,self.cross.step(row,duration))

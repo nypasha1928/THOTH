@@ -125,7 +125,7 @@ def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$
 
 
 @app.get('/api/live/analysis')
-def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_hourly_intrabar|rsi_hourly_intrabar|unknown)$'),time_basis: str=Query('entry',pattern=r'^(entry|exit)$')):
+def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_hourly_intrabar|rsi_hourly_intrabar|unknown)$'),time_basis: str=Query('entry',pattern=r'^(entry|exit)$')):
     return live.analysis(symbol,strategy,time_basis)
 
 
@@ -203,7 +203,7 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     history = history_runner.history(symbol, interval, rows) if history_runner else rows
     # Display replay is independent of execution. Hourly intrabar entries cannot
     # be reconstructed from OHLC; show labelled S/R reference arrows instead.
-    display_strategy='sr_breakout' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar') else cfg['strategy']
+    display_strategy='sr_breakout' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily') else cfg['strategy']
     chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'strategy':display_strategy,'timeframe': interval}).model_copy(update={'timeframe':interval})
     analysis = [b for b in (history_runner.analysis(symbol,chart_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,chart_cfg)) if b['time'] >= rows[0]['time']]
     sr_analysis=analysis
@@ -227,7 +227,7 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     averages = [b for b in sma(history, 200 if cfg['strategy']=='sma_cross' else cfg['sma_length']) if b['time'] >= rows[0]['time']]
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
             'analysis': analysis,'sr_analysis':sr_analysis,'chart_signal_strategy':display_strategy,'rsi_analysis':rsi_analysis,'rsi_status':('Fixed RSI Long/Short thresholds; levels do not adapt. Eight reference crossing types; no ML history window required. Arrows are not proof of an order.' if cfg.get('rsi',{}).get('calculation_mode')=='fixed' else 'Uploaded Pine array behavior: ML thresholds unavailable in the uploaded source; static RSI crossings are available. Chart arrows can include unfiltered crossings; trading uses the saved entry rules and filters.' if cfg.get('rsi',{}).get('calculation_mode')=='uploaded_pine' else 'Corrected ML RSI; eight reference crossing types. Arrows can include filtered-out crossings, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up')),
-            'indicator_status': 'S/R reference arrows: confirmed candle-close breakouts on the displayed timeframe; not historical live intrabar triggers. E/X marks recorded trades' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar') else 'Confirmed SMA 7/50 crossover; independent comparison pending' if cfg['strategy']=='sma_7_50' else 'Independent S/R or SMA 7/50 entries; conflicting signals skipped' if cfg['strategy']=='sr_sma_7_50' else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
+            'indicator_status': 'S/R reference arrows: confirmed candle-close breakouts on the displayed timeframe; not historical live intrabar triggers. E/X marks recorded trades' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily') else 'Confirmed SMA 7/50 crossover; independent comparison pending' if cfg['strategy']=='sma_7_50' else 'Independent S/R or SMA 7/50 entries; conflicting signals skipped' if cfg['strategy']=='sr_sma_7_50' else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
             'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 
 

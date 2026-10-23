@@ -6,7 +6,7 @@ STRATEGY='sr_hourly_intrabar'
 MAX_OBSERVATION_GAP=30
 
 
-def observe_breakout(tracker,rows,levels,cfg,now):
+def observe_breakout(tracker,rows,levels,cfg,now,max_gap=MAX_OBSERVATION_GAP):
     duration=interval_seconds(cfg.timeframe)
     start=int(now)//duration*duration
     if not rows or rows[-1]['time']!=start:
@@ -14,7 +14,7 @@ def observe_breakout(tracker,rows,levels,cfg,now):
     price=float(rows[-1]['close'])
     if not math.isfinite(price) or price<=0:raise ValueError('Invalid intrabar price')
     previous=tracker.get('price')
-    fresh=0<now-tracker.get('observed_at',0)<=MAX_OBSERVATION_GAP
+    fresh=0<now-tracker.get('observed_at',0)<=max_gap
     adjacent=tracker.get('bar') in (start,start-duration)
     old_levels=tracker.get('levels',{})
     fired=set(tracker.get('fired',[])) if tracker.get('bar')==start else set()
