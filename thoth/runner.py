@@ -73,8 +73,9 @@ class Runner:
         return cached,state.count
 
     def intrabar_observation(self,symbol,cfg,history,result,now):
-        if not result or result[-1]['time']!=int(now)//3600*3600-3600:
-            raise ValueError('Latest confirmed hourly levels unavailable')
+        duration=interval_seconds(cfg.timeframe)
+        if not result or result[-1]['time']!=int(now)//duration*duration-duration:
+            raise ValueError('Latest confirmed entry-timeframe levels unavailable')
         identity=strategy_fingerprint(cfg)
         with sqlite3.connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
@@ -97,11 +98,11 @@ class Runner:
     def rsi_observation(self,symbol,cfg,history,now):
         preview=self.rsi_preview(symbol,cfg,history,now)
         if preview['rsi'] is None or (cfg.rsi.calculation_mode=='corrected' and cfg.rsi.ml_signals and not preview['ml_ready']):raise ValueError('RSI/ML history warming up; no entry')
-        identity=strategy_fingerprint(cfg);start=preview['time']
+        identity=strategy_fingerprint(cfg);start=preview['time'];duration=interval_seconds(cfg.timeframe)
         with sqlite3.connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
-            fresh=0<now-tracker.get('observed_at',0)<=30 and tracker.get('bar') in (start,start-3600)
+            fresh=0<now-tracker.get('observed_at',0)<=30 and tracker.get('bar') in (start,start-duration)
             fired=set(tracker.get('fired',[])) if tracker.get('bar')==start else set()
             events=[event for event in preview['events'] if event['kind'] not in fired]
             fired.update(event['kind'] for event in preview['events'])
@@ -109,7 +110,7 @@ class Runner:
             signal=next(iter(sides)) if fresh and len(sides)==1 and not preview['conflict'] else None
             tracker.update(bar=start,observed_at=now,fired=sorted(fired))
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
-        return dict(time=now,mark=history[-1]['close'],signal=signal,entry_bar=start,entry_timeframe='60',exit_timeframe='1')
+        return dict(time=now,mark=history[-1]['close'],signal=signal,entry_bar=start,entry_timeframe=cfg.timeframe,exit_timeframe='1')
 
     def cycle(self, paced=True):
         state = self.engine.snapshot()
@@ -169,7 +170,7 @@ class Runner:
         self.engine.market_cycle(cfg.model_dump(), observations)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),
-                       'note': 'Sampled 1h corrected RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled 1h intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

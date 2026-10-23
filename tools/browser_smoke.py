@@ -164,6 +164,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
    page.check('#selectedOnly');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','NO_SUCH_SYMBOL');expect(page.locator('#coins')).to_contain_text('No matching symbols')
+   page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable).length'))
    page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
    page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
    expect(page.locator('#savedSymbols')).to_contain_text('Saved trading symbols (1): SOLUSDT')
@@ -441,6 +442,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Poll update locks every mutation without discarding the form draft.
    payloads['live']['entries']=True
    expect(page.locator('#clearSymbols')).to_be_disabled(timeout=10000)
+   expect(page.locator('#selectAllCoins')).to_be_disabled()
    expect(page.locator('#coins input').first).to_be_disabled()
    payloads['live']['entries']=False
    expect(page.locator('#clearSymbols')).to_be_enabled(timeout=10000)
@@ -467,27 +469,32 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   page.check('#coin_pnl_trailing_enabled');page.fill('#coin_pnl_trailing_activation_dollars','0.5');page.fill('#coin_pnl_trailing_drop_dollars','0.025');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.coin_pnl_trailing_enabled && lv.config.coin_pnl_trailing_activation_dollars===0.5 && lv.config.coin_pnl_trailing_drop_dollars===0.025')
+   expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
+   page.uncheck('#coin_pnl_trailing_enabled');page.click('#saveSymbols')
+   page.wait_for_function('() => !lv.config.coin_pnl_trailing_enabled')
    for new_strategy in ['sma_7_50','sr_sma_7_50']:
     page.select_option('#strategyLogic',new_strategy)
-    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+    expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','5')
     expect(page.locator('#sma_exit_enabled')).to_be_enabled()
     page.uncheck('#sma_exit_enabled');page.click('#saveSymbols')
     page.wait_for_function('(name) => lv.config.strategy===name && !lv.config.sma_exit_enabled',arg=new_strategy)
-    assert writes[-1][1]['strategy']==new_strategy and writes[-1][1]['timeframe']=='1'
+    assert writes[-1][1]['strategy']==new_strategy and writes[-1][1]['timeframe']=='5'
     page.check('#sma_exit_enabled');page.click('#saveSymbols')
     page.wait_for_function('() => lv.config.sma_exit_enabled')
    page.select_option('#strategyLogic','sr_hourly_intrabar')
-   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','60')
    expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
    expect(page.locator('#major')).to_be_visible();expect(page.locator('#minor')).to_be_visible()
    expect(page.locator('#strategyDescription')).to_contain_text('1-minute SMA exits')
    page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_hourly_intrabar'")
    assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
    expect(page.locator('#tf')).to_have_value('1')
-   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R 1h → Exit 1m');page.keyboard.press('Escape')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R intrabar → Exit 1m');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','rsi_hourly_intrabar')
    expect(page.locator('#strategyDescription')).to_contain_text('Selected RSI calculation version')
-   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','60')
    page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
    expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
    expect(page.locator('#rsi_calculation_mode')).to_have_value('corrected')

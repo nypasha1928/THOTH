@@ -15,11 +15,12 @@ from test_sma_cross import candles
 class SMA50Tests(unittest.TestCase):
     def test_both_confirmed_directions_and_minute_timeframe(self):
         cfg=Settings(strategy='sma_7_50',timeframe='D',sma_enabled=True,major=False,minor=False)
-        self.assertEqual(cfg.timeframe,'1')
+        self.assertEqual(cfg.timeframe,'D')
+        cfg=cfg.model_copy(update={'timeframe':'1'})
         for name in ('sma_7_50','sr_sma_7_50'):
             self.assertFalse(Settings(strategy=name,sma_exit_enabled=False).sma_exit_enabled)
         rows=candles([100.]*50+[110.]*10+[80.]*10)
-        output=evaluate(rows,cfg,now=4200)
+        output=evaluate(rows,cfg.model_copy(update={'timeframe':'1'}),now=4200)
         self.assertEqual(output[50]['signal'],'Long')
         self.assertEqual(sum(b['signal']=='Long' for b in output),1)
         self.assertEqual(sum(b['signal']=='Short' for b in output),1)
@@ -104,3 +105,18 @@ class SMA50Tests(unittest.TestCase):
         self.assertTrue(any(row['sma_signal'] for row in data['analysis']))
         self.assertEqual(len(data['sr_analysis']),len(data['analysis']))
         self.assertTrue(all('sma_signal' not in row for row in data['sr_analysis']))
+
+    def test_selected_intervals_keep_confirmed_close_and_stream_parity(self):
+        from thoth.timeframes import INTERVALS
+        for strategy in ('sma_7_50','sr_sma_7_50'):
+            for interval,duration in INTERVALS.items():
+                cfg=Settings(strategy=strategy,timeframe=interval)
+                rows=candles([100.]*50+[110.]*10+[80.]*10)
+                for i,row in enumerate(rows):row['time']=i*duration
+                before=evaluate(rows[:51],cfg,now=51*duration-1)
+                self.assertFalse(any(b['signal'] for b in before))
+                result=evaluate(rows,cfg,now=len(rows)*duration)
+                self.assertEqual(result[50]['signal'],'Long')
+                self.assertTrue(any(b['signal']=='Short' for b in result))
+                state=IndicatorState(cfg)
+                self.assertEqual([state.step(row) for row in rows],result)
