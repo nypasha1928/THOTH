@@ -77,7 +77,7 @@ class EightCrossingTests(unittest.TestCase):
         from thoth.app import app
         rows=candles([100+math.sin(i*.25)*20 for i in range(150)])
         cfg=Settings(strategy='sr_breakout',rsi={'signal_rules':'eight_crossings','rsi_length':2,'smooth':False,'max_data':50,
-            'volume_filter':True,'volume_multiplier':5,'vwap_filter':False,'sma_filter':False}).model_dump()
+            'volume_filter':True,'volume_for_static':True,'volume_multiplier':5,'vwap_filter':False,'sma_filter':False}).model_dump()
         with patch('thoth.app.live.snapshot',return_value={'config':cfg}),patch('thoth.app.live_feed',None),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=150*3600):
             response=TestClient(app).get('/api/chart/ETHUSDT?interval=60&include_rsi=true')
         self.assertEqual(response.status_code,200,response.text)

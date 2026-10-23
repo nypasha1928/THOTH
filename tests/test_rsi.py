@@ -53,7 +53,7 @@ class RSITests(unittest.TestCase):
                 seen.extend(actual['events'])
         self.assertTrue(seen)
         self.assertTrue(all(e['kind'].startswith('static') for e in seen))
-        filtered=RSIState(RSISettings(calculation_mode='uploaded_pine'))
+        filtered=RSIState(RSISettings(calculation_mode='uploaded_pine',volume_filter=True,volume_for_static=True,vwap_filter=True,sma_filter=True))
         for row,expected in zip(rows,evaluate_default(rows,DraftConfig())):
             self.assertEqual(filtered.step(row,3600)['events'],expected['events'])
 
@@ -81,7 +81,7 @@ class RSITests(unittest.TestCase):
     def test_default_static_signals_match_offline_default_rsi_and_filters(self):
         rows=candles([100+math.sin(i*.13)*10 for i in range(200)])
         expected=evaluate_default(rows,DraftConfig())
-        state=RSIState(RSISettings(ml_signals=False))
+        state=RSIState(RSISettings(ml_signals=False,volume_filter=True,volume_for_static=True,vwap_filter=True,sma_filter=True))
         for row,wanted in zip(rows,expected):
             actual=state.step(row,3600)
             self.assertEqual(actual['rsi'],wanted['rsi'])

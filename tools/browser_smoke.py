@@ -507,6 +507,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
    expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
    expect(page.locator('#rsi_calculation_mode')).to_have_value('corrected')
+   for filter_id in ['rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter']:expect(page.locator('#'+filter_id)).not_to_be_checked()
    page.select_option('#rsi_signal_rules','eight_crossings')
    page.select_option('#rsi_calculation_mode','uploaded_pine')
    page.fill('#rsi_max_data','50');page.uncheck('#rsi_volume_filter');page.click('#saveSymbols')
@@ -528,7 +529,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.check('#pnl_trailing_enabled');page.fill('#pnl_trailing_activation_dollars','1');page.fill('#pnl_trailing_drop_dollars','0.10');page.click('#saveSymbols')
    page.wait_for_function('() => lv.config.pnl_trailing_enabled && lv.config.pnl_trailing_drop_dollars===0.1')
    assert writes[-1][1]['pnl_trailing_activation_dollars']==1
-   page.evaluate("() => {lv.pnl_trailing={active:true,peak:'1.50',threshold:'1.40',current:'1.45',triggered:false};render();}")
+   payloads['live']['pnl_trailing']=dict(active=True,peak='1.50',threshold='1.40',current='1.45',triggered=False)
+   page.evaluate('(data) => {lv.pnl_trailing=data;render();}',payloads['live']['pnl_trailing'])
    expect(page.locator('#pnlTrailingStatus')).to_have_attribute('data-phase','active')
    expect(page.locator('#pnlTrailingStatus')).to_contain_text('TRAILING ACTIVE')
    assert page.locator('#pnlTrailingStatus').evaluate("el=>[el,el.querySelector('strong'),el.querySelector('small')].every(node=>getComputedStyle(node).color===getComputedStyle(document.querySelector('#pnl')).color)&&getComputedStyle(el).borderTopColor===getComputedStyle(document.querySelector('#pnl')).color&&getComputedStyle(el).backgroundColor===getComputedStyle(document.querySelector('#pnl').closest('.card')).backgroundColor&&getComputedStyle(el.querySelector('.pnl-trailing-values strong')).fontWeight===getComputedStyle(document.querySelector('#pnl')).fontWeight")
