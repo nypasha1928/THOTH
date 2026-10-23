@@ -518,7 +518,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','60')
    page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
    expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
-   expect(page.locator('#rsi_calculation_mode')).to_have_value('uploaded_pine')
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('fixed')
+   expect(page.locator('#rsi_fixed_long')).to_have_value('56.68');expect(page.locator('#rsi_fixed_short')).to_have_value('42.38')
+   page.fill('#rsi_fixed_long','58');page.fill('#rsi_fixed_short','40');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.rsi.calculation_mode==='fixed' && lv.config.rsi.fixed_long===58 && lv.config.rsi.fixed_short===40")
+   page.fill('#rsi_fixed_long','56.68');page.fill('#rsi_fixed_short','42.38');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.rsi.fixed_long===56.68 && lv.config.rsi.fixed_short===42.38")
+   for interval in ['1','5','60','240','D']:
+    page.select_option('#strategyTf',interval);page.click('#saveSymbols')
+    page.wait_for_function('(value) => lv.config.timeframe===value',arg=interval)
+    assert writes[-1][1]['rsi']['calculation_mode']=='fixed' and writes[-1][1]['sma_exit_enabled']
+   page.select_option('#strategyTf','60')
    page.select_option('#rsi_calculation_mode','corrected');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.rsi.calculation_mode==='corrected'")
    for filter_id in ['rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter']:expect(page.locator('#'+filter_id)).not_to_be_checked()

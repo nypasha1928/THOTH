@@ -4,7 +4,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class RSISettings(BaseModel):
     model_config=ConfigDict(extra='forbid')
     signal_rules: str=Field(default='original_six',pattern=r'^(original_six|eight_crossings)$')
-    calculation_mode: str=Field(default='uploaded_pine',pattern=r'^(corrected|uploaded_pine)$')
+    calculation_mode: str=Field(default='fixed',pattern=r'^(fixed|corrected|uploaded_pine)$')
+    fixed_long: float=Field(default=56.68,gt=0,lt=100,allow_inf_nan=False)
+    fixed_short: float=Field(default=42.38,gt=0,lt=100,allow_inf_nan=False)
     source: str=Field(default='close',pattern=r'^(close|open|high|low|hlc3|ohlc4)$')
     rsi_length: int=Field(default=14,ge=2,le=100)
     smooth: bool=True
@@ -31,6 +33,11 @@ class RSISettings(BaseModel):
     bear_hist_negative: bool=True
     static_signals: bool=True
     ml_signals: bool=True
+
+    @model_validator(mode='after')
+    def fixed_order(self):
+        if self.fixed_short>=self.fixed_long:raise ValueError('Fixed Short must be below Fixed Long')
+        return self
 
 
 class Settings(BaseModel):

@@ -16,16 +16,19 @@ class RSIAccountTests(unittest.TestCase):
     tearDown=fixtures.TestnetIntegration.tearDown
     create=fixtures.TestnetIntegration.create
 
-    def test_actual_hourly_feed_opens_both_directions_then_minute_exit_after_restart(self):
-        for mode,direction in ((m,d) for m in ('corrected','uploaded_pine') for d in ('Long','Short')):
-            with self.subTest(direction=direction,mode=mode):
-                self.path=Path(self.temp.name)/(mode+direction+'.sqlite');self.exchange=fixtures.Exchange(lambda:self.now[0]);self.service=self.create()
-                self.cfg=TestnetSettings(strategy='rsi_hourly_intrabar',symbols=['BTCUSDT'],dedicated_account=True,rsi=dict(calculation_mode=mode,ml_signals=mode=='uploaded_pine',volume_filter=False,vwap_filter=False,sma_filter=False,max_data=50))
+    def test_selected_timeframe_feed_opens_both_directions_then_minute_exit_after_restart(self):
+        from thoth.timeframes import INTERVALS
+        for mode,direction,interval in ((m,d,t) for m in ('corrected','uploaded_pine','fixed') for d in ('Long','Short') for t in (INTERVALS if m=='fixed' else ['60'])):
+            with self.subTest(direction=direction,mode=mode,interval=interval):
+                duration=INTERVALS[interval]
+                self.path=Path(self.temp.name)/(mode+direction+interval+'.sqlite');self.exchange=fixtures.Exchange(lambda:self.now[0]);self.service=self.create()
+                self.cfg=TestnetSettings(strategy='rsi_hourly_intrabar',timeframe=interval,symbols=['BTCUSDT'],dedicated_account=True,rsi=dict(calculation_mode=mode,ml_signals=mode!='corrected',static_signals=mode!='fixed',smooth=mode!='fixed',volume_filter=False,vwap_filter=False,sma_filter=False,max_data=50))
                 self.service.configure(self.cfg)
-                start=int(self.now[0])//3600*3600;self.now[0]=start+10
+                start=int(self.now[0])//duration*duration;self.now[0]=start+10
                 self.service.activate(self.service.confirmation)
                 prices=[100+(-.1 if direction=='Long' else .1)*i for i in range(80)]
-                rows=candles(prices+[prices[-1]],start=start-80*3600)
+                rows=candles(prices+[prices[-1]])
+                for i,row in enumerate(rows):row['time']=start+(i-80)*duration
                 runner=Runner(FeedAdapter(self.service),fetch=lambda *a:rows)
                 with patch('thoth.runner.time.time',side_effect=lambda:self.now[0]):
                     runner.cycle(paced=False);self.assertFalse(self.exchange.orders)
@@ -43,11 +46,11 @@ class RSIAccountTests(unittest.TestCase):
                     return [dict(time=minute-(50-i)*60,close=100 if i<50 else 99 if direction=='Long' else 101) for i in range(51)]
                 with patch.object(self.exchange,'candles',side_effect=minute_rows):self.service.monitor()
                 owner=self.service.state['owned']['BTCUSDT']
-                self.assertEqual((owner['strategy'],owner['entry_timeframe'],owner['exit_timeframe']),('rsi_hourly_intrabar','60','1'))
+                self.assertEqual((owner['strategy'],owner['entry_timeframe'],owner['exit_timeframe']),('rsi_hourly_intrabar',interval,'1'))
                 self.assertIsNotNone(owner['close_link']);self.assertFalse(self.service.state['entries'])
                 self.exchange.fill(owner['close_link']);self.service.monitor()
                 trade=self.service.history()['items'][0]
-                self.assertEqual((trade['strategy'],trade['entry_timeframe'],trade['exit_timeframe']),('rsi_hourly_intrabar','60','1'))
+                self.assertEqual((trade['strategy'],trade['entry_timeframe'],trade['exit_timeframe']),('rsi_hourly_intrabar',interval,'1'))
 
 
 class RSIBootstrapTests(unittest.TestCase):

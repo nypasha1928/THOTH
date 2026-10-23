@@ -49,7 +49,7 @@ class TestnetSupervisor:
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS supervisor(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
             if not db.execute('SELECT 1 FROM supervisor').fetchone():
-                self.save(dict(config=TestnetSettings().model_dump(),rsi_filters_off_v1=True,rsi_original_mode_v1=True,account_binding=None,
+                self.save(dict(config=TestnetSettings().model_dump(),rsi_filters_off_v1=True,rsi_original_mode_v1=True,rsi_fixed_thresholds_v1=True,account_binding=None,
                     management=False,entries=False,status='disabled',reason=self.label+' has not been activated',
                     owned={},risk=new_risk(),equity=None,positions=[],events=[],cursors={},
                     reversals={},pending_signals={},last_monitor=None,closures=[],feed_health=None))
@@ -72,6 +72,14 @@ class TestnetSupervisor:
             self.state['config']['rsi']=rsi
             self.state['rsi_filters_off_v1']=True
             self.event('RSI filters switched off for the updated crossing rules; optional filters can be enabled in Settings')
+        if not self.state.get('rsi_fixed_thresholds_v1'):
+            rsi={**TestnetSettings().rsi.model_dump(),**self.state['config'].get('rsi',{})}
+            self.state['rsi_fixed_previous_calculation']=dict(settings=dict(rsi),saved_at=self.clock())
+            rsi.update(calculation_mode='fixed',fixed_long=56.68,fixed_short=42.38)
+            self.state['config']['rsi']=rsi
+            self.state['rsi_fixed_thresholds_v1']=True
+            self.state['rsi_original_mode_v1']=True
+            self.event('RSI fixed thresholds selected: Long 56.68 / Short 42.38; other RSI settings retained; entry permission remains manual')
         if not self.state.get('rsi_original_mode_v1'):
             # Explicit user choice: original mode once, without changing signal/style inputs.
             rsi={**TestnetSettings().rsi.model_dump(),**self.state['config'].get('rsi',{})}
