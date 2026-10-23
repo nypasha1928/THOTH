@@ -49,7 +49,7 @@ class TestnetSupervisor:
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS supervisor(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
             if not db.execute('SELECT 1 FROM supervisor').fetchone():
-                self.save(dict(config=TestnetSettings().model_dump(),account_binding=None,
+                self.save(dict(config=TestnetSettings().model_dump(),rsi_filters_off_v1=True,account_binding=None,
                     management=False,entries=False,status='disabled',reason=self.label+' has not been activated',
                     owned={},risk=new_risk(),equity=None,positions=[],events=[],cursors={},
                     reversals={},pending_signals={},last_monitor=None,closures=[],feed_health=None))
@@ -65,6 +65,13 @@ class TestnetSupervisor:
                     trade['strategy']='sr_breakout'
                     db.execute('UPDATE trade_history SET payload=? WHERE link=?',(json.dumps(trade),link))
         self.state=self.load()
+        if not self.state.get('rsi_filters_off_v1'):
+            # User-requested one-time opt-out, including previously saved filters.
+            rsi={**TestnetSettings().rsi.model_dump(),**self.state['config'].get('rsi',{})}
+            for key in ('volume_filter','volume_for_static','vwap_filter','sma_filter','histogram_filter'):rsi[key]=False
+            self.state['config']['rsi']=rsi
+            self.state['rsi_filters_off_v1']=True
+            self.event('RSI filters switched off for the updated crossing rules; optional filters can be enabled in Settings')
         for trade in self.state['closures']:
             link=trade.get('link') or 'legacy:'+hashlib.sha256(json.dumps(trade,sort_keys=True).encode()).hexdigest()
             self._record_trade(link,trade)

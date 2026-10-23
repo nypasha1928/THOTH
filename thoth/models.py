@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class RSISettings(BaseModel):
     model_config=ConfigDict(extra='forbid')
+    signal_rules: str=Field(default='original_six',pattern=r'^(original_six|eight_crossings)$')
     calculation_mode: str=Field(default='corrected',pattern=r'^(corrected|uploaded_pine)$')
     source: str=Field(default='close',pattern=r'^(close|open|high|low|hlc3|ohlc4)$')
     rsi_length: int=Field(default=14,ge=2,le=100)
@@ -12,14 +13,14 @@ class RSISettings(BaseModel):
     alma_sigma: int=Field(default=6,ge=1,le=100)
     max_data: int=Field(default=3000,ge=50,le=3000)
     max_iterations: int=Field(default=1000,ge=1,le=1000)
-    volume_filter: bool=True
+    volume_filter: bool=False
     volume_period: int=Field(default=20,ge=1,le=500)
     volume_multiplier: float=Field(default=1,ge=.5,le=5,allow_inf_nan=False)
-    volume_for_static: bool=True
-    vwap_filter: bool=True
+    volume_for_static: bool=False
+    vwap_filter: bool=False
     vwap_source: str=Field(default='hlc3',pattern=r'^(close|open|high|low|hlc3|ohlc4)$')
     vwap_anchor: str=Field(default='D',pattern=r'^(1|3|5|15|30|60|240|D|W|M)$')
-    sma_filter: bool=True
+    sma_filter: bool=False
     sma_fast: int=Field(default=7,ge=1,le=500)
     sma_slow: int=Field(default=50,ge=1,le=500)
     histogram_filter: bool=False

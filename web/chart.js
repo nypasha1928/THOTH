@@ -61,13 +61,14 @@ function draw(){
  }
  if(chartStyle.showVolume&&chartStyle.volumeCollapsed)shape('text',{x:L,y:volumeBottom-4,fill:axisText,'font-size':10,'data-volume-minimized':'true'}).textContent='Volume · minimized';
  const rsiByTime=new Map(rsiRows.map(bar=>[bar.time,bar]));
- const visibleRSIEvents=bar=>(bar?.events||[]).filter(event=>rsiSignalTypes[event.kind]&&(event.kind.startsWith('static')?chartStyle.showRSIStatic:chartStyle.showRSIML));
+ const rsiEvents=bar=>chartStyle.rsiFilteredSignalsOnly?(bar?.events||[]):(bar?.crossings??bar?.events??[]);
+ const visibleRSIEvents=bar=>rsiEvents(bar).filter(event=>rsiSignalTypes[event.kind]&&(event.kind.startsWith('static')?chartStyle.showRSIStatic:chartStyle.showRSIML));
  if(chartStyle.showRSI&&!chartStyle.rsiCollapsed){
   const paneTop=axisBottom-rsiHeight,paneBottom=axisBottom-5,ry=value=>paneBottom-Math.max(0,Math.min(100,value))/100*(paneBottom-paneTop-20),latestRSI=rsiRows.filter(bar=>bar.time<=finish).at(-1);
   shape('path',{d:`M${L} ${paneTop-10} H${R}`,stroke:gridColor});
   shape('text',{x:L,y:paneTop+8,fill:axisText,'font-size':10,'data-rsi-heading':'true'}).textContent=(latestRSI?.calculation_mode==='uploaded_pine'?'Uploaded Pine RSI':'Corrected ML RSI')+(Number.isFinite(latestRSI?.rsi)?' '+latestRSI.rsi.toFixed(2):' · warming up')+(latestRSI?.calculation_mode==='uploaded_pine'?' · source ML thresholds unavailable':latestRSI?.ml_ready?'':' · partial ML window');
   // Source backgrounds are independent of the Static/ML marker visibility groups.
-  if(chartStyle.showRSISignals)for(const [i,row]of rows.entries())for(const event of rsiByTime.get(row.time)?.events||[]){const style=chartStyle.rsiSignalStyles[event.kind];if(style?.backgroundVisible&&style.backgroundOpacity>0)shape('rect',{x:x(i)-step/2,y:paneTop+15,width:step,height:paneBottom-paneTop-15,fill:style.backgroundColor,opacity:style.backgroundOpacity,'data-rsi-background':event.kind})}
+  if(chartStyle.showRSISignals)for(const [i,row]of rows.entries())for(const event of visibleRSIEvents(rsiByTime.get(row.time))){const style=chartStyle.rsiSignalStyles[event.kind];if(style?.backgroundVisible&&style.backgroundOpacity>0)shape('rect',{x:x(i)-step/2,y:paneTop+15,width:step,height:paneBottom-paneTop-15,fill:style.backgroundColor,opacity:style.backgroundOpacity,'data-rsi-background':event.kind})}
   for(const value of [0,30,50,70,100]){const yy=ry(value);shape('path',{d:`M${L} ${yy} H${R}`,stroke:[30,70].includes(value)?chartStyle.rsiStaticLevelColor:gridColor,'stroke-width':[30,70].includes(value)?.8:1,opacity:[30,70].includes(value)?.65:1,'data-rsi-static-level':[30,70].includes(value)?value:'','stroke-dasharray':'2 4'});shape('text',{x:R+8,y:yy+3,fill:axisText,'font-size':10}).textContent=value}
   if(chartStyle.showRSIThresholds)for(const [key,color]of [['ml_long',chartStyle.rsiUpperColor],['ml_short',chartStyle.rsiLowerColor]]){let d='',connected=false;rows.forEach((r,i)=>{const value=rsiByTime.get(r.time)?.thresholds?.[key];if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${ry(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:color,'stroke-width':1.2,'data-rsi-line':key})}
   const rsiLine=shape('g',{'data-rsi-line':'rsi'});let segment='',segmentColor=null,previous=null;
@@ -120,7 +121,7 @@ function draw(){
   const r=rows[i],bar=rsiByTime.get(r.time),stamp=chartTime(r.time);
   $('candleInfo').textContent=stamp+' · O '+price(r.open)+'  H '+price(r.high)+'  L '+price(r.low)+'  C '+price(r.close);
   const number=value=>Number.isFinite(value)?value.toFixed(2):'—';
-  hoverReadout.textContent=chartStyle.showRSI?'RSI at '+stamp+': '+number(bar?.rsi)+' · ML upper '+number(bar?.thresholds?.ml_long)+' · ML lower '+number(bar?.thresholds?.ml_short)+(bar?.events?.length?' · '+bar.events.map(event=>rsiSignalTypes[event.kind]?.label||event.kind).join(', '):' · no RSI signal'):'';
+  hoverReadout.textContent=chartStyle.showRSI?'RSI at '+stamp+': '+number(bar?.rsi)+' · ML upper '+number(bar?.thresholds?.ml_long)+' · ML lower '+number(bar?.thresholds?.ml_short)+(visibleRSIEvents(bar).length?' · '+visibleRSIEvents(bar).map(event=>rsiSignalTypes[event.kind]?.label||event.kind).join(', '):' · no RSI signal'):'';
   if(show){const horizontal=pointerY===null?y(r.close):Math.max(T,Math.min(axisBottom,pointerY));cross.setAttribute('d',`M${x(i)} ${T} V${axisBottom} M${L} ${horizontal} H${R}`);dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(r.close));dot.setAttribute('visibility','visible');timeText.textContent=chartTime(r.time,{time:!daily});const width=daily?110:155,xx=Math.max(L+width/2,Math.min(R-width/2,x(i)));timeBox.setAttribute('x',xx-width/2);timeBox.setAttribute('y',H-20);timeBox.setAttribute('width',width);timeText.setAttribute('x',xx);timeText.setAttribute('y',H-6);timeTag.setAttribute('visibility','visible')}
  }
  const inspectedIndex=rows.findIndex(r=>r.time===inspectedCandle);inspect(inspectedIndex>=0?inspectedIndex:rows.length-1,false);
