@@ -68,6 +68,37 @@ class ApiTests(unittest.TestCase):
         with patch('thoth.app.candles', side_effect=TimeoutError):
             self.assertEqual(self.client.get('/api/chart/BTCUSDT').status_code, 502)
 
+    def test_stale_saved_history_does_not_blank_coin_charts_or_reset_checkpoints(self):
+        import sqlite3
+        from types import SimpleNamespace
+        from thoth.runner import Runner
+        runner=Runner(SimpleNamespace(path=str(Path(self.tmp.name)/'feed.sqlite')))
+        old=[dict(time=i*60,open=100,high=101,low=99,close=100,volume=5) for i in range(201)]
+        fresh=[{**row,'time':row['time']+100000*60} for row in old]
+        from thoth.models import Settings
+        for symbol in ('AVAXUSDT','SEIUSDT'):
+            runner.history(symbol,'1',old)
+            runner.analysis(symbol,Settings(timeframe='1'),old,old[-1]['time']+60)
+        with sqlite3.connect(runner.history_path) as db:
+            before=db.execute('SELECT * FROM checkpoints ORDER BY symbol').fetchall()
+        with patch('thoth.app.live_feed',runner),patch('thoth.app.candles',return_value=fresh):
+            for symbol in ('AVAXUSDT','SEIUSDT'):
+                response=self.client.get('/api/chart/'+symbol+'?include_rsi=true')
+                self.assertEqual(response.status_code,200,response.text)
+                result=response.json()
+                self.assertEqual(result['candles'],fresh)
+                self.assertEqual(len(result['analysis']),len(fresh))
+                self.assertEqual(len(result['rsi_analysis']),len(fresh))
+                self.assertIn('Trading history recovery is separate',result['history_notice'])
+        with sqlite3.connect(runner.history_path) as db:
+            self.assertEqual(db.execute('SELECT * FROM checkpoints ORDER BY symbol').fetchall(),before)
+        # Execution continuity remains strict; display fallback cannot invent bars.
+        with self.assertRaisesRegex(ValueError,'backfill required'):
+            runner.history('AVAXUSDT','1',fresh)
+        broken=[fresh[0],fresh[2]]
+        with patch('thoth.app.live_feed',runner),patch('thoth.app.candles',return_value=broken):
+            self.assertEqual(self.client.get('/api/chart/AVAXUSDT').status_code,502)
+
     def test_public_quote_contract_and_redacted_failure(self):
         with patch('thoth.app.quote',return_value={'symbol':'ETHUSDT','environment':'live','price':2430.12,'observed_at':1792300001.}) as request:
             result=self.client.get('/api/quote/ETHUSDT?environment=live')

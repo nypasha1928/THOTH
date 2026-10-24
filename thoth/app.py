@@ -200,7 +200,22 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
         raise HTTPException(502, 'Bybit market data unavailable; no synthetic fallback used') from exc
     cfg = live.snapshot()['config']
     history_runner = live_feed if lookback==1000 else None
-    history = history_runner.history(symbol, interval, rows) if history_runner else rows
+    history_notice=''
+    try:
+        history = history_runner.history(symbol, interval, rows) if history_runner else rows
+    except ValueError as exc:
+        if str(exc) not in ('Market history gap exceeds API window; backfill required',
+                            'Candle history contains a gap; no automatic entries'):
+            raise
+        # A chart is a display replay, not execution continuity. Keep trading
+        # checkpoints intact; replay only the fresh, validated public window.
+        from .indicator_stream import validate
+        for row in rows:validate(row)
+        if any(b['time']-a['time']!=INTERVALS[interval] for a,b in zip(rows,rows[1:])):
+            raise HTTPException(502,'Bybit chart candles contain a gap; refresh to retry') from exc
+        history_runner=None
+        history=rows
+        history_notice='Saved history gap: chart replay uses the latest available Bybit candles. Trading history recovery is separate.'
     # Display replay is independent of execution. Hourly intrabar entries cannot
     # be reconstructed from OHLC; show labelled S/R reference arrows instead.
     display_strategy='sr_breakout' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily') else cfg['strategy']
@@ -228,7 +243,7 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
             'analysis': analysis,'sr_analysis':sr_analysis,'chart_signal_strategy':display_strategy,'rsi_analysis':rsi_analysis,'rsi_status':('Fixed RSI Long/Short thresholds; levels do not adapt. Eight reference crossing types; no ML history window required. Arrows are not proof of an order.' if cfg.get('rsi',{}).get('calculation_mode')=='fixed' else 'Uploaded Pine array behavior: ML thresholds unavailable in the uploaded source; static RSI crossings are available. Chart arrows can include unfiltered crossings; trading uses the saved entry rules and filters.' if cfg.get('rsi',{}).get('calculation_mode')=='uploaded_pine' else 'Corrected ML RSI; eight reference crossing types. Arrows can include filtered-out crossings, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up')),
             'indicator_status': 'S/R reference arrows: confirmed candle-close breakouts on the displayed timeframe; not historical live intrabar triggers. E/X marks recorded trades' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily') else 'Confirmed SMA 7/50 crossover; independent comparison pending' if cfg['strategy']=='sma_7_50' else 'Independent S/R or SMA 7/50 entries; conflicting signals skipped' if cfg['strategy']=='sr_sma_7_50' else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
-            'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
+            'history_notice':history_notice,'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 
 
 app.mount('/', StaticFiles(directory=ROOT / 'web', html=True), name='web')
