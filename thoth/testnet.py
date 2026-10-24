@@ -154,13 +154,13 @@ class TestnetSupervisor:
             records=trade_records(db,rows)
         return dict(items=records,total=count,limit=limit,offset=offset)
 
-    def analysis(self,symbol=None,strategy=None,time_basis='entry'):
+    def analysis(self,symbol=None,strategy=None,time_basis='entry',source=None):
         from .analytics import analyze
         with self.db() as db:
             from .signal_sources import trade_records
             records=trade_records(db,db.execute('SELECT link,payload FROM trade_history'+(' WHERE symbol=?' if symbol else ''),(symbol,) if symbol else ()).fetchall())
         if strategy:records=[r for r in records if r.get('strategy','unknown')==strategy]
-        return analyze(records,time_basis)
+        return analyze(records,time_basis,source)
 
     def configure(self,cfg):
         with self.lock:

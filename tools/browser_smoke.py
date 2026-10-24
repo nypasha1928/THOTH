@@ -90,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     records=list(analysis_many) if analysis_many else [dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24,opened_at=1792501200,closed_at=1792508400),dict(symbol='BTCUSDT',strategy='sr_breakout',entry_sources=['sr:short_support_minor'],pnl=-.31,opened_at=1792504800,closed_at=1792512000),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0,closed_at=1792515600)]
     if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
     if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
-    result=analyze(records,params.get('time_basis',['entry'])[0])
+    result=analyze(records,params.get('time_basis',['entry'])[0],params.get('source',[None])[0])
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:
     result=payloads[path]
@@ -733,6 +733,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#sourceAnalysis')).to_contain_text('S/R short-term minor support')
+   expect(page.locator('#sourceTimingAnalysis')).to_contain_text('S/R short-term minor support')
+   page.select_option('#analysisSource','sr:short_support_minor');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')
+   expect(page.locator('#sourceTimingAnalysis')).to_contain_text('limited sample')
+   page.select_option('#analysisSource','');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#coinSourceAnalysis')).to_contain_text('BTCUSDT')
    timing_writes=len(writes)
    expect(page.locator('#timingCoverage')).to_contain_text('Opening time')
