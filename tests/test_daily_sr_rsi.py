@@ -21,6 +21,19 @@ class DailyCombinationTests(unittest.TestCase):
         preview=dict(time=self.start,rsi=50,events=events or [],conflict=False)
         return observe(tracker,[dict(time=self.start,close=price)],self.levels,preview,cfg,self.start+offset)
 
+    def test_diagnostic_distinguishes_baseline_fresh_cross_and_no_repeat(self):
+        tracker={}
+        event=[dict(kind='ml_long_up',side='Long')]
+        result=self.sample(tracker,100,1,event)
+        self.assertIsNone(result['signal'])
+        self.assertIn('recovery baseline',result['signal_diagnostic']['reason'])
+        self.assertEqual(tracker['last_decision']['rsi_events'],['ml_long_up'])
+        self.assertNotIn('signal_diagnostic',self.sample(tracker,100,2,event))
+        result=self.sample(tracker,100,3,[dict(kind='ml_short_down',side='Short')])
+        self.assertEqual(result['signal'],'Short')
+        self.assertEqual(result['signal_diagnostic']['reason'],'fresh crossing observed')
+        self.assertEqual(tracker['last_decision']['observed_at'],self.start+3)
+
     def test_model_daily_fixed_all_eight_and_no_filters_even_when_supplied(self):
         cfg=Settings(strategy='sr_rsi_daily',timeframe='5',sma_exit_enabled=False,sma_enabled=True,sma_7_50_filter_enabled=True,
             rsi={'calculation_mode':'uploaded_pine','signal_rules':'original_six','static_signals':False,'ml_signals':False,

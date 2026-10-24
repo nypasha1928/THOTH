@@ -56,6 +56,7 @@ class TestnetSupervisor:
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS trade_history(link TEXT PRIMARY KEY,symbol TEXT NOT NULL,closed_at REAL NOT NULL,payload TEXT NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS history_symbol_time ON trade_history(symbol,closed_at)')
+            db.execute('CREATE TABLE IF NOT EXISTS signal_decisions(id INTEGER PRIMARY KEY,time REAL,symbol TEXT,payload TEXT)')
         # Only S/R existed before strategy-tagged history was introduced.
         # Repair imported legacy rows without changing explicit strategy tags.
         with self.db() as db:
@@ -726,6 +727,16 @@ class TestnetSupervisor:
             self.save()
         return self.snapshot()
 
+    def _signal_decision(self,symbol,reason,observation):
+        details=dict(time=self.clock(),symbol=symbol,reason=reason,
+            strategy=self.state['config']['strategy'],signal=observation.get('signal'),
+            observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'))
+        with self.db() as db:
+            db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',
+                (details['time'],symbol,json.dumps(details,allow_nan=False)))
+            db.execute('DELETE FROM signal_decisions WHERE id NOT IN (SELECT id FROM signal_decisions ORDER BY id DESC LIMIT 5000)')
+        self.event(symbol+': signal '+reason)
+
     def _reversal_block_reason(self,symbol):
         reasons=[]
         if symbol_paused(self.state['risk'],symbol,TestnetSettings(**self.state['config']),self.clock()):
@@ -750,13 +761,21 @@ class TestnetSupervisor:
                 if previous is not None and stamp<=previous:continue
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
-                if self.state['flatten_reason']:continue  # Consume signals while close-all settles; do not queue replays.
-                if previous is None or observation.get('signal') not in ('Long','Short'):continue
-                if not 0<=self.clock()-stamp<=(30 if current.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(current.timeframe)):continue
+                diagnostic=observation.get('signal_diagnostic')
+                if observation.get('signal') not in ('Long','Short'):
+                    if diagnostic:self._signal_decision(symbol,'skipped: '+diagnostic['reason'],observation)
+                    continue
+                if self.state['flatten_reason']:
+                    self._signal_decision(symbol,'skipped: close-all still settling',observation);continue
+                if previous is None:
+                    self._signal_decision(symbol,'skipped: initial execution baseline; old signal not replayed',observation);continue
+                if not 0<=self.clock()-stamp<=(30 if current.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(current.timeframe)):
+                    self._signal_decision(symbol,'skipped: signal expired',observation);continue
                 side='Buy' if observation['signal']=='Long' else 'Sell'
                 owner=self.state['owned'].get(symbol)
                 if owner:
-                    if owner['side']==side:continue
+                    if owner['side']==side:
+                        self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
                     reason='Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
@@ -772,6 +791,8 @@ class TestnetSupervisor:
                     self.save();continue
                 if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                     self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
+                    self._signal_decision(symbol,'queued: '+observation['signal']+'; awaiting entry checks',observation)
+                else:self._signal_decision(symbol,'skipped: '+self._reversal_block_reason(symbol),observation)
             self._reversals(current)
             self._drain(current)
             self.save()
@@ -797,7 +818,8 @@ class TestnetSupervisor:
         if symbol in self.state['blocked_symbols']:return
         if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries']:return
         if len(self.state['owned'])>=cfg.max_positions:return
-        if not self._sma_entry_ready(symbol,cfg):return
+        if not self._sma_entry_ready(symbol,cfg):
+            self._signal_decision(symbol,'skipped: SMA exit monitoring unavailable for this coin',{'time':stamp,'signal':side});return
         if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
         # Never place the next trade while a previous close awaits realized P&L.
         active=self.positions()
@@ -843,8 +865,11 @@ class TestnetSupervisor:
     def _drain(self,cfg):
         for symbol,intent in list(self.state['pending_signals'].items()):
             if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
+                self._signal_decision(symbol,'skipped: per-coin consecutive-loss cooldown',{'time':intent['time'],'signal':intent['side']})
                 del self.state['pending_signals'][symbol];continue
             if self.clock()-intent['time']>(30 if cfg.strategy in HOURLY_MINUTE_STRATEGIES else 2*interval_seconds(cfg.timeframe)):
+                reason='maximum positions reached' if len(self.state['owned'])>=cfg.max_positions else 'waiting for prior orders or entry checks'
+                self._signal_decision(symbol,'expired in entry queue: '+reason,{'time':intent['time'],'signal':intent['side']})
                 del self.state['pending_signals'][symbol];continue
             if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return

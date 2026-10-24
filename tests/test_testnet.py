@@ -102,6 +102,30 @@ class TestnetIntegration(unittest.TestCase):
         self.exchange.fill(link);self.service.monitor()
         return link
 
+    def test_signal_skip_audit_paused_queue_expiry_and_recovery(self):
+        import json
+        self.activate()
+        self.signal(self.now[0]-60,None)
+        self.service.state.update(entries=False,status='paused',reason='Operator paused entries')
+        self.service.save()
+        self.now[0]+=60
+        self.signal(self.now[0]-60,'Long')
+        with self.service.db() as db:
+            rows=[json.loads(r[0]) for r in db.execute('SELECT payload FROM signal_decisions')]
+        self.assertIn('new entries disabled',rows[-1]['reason'])
+        self.assertFalse(self.exchange.orders)
+        self.assertFalse(self.service.state['entries'])
+        count=len(rows)
+        self.signal(self.now[0]-60,'Long')
+        with self.service.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_decisions').fetchone()[0],count)
+        self.service.state['pending_signals']['ETHUSDT']=dict(side='Short',time=self.now[0]-1000,identity='fixture')
+        self.service._drain(self.cfg)
+        with self.service.db() as db:
+            last=json.loads(db.execute('SELECT payload FROM signal_decisions ORDER BY id DESC LIMIT 1').fetchone()[0])
+        self.assertIn('expired in entry queue',last['reason'])
+        restarted=self.create()
+        with restarted.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_decisions').fetchone()[0],count+1)
+
     def test_definite_rejection_does_not_pause_other_symbols(self):
         from unittest.mock import patch
         for stage in ('instrument','leverage','order'):
