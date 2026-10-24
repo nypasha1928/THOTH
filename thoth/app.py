@@ -128,13 +128,9 @@ def signal_decisions(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}US
 
 
 @app.get('/api/live/signal-alerts')
-def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
-    where=' WHERE symbol=?' if symbol else ''
-    params=(symbol,) if symbol else ()
-    with live.db() as db:
-        total=db.execute('SELECT COUNT(*) FROM signal_decisions'+where,params).fetchone()[0]
-        rows=db.execute('SELECT id,payload FROM signal_decisions'+where+' ORDER BY id DESC LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
-    return dict(items=[{**json.loads(payload),'id':identity} for identity,payload in rows],total=total,limit=limit,offset=offset)
+def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0),watch_ids: str | None = Query(None,pattern=r'^\d+(,\d+){0,199}$')):
+    from .signal_alerts import read_alerts
+    return read_alerts(live.path,symbol,limit,offset,{int(value) for value in watch_ids.split(',')} if watch_ids else set())
 
 
 @app.get('/api/live/history')

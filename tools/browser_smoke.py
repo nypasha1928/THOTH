@@ -73,7 +73,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
     records=[item for item in alert_items if not params.get('symbol') or item['symbol']==params['symbol'][0]]
     offset=int(params.get('offset',['0'])[0]);limit=int(params.get('limit',['50'])[0])
-    result=dict(items=list(reversed(records))[offset:offset+limit],total=len(records),limit=limit,offset=offset)
+    watched={int(value) for value in params.get('watch_ids',[''])[0].split(',') if value}
+    result=dict(items=list(reversed(records))[offset:offset+limit],updates=[item for item in records if item['id'] in watched],total=len(records),limit=limit,offset=offset)
    elif path=='security/status':result=dict(totp_enabled=False,recovery_codes_remaining=0,passkeys=[])
    elif path=='live/trailing-comparison':
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
@@ -703,6 +704,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(1)
    expect(page.locator('.signal-toast')).to_contain_text('JCTUSDT · Bullish / Long')
    page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(1)
+   alert_items[0]['reason']='Position filled; Bybit stop loss verified'
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_contain_text('stop loss verified')
+   expect(page.locator('.signal-toast')).to_have_count(1)
    page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
    expect(page.locator('#signalAlertRows')).to_contain_text('RSI over Long')
    page.fill('#signalAlertSymbol','ETHUSDT');expect(page.locator('#signalAlertRows tr')).to_have_count(0)

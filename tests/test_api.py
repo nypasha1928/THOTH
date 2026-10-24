@@ -87,6 +87,18 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live/signal-alerts?limit=101').status_code,422)
         self.assertEqual(self.client.get('/api/live/signal-alerts?offset=-1').status_code,422)
 
+    def test_alert_watch_refresh_finds_old_visible_alert_after_pagination(self):
+        import json
+        from thoth.app import live
+        with live.db() as db:
+            for i in range(60):
+                payload=dict(symbol='JCTUSDT',time=i,signal='Long',reason='queued',alert_key='fixture-'+str(i))
+                db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',(i,'JCTUSDT',json.dumps(payload)))
+        data=self.client.get('/api/live/signal-alerts?watch_ids=1,2').json()
+        self.assertEqual([row['id'] for row in data['updates']],[2,1])
+        self.assertFalse(any(row['id']==1 for row in data['items']))
+        self.assertEqual(self.client.get('/api/live/signal-alerts?watch_ids=bad').status_code,422)
+
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
         with patch('thoth.app.candles', return_value=rows):

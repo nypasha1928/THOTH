@@ -2,7 +2,7 @@
 let signalAlertOffset=0,signalAlertTotal=0,signalAlertRequest=0,signalAlertBusy=false;
 let signalAlertNewest=null,signalAlertAudio=null;
 function signalAlertsMarkup(){return `<section class="card"><h2>Signal alerts</h2>
-<p class="note">Saved signal-status updates for your selected trading strategy and coins, including skipped signals during managed pauses. Each row is an update, not proof of an order or fill. Historical chart arrows are not backfilled. Latest 5,000 updates retained.</p>
+<p class="note">Saved signal-status updates for your selected trading strategy and coins, including skipped signals during managed pauses. Linked signals show their latest known outcome; queued does not mean filled. Historical chart arrows are not backfilled. Latest 5,000 updates retained.</p>
 <label>Coin<input id="signalAlertSymbol" type="search" placeholder="All coins or JCTUSDT" aria-label="Signal alert coin"></label>
 <div class="row"><button id="refreshSignalAlerts" type="button">Refresh alerts</button><label><input id="signalAlertSound" type="checkbox"> Sound for new updates</label></div>
 <p class="note">Sound works while THOTH is open and visible and the browser permits audio. This is not phone push notification delivery.</p>
@@ -47,14 +47,15 @@ async function loadSignalAlerts(){
    for(const value of [item.symbol,signalAlertDirection(item),signalAlertSources(item),strategyName(item.strategy),item.reason]){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}
    $('signalAlertRows').append(row);
   }
-  $('signalAlertStatus').textContent=data.total?data.total+' saved signal updates · latest first · refreshes every 5 seconds on the latest page':'No saved signal alerts yet. New detections and decisions will appear here.';
+  $('signalAlertStatus').textContent=data.total?data.total+' saved signal alerts · latest updates first · refreshes every 5 seconds on the latest page':'No saved signal alerts yet. New detections and decisions will appear here.';
   $('signalAlertsPage').textContent='Page '+(Math.floor(offset/50)+1)+' of '+Math.max(1,Math.ceil(data.total/50));
   $('signalAlertsPrevious').disabled=offset===0;$('signalAlertsNext').disabled=offset+50>=data.total;
  }catch(e){if(request===signalAlertRequest)$('signalAlertStatus').textContent='Signal alerts unavailable: '+e.message}
  finally{if(request===signalAlertRequest)signalAlertBusy=false}
 }
 
-let floatingAlertNewest=null,floatingAlertBusy=false;
+let floatingAlertNewest=null,floatingAlertBusy=false,floatingAlertWatchOffset=0;
+const dismissedSignalAlerts=new Set();
 function setupFloatingSignalAlerts(){
  const stack=document.createElement('aside');stack.id='floatingSignalAlerts';stack.className='floating-signal-alerts';stack.setAttribute('aria-label','New signal alerts');stack.setAttribute('aria-live','polite');document.body.append(stack);
  setInterval(pollFloatingSignalAlerts,5000);pollFloatingSignalAlerts();
@@ -63,10 +64,17 @@ async function pollFloatingSignalAlerts(){
  if(!state||document.hidden||floatingAlertBusy)return;
  floatingAlertBusy=true;
  try{
-  const data=await api('live/signal-alerts?limit=50&offset=0');
-  const newest=data.items[0]?.id;
+  const cards=[...$('floatingSignalAlerts').children],ids=cards.map(box=>box.dataset.alertId);
+  if(floatingAlertWatchOffset>=ids.length)floatingAlertWatchOffset=0;
+  const watched=ids.slice(floatingAlertWatchOffset,floatingAlertWatchOffset+200);floatingAlertWatchOffset+=200;
+  const data=await api('live/signal-alerts?limit=50&offset=0'+(watched.length?'&watch_ids='+watched.join(','):''));
+  const newest=data.items.length?Math.max(...data.items.map(item=>item.update_id??item.id)):null;
+  for(const item of [...data.items,...(data.updates||[])]){
+   const box=cards.find(box=>box.dataset.alertId===String(item.id));
+   if(box)box.querySelector('p').textContent=signalAlertSources(item)+' · '+item.reason;
+  }
   if(floatingAlertNewest===null){floatingAlertNewest=newest??0;return}
-  const fresh=data.items.filter(item=>item.id>floatingAlertNewest);
+  const fresh=data.items.filter(item=>(item.update_id??item.id)>floatingAlertNewest);
   floatingAlertNewest=Math.max(floatingAlertNewest,newest??0);
   if(!fresh.length)return;
   if($('signalAlertSound').checked&&signalAlertAudio?.state==='running'){
@@ -74,11 +82,13 @@ async function pollFloatingSignalAlerts(){
   }
   const stack=$('floatingSignalAlerts');
   for(const item of fresh.slice().reverse()){
-   const box=document.createElement('div');box.className='signal-toast';
+   if(dismissedSignalAlerts.has(String(item.id))||[...stack.children].some(box=>box.dataset.alertId===String(item.id)))continue;
+   const box=document.createElement('div');box.className='signal-toast';box.dataset.alertId=String(item.id);
+   const dismiss=()=>{dismissedSignalAlerts.add(String(item.id));box.remove()};
    const title=document.createElement('strong');title.textContent=item.symbol+' · '+signalAlertDirection(item);
    const text=document.createElement('p');text.textContent=signalAlertSources(item)+' · '+item.reason;
-   const link=document.createElement('a');link.href='#alerts';link.textContent='View signal alerts';link.onclick=()=>box.remove();
-   const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Dismiss signal alert');close.onclick=()=>box.remove();
+   const link=document.createElement('a');link.href='#alerts';link.textContent='View signal alerts';link.onclick=dismiss;
+   const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Dismiss signal alert');close.onclick=dismiss;
    box.append(title,close,text,link);stack.append(box);
   }
  }catch{/* Read failures never change trading state; Alerts page shows fetch errors. */}
