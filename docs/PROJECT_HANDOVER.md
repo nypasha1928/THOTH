@@ -222,3 +222,8 @@ Regression tests replay reported101..121sec gaps separately for SR and RSI in223
 
 
 Signal Alerts integration: scan timing fix merged in PR54 (mainad8d138). User reported PR55 handover conflict; resolved by retaining both Alerts and scan timing sections. Signal Alerts branch now includes merged timing fix. Combined delivery branch was not pushed because user chose sequential PRs.
+
+
+## Manual dismissal for floating alerts
+
+User saw WAVES alert and requested it stay until clicked. Removed12sec timeout and automatic oldest-popup removal, and render every fetched new update rather than only newest3. Bottom-left stack scrolls within45vh, so new updates do not discard unacknowledged alerts or cover entire chart. Click × dismisses; View signal alerts opens saved page and dismisses that popup. Persists while current app page remains open, not across reloads; underlying5000 saved updates remain in Alerts. No trading changes. JS syntax and diff checks passed; no new tests needed for this reversible display-only change. Branch codex/persistent-signal-alerts.
