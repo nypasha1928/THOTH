@@ -24,9 +24,12 @@ def summarize(records):
         average_hold_seconds=sum(durations)/len(durations) if durations else None,hold_time_records=len(durations))
 
 
-def analyze(records,time_basis='entry'):
+def analyze(records,time_basis='entry',source=None):
     from .signal_sources import source_label
     records=list(records)
+    def key(record):return '|'.join(sorted(set(record.get('entry_sources') or []))) or 'unrecorded'
+    options={key(record):source_label(record.get('entry_sources')) for record in records}
+    if source is not None:records=[record for record in records if key(record)==source]
     sources=defaultdict(list);coin_sources=defaultdict(list)
     coins=defaultdict(list);strategies=defaultdict(list);combined=defaultdict(list)
     for record in records:
@@ -34,7 +37,12 @@ def analyze(records,time_basis='entry'):
         source=tuple(sorted(set(record.get('entry_sources') or [])))
         sources[source].append(record);coin_sources[(symbol,source)].append(record)
         coins[symbol].append(record);strategies[strategy].append(record);combined[(symbol,strategy)].append(record)
-    return dict(by_source=[dict(sources=list(key),source=source_label(key),**summarize(value)) for key,value in sorted(sources.items())],
+    source_timing=[]
+    for group,value in sorted(sources.items()):
+        timing=timing_analysis(value,time_basis)
+        source_timing.append(dict(source=source_label(group),trades=len(value),included_trades=timing['included_trades'],
+            observed_days=len(timing['dates']),hours=timing['ranking']['hour'],weekdays=timing['ranking']['weekday']))
+    return dict(source_options=[dict(value=k,label=v) for k,v in sorted(options.items())],by_source_timing=source_timing,by_source=[dict(sources=list(key),source=source_label(key),**summarize(value)) for key,value in sorted(sources.items())],
         by_symbol_source=[dict(symbol=key[0],sources=list(key[1]),source=source_label(key[1]),**summarize(value)) for key,value in sorted(coin_sources.items())],
         totals=summarize(records),timing=timing_analysis(records,time_basis),
         by_symbol=[dict(symbol=key,**summarize(value)) for key,value in sorted(coins.items())],

@@ -14,6 +14,29 @@ class SignalSourcesTests(unittest.TestCase):
         self.assertIn('Source not recorded',[row['source'] for row in result['by_source']])
         self.assertEqual(source_label(['sr:short_support_minor']),'S/R short-term minor support')
 
+    def test_source_filter_and_best_worst_time_groups_use_whole_realized_trade(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        def stamp(date):return datetime.fromisoformat(date).replace(tzinfo=ZoneInfo('America/New_York')).timestamp()
+        sources=['sr:short_support_minor']
+        records=[dict(symbol='BTCUSDT',pnl=2,entry_sources=sources,opened_at=stamp('2026-10-23T09:00:00')),
+            dict(symbol='ETHUSDT',pnl=-1,entry_sources=sources,opened_at=stamp('2026-10-24T10:00:00')),
+            dict(symbol='ETHUSDT',pnl=100,entry_sources=['rsi:ml_long_up'],opened_at=stamp('2026-10-24T10:00:00')),
+            dict(symbol='BTCUSDT',pnl=-.5,entry_sources=sources)]
+        result=analyze(records,source='sr:short_support_minor')
+        self.assertEqual(result['totals']['trades'],3)
+        self.assertEqual(result['totals']['realized_pnl'],.5)
+        row=result['by_source_timing'][0]
+        self.assertEqual(row['hours']['best']['key'],9)
+        self.assertEqual(row['hours']['worst']['key'],10)
+        self.assertEqual(row['weekdays']['best']['label'],'Friday')
+        self.assertEqual(row['weekdays']['worst']['label'],'Saturday')
+        self.assertEqual(row['included_trades'],2)
+        self.assertEqual(row['observed_days'],2)
+        self.assertTrue(row['hours']['best']['limited_sample'])
+        self.assertEqual(len(result['source_options']),2)
+        self.assertEqual(analyze(records,time_basis='exit',source='sr:short_support_minor')['by_source_timing'][0]['hours']['best'],None)
+
     def test_old_sources_recovered_only_by_exact_execution_link(self):
         with sqlite3.connect(':memory:') as db:
             db.execute('CREATE TABLE signal_decisions(id INTEGER PRIMARY KEY,payload TEXT)')

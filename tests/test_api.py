@@ -99,6 +99,19 @@ class ApiTests(unittest.TestCase):
         self.assertFalse(any(row['id']==1 for row in data['items']))
         self.assertEqual(self.client.get('/api/live/signal-alerts?watch_ids=bad').status_code,422)
 
+    def test_analysis_source_filter_applies_to_totals_and_time_tables(self):
+        from thoth.app import live
+        for identity,source,pnl in [('one','sr:short_support_minor',-1),('two','rsi:ml_long_up',2)]:
+            live._record_trade(identity,dict(symbol='ETHUSDT',pnl=pnl,opened_at=1792846800,closed_at=1792850400,entry_sources=[source]))
+        response=self.client.get('/api/live/analysis',params={'source':'sr:short_support_minor'})
+        self.assertEqual(response.status_code,200)
+        data=response.json()
+        self.assertEqual(data['totals']['trades'],1)
+        self.assertEqual(data['totals']['realized_pnl'],-1)
+        self.assertEqual(data['timing']['included_trades'],1)
+        self.assertEqual(len(data['by_source_timing']),1)
+        self.assertEqual(len(data['source_options']),2)
+
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
         with patch('thoth.app.candles', return_value=rows):
