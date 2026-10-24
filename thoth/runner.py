@@ -4,6 +4,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -22,6 +23,9 @@ class Runner:
         self.stop_event = threading.Event()
         self.thread = None
         self.health = {'status': 'idle', 'symbols': {}, 'last_cycle': None}
+        self.observation_session=uuid.uuid4().hex
+        self.scan_cycle=0
+        self.previous_scan_seconds=0.
         self.source_fingerprint=source_fingerprint()
         self.history_path = str(Path(engine.path).with_suffix('.candles.sqlite'))
         with sqlite3.connect(self.history_path) as db:
@@ -122,11 +126,19 @@ class Runner:
         with sqlite3.connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
-            observation=observe_daily(tracker,history,result[-1]['levels'],preview,cfg,now)
+            # Only consecutive scans in this worker session may use the measured
+            # scan budget. Restarted/missed observations still establish a baseline.
+            continuous=(tracker.get('session')==self.observation_session and
+                        tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle))
+            budget=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
+            observation=observe_daily(tracker,history,result[-1]['levels'],preview,cfg,now,
+                max_gap=budget,continuous=continuous)
+            tracker.update(session=self.observation_session,scan_cycle=self.scan_cycle)
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation
 
     def cycle(self, paced=True):
+        scan_started=time.monotonic()
         state = self.engine.snapshot()
         cfg = Settings(**state['settings'])
         if not cfg.automatic_paper:
@@ -134,6 +146,7 @@ class Runner:
             return
         # Paused entries still require position management; no unnecessary network when empty.
         symbols = cfg.symbols if state['status'] == 'running' else [p['symbol'] for p in state['positions']]
+        self.scan_cycle+=1
         observations, statuses = {}, {}
         futures = {}
         # Four in-flight fetches, globally spaced starts: maximum eight requests/sec.
@@ -182,8 +195,9 @@ class Runner:
         if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED):
             for observation in observations.values(): observation['signal'] = None
         self.engine.market_cycle(cfg.model_dump(), observations)
+        self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
-                       'symbols': statuses, 'last_cycle': time.time(),
+                       'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
                        'note': 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
