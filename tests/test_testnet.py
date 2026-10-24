@@ -102,6 +102,44 @@ class TestnetIntegration(unittest.TestCase):
         self.exchange.fill(link);self.service.monitor()
         return link
 
+    def test_alert_tracks_exact_order_through_protection_and_settlement(self):
+        from thoth.signal_alerts import read_alerts
+        link=self.enter()
+        result=read_alerts(self.path)
+        self.assertEqual(len(result['items']),1)
+        item=result['items'][0]
+        self.assertEqual(item['alert_key'],link)
+        self.assertEqual(item['execution_phase'],'protected')
+        self.assertIn('stop loss verified',item['reason'])
+        identity=item['id']
+        self.service.pause()
+        self.service.close_all()
+        self.fill_closes();self.service.monitor()
+        final=read_alerts(self.path,watch_ids={identity})
+        self.assertEqual(final['updates'][0]['id'],identity)
+        self.assertEqual(final['updates'][0]['execution_phase'],'closed')
+        self.assertIn('reconciled',final['updates'][0]['reason'])
+        # A later signal on the same coin has a different exact identity.
+        self.now[0]+=60
+        self.service._signal_decision('BTCUSDT','queued: Long; awaiting entry checks',dict(time=self.now[0],signal='Long'))
+        later=read_alerts(self.path)
+        self.assertNotEqual(later['items'][0]['alert_key'],link)
+        self.assertNotIn('execution_phase',later['items'][0])
+        self.assertEqual(later['items'][1]['execution_phase'],'closed')
+
+    def test_entry_rejection_updates_existing_alert_instead_of_leaving_queued(self):
+        from unittest.mock import patch
+        from thoth.signal_alerts import read_alerts
+        self.activate();self.signal(self.now[0]-60,None)
+        self.now[0]+=60
+        instrument=self.exchange.instrument('BTCUSDT')
+        instrument['leverageFilter']['maxLeverage']='2'
+        with patch.object(self.exchange,'instrument',return_value=instrument):self.signal(self.now[0]-60,'Long')
+        result=read_alerts(self.path)
+        self.assertEqual(result['total'],1)
+        self.assertIn('leverage is unsupported',result['items'][0]['reason'])
+        self.assertFalse(self.exchange.orders)
+
     def test_signal_skip_audit_paused_queue_expiry_and_recovery(self):
         import json
         self.activate()
