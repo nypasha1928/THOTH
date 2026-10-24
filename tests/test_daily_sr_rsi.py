@@ -140,6 +140,26 @@ class DailyCombinationTests(unittest.TestCase):
                         self.assertIsNone(result['signal'])
                         self.assertEqual(result['signal_diagnostic']['gap_limit'],300)
 
+    def test_streaming_dispatch_does_not_wait_for_remaining_watchlist(self):
+        from types import SimpleNamespace
+        now=[self.start+100.];sent=[];begins=[]
+        cfg=Settings(strategy='sr_rsi_daily',automatic_paper=True,symbols=['BTCUSDT','ETHUSDT','SOLUSDT'])
+        def dispatch(config,symbol,observation):
+            self.assertEqual(now[0]-observation['time'],0)
+            sent.append(symbol)
+            now[0]+=40  # Subsequent coin work would expire earlier batched signals.
+        engine=SimpleNamespace(snapshot=lambda:dict(settings=cfg.model_dump(),status='running',positions=[]),
+            begin_market_scan=lambda:begins.append(True),market_observation=dispatch,
+            market_cycle=lambda *args:self.fail('Streaming observations must not be delivered again as a batch'))
+        with tempfile.TemporaryDirectory() as d:
+            engine.path=Path(d)/'fixture.sqlite';runner=Runner(engine,fetch=lambda *args:[dict(time=self.start,close=100)])
+            def history(symbol,interval,rows):
+                self.assertEqual(len(sent),cfg.symbols.index(symbol))
+                return rows
+            with patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch.object(runner,'history',side_effect=history),patch.object(runner,'analysis',return_value=([dict(time=self.start-86400,levels={})],2)),patch.object(runner,'daily_sr_rsi_observation',side_effect=lambda symbol,cfg,history,result,stamp:dict(time=stamp,signal='Long')):
+                runner.cycle(paced=False)
+        self.assertEqual(sent,cfg.symbols);self.assertEqual(begins,[True])
+
     def test_joint_observation_survives_runner_restart_and_requires_current_day(self):
         with tempfile.TemporaryDirectory() as d:
             engine=Engine(Path(d)/'fixture.sqlite');runner=Runner(engine)

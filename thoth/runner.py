@@ -148,6 +148,10 @@ class Runner:
         symbols = cfg.symbols if state['status'] == 'running' else [p['symbol'] for p in state['positions']]
         self.scan_cycle+=1
         observations, statuses = {}, {}
+        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED) and
+                   callable(getattr(self.engine,'begin_market_scan',None)) and
+                   callable(getattr(self.engine,'market_observation',None)))
+        if streaming:self.engine.begin_market_scan()
         futures = {}
         # Four in-flight fetches, globally spaced starts: maximum eight requests/sec.
         # Download concurrently; indicator state and SQLite remain on this single thread.
@@ -186,7 +190,9 @@ class Runner:
                 latest = result[-1]
                 observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
                 statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
+                if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observations[symbol])
             except Exception as exc:
+                observations.pop(symbol,None)
                 statuses[symbol] = {'status': 'error', 'message': str(exc)[:240]}
 
         # Missing held-position data blocks new entries. An unavailable unheld symbol
@@ -194,7 +200,7 @@ class Runner:
         held={p['symbol'] for p in state['positions']}
         if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED):
             for observation in observations.values(): observation['signal'] = None
-        self.engine.market_cycle(cfg.model_dump(), observations)
+        if not streaming:self.engine.market_cycle(cfg.model_dump(), observations)
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,

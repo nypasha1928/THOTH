@@ -126,6 +126,22 @@ class TestnetIntegration(unittest.TestCase):
         restarted=self.create()
         with restarted.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_decisions').fetchone()[0],count+1)
 
+    def test_streamed_observations_reuse_recent_monitor_but_refresh_stale_state(self):
+        from unittest.mock import patch
+        from thoth.testnet_feed import FeedAdapter
+        self.activate();adapter=FeedAdapter(self.service)
+        cfg=Settings(**{k:v for k,v in self.cfg.model_dump().items() if k in Settings.model_fields}).model_dump()
+        with patch.object(self.service,'monitor',wraps=self.service.monitor) as monitor:
+            adapter.begin_market_scan()
+            self.assertEqual(monitor.call_count,1)
+            for symbol in ('BTCUSDT','ETHUSDT','SOLUSDT'):
+                adapter.market_observation(cfg,symbol,dict(time=self.now[0],signal=None))
+            self.assertEqual(monitor.call_count,1)
+            self.now[0]+=16
+            adapter.market_observation(cfg,'BTCUSDT',dict(time=self.now[0],signal=None))
+            self.assertEqual(monitor.call_count,2)
+        self.assertFalse(self.exchange.orders)
+
     def test_definite_rejection_does_not_pause_other_symbols(self):
         from unittest.mock import patch
         for stage in ('instrument','leverage','order'):

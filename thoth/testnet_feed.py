@@ -21,6 +21,17 @@ class FeedAdapter:
         cfg={**cfg,'automatic_paper':False}
         self.supervisor.apply_signals(cfg,observations)
 
+    def begin_market_scan(self):
+        # The supervisor's independent management loop continues monitoring risk
+        # during the scan. Do not repeat account polling for every watched coin.
+        with self.supervisor.lock:
+            try:self.supervisor.monitor()
+            except Exception as exc:self.supervisor._monitor_failure(exc)
+
+    def market_observation(self,cfg,symbol,observation):
+        self.supervisor.apply_signals({**cfg,'automatic_paper':False},
+            {symbol:observation},monitor_account=False)
+
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         rows=self.supervisor.client.candles(symbol,interval)
