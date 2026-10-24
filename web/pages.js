@@ -1,10 +1,10 @@
 // Separate, bookmarkable PWA pages; navigation never changes trading settings.
-const pageIds=['chart','positions','history','analysis','comparison','settings','security'];
+const pageIds=['chart','positions','history','analysis','comparison','alerts','settings','security'];
 let historyOffset=0,historyTotal=0,historyRequest=0;
 function buildPages(){
  const grid=document.querySelector('.grid'),nav=document.createElement('nav');
  nav.className='page-nav';nav.setAttribute('aria-label','Trading desk pages');
- for(const [id,label] of [['chart','Chart'],['positions','Live positions'],['history','History'],['analysis','Analysis'],['comparison','Trailing comparison'],['settings','Settings'],['security','Security']]){
+ for(const [id,label] of [['chart','Chart'],['positions','Live positions'],['history','History'],['analysis','Analysis'],['comparison','Trailing comparison'],['alerts','Signal alerts'],['settings','Settings'],['security','Security']]){
   const link=document.createElement('a');link.href='#'+id;link.textContent=label;link.dataset.pageLink=id;nav.append(link);
  }
  document.querySelector('main').prepend(nav);
@@ -17,8 +17,11 @@ function buildPages(){
  pages.analysis.innerHTML='<section class="card"><h2>Trade analysis</h2><p class="note">Based only on THOTH’s stored, confirmed closed trades. Includes retained older S/R records; previously pruned records and open P&amp;L are excluded. Win rate includes breakeven trades in the total. P&amp;L follows Bybit closed-P&amp;L reporting.</p><div class="analysis-filters"><label>Coin<input id="analysisSymbol" type="search" placeholder="All coins or ETHUSDT" aria-label="Analysis symbol"></label><label>Strategy<select id="analysisStrategy"><option value="">All strategies</option><option value="sr_breakout">S/R Breakout</option><option value="sma_cross">SMA 7/200</option><option value="sma_7_50">SMA 7/50</option><option value="sr_rsi_daily">S/R + RSI Daily → Exit 1m</option><option value="sr_sma_7_50">S/R + SMA 7/50</option><option value="sr_hourly_intrabar">S/R intrabar → Exit 1m</option><option value="rsi_hourly_intrabar">RSI intrabar → Exit 1m</option><option value="unknown">Unknown</option></select></label><label>Group results by<select id="analysisTimeBasis"><option value="entry">Opening time</option><option value="exit">Closing time</option></select></label><button id="refreshAnalysis">Refresh analysis</button></div><p id="analysisStatus" role="status"></p><div id="analysisSummary" class="stats"></div><h3>Per coin</h3><div class="table-scroll"><table><thead><tr><th>Coin</th><th>Trades</th><th>Wins / losses / flat</th><th>Win rate</th><th>Realized P&amp;L</th><th>Average P&amp;L</th><th>Profit factor</th></tr></thead><tbody id="coinAnalysis"></tbody></table></div><h3>Strategy comparison per coin</h3><div class="table-scroll"><table><thead><tr><th>Coin</th><th>Strategy</th><th>Trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Profit factor</th></tr></thead><tbody id="strategyAnalysis"></tbody></table></div><p class="note">Profit factor = gross winning P&amp;L divided by absolute gross losing P&amp;L; shown as — when there are no losing trades. Small samples do not establish future performance.</p></section>';
  pages.analysis.querySelector('#analysisSummary').insertAdjacentHTML('afterend',timingMarkup());
  pages.comparison.innerHTML=comparisonPage();
+ pages.alerts.innerHTML=signalAlertsMarkup();
  grid.classList.add('paged-desk');grid.replaceChildren(...pageIds.map(id=>pages[id]));
  bindComparison();
+ bindSignalAlerts();
+ setupFloatingSignalAlerts();
  $('historyPrevious').onclick=()=>{historyOffset=Math.max(0,historyOffset-50);loadHistory()};
  $('historyNext').onclick=()=>{historyOffset+=50;loadHistory()};
  $('historyRefresh').onclick=()=>{historyOffset=0;loadHistory()};
@@ -36,6 +39,7 @@ function showPage(){
  for(const page of document.querySelectorAll('[data-page]'))page.hidden=page.dataset.page!==id;
  for(const link of document.querySelectorAll('[data-page-link]')){if(link.dataset.pageLink===id)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current')}
  window.scrollTo({top:0});
+ if(id==='alerts'&&state)loadSignalAlerts();
  if(id==='history'&&state)loadHistory();
  if(id==='analysis'&&state)loadAnalysis();
  if(id==='comparison'&&state)loadComparison();

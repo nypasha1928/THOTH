@@ -69,6 +69,24 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(result.json()['items'],[dict(symbol='JCTUSDT',reason='skipped: recovery baseline')])
         self.assertEqual(self.client.get('/api/live/signal-decisions?limit=201').status_code,422)
 
+    def test_signal_alerts_paginate_and_filter_saved_decisions(self):
+        import json
+        from thoth.app import live
+        with live.db() as db:
+            for i in range(55):
+                payload=dict(symbol='JCTUSDT' if i%2 else 'ETHUSDT',time=i,signal='Long',reason='queued')
+                db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',(i,payload['symbol'],json.dumps(payload)))
+        first=self.client.get('/api/live/signal-alerts').json()
+        self.assertEqual(first['total'],55);self.assertEqual(len(first['items']),50)
+        self.assertEqual(first['items'][0]['time'],54)
+        second=self.client.get('/api/live/signal-alerts?offset=50').json()
+        self.assertEqual(len(second['items']),5)
+        filtered=self.client.get('/api/live/signal-alerts?symbol=JCTUSDT').json()
+        self.assertEqual(filtered['total'],27)
+        self.assertTrue(all(x['symbol']=='JCTUSDT' for x in filtered['items']))
+        self.assertEqual(self.client.get('/api/live/signal-alerts?limit=101').status_code,422)
+        self.assertEqual(self.client.get('/api/live/signal-alerts?offset=-1').status_code,422)
+
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
         with patch('thoth.app.candles', return_value=rows):

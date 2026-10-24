@@ -783,6 +783,7 @@ class TestnetSupervisor:
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
                         self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
+                    self._signal_decision(symbol,'opposite signal: '+('reversal queued' if symbol in self.state['reversals'] else 'exit requested; '+(self._reversal_block_reason(symbol) or 'close-only setting')),observation)
                     self.save()  # Retain exit obligation if a position read fails.
                     try:
                         p=self.positions().get(symbol)
