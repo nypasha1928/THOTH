@@ -94,6 +94,7 @@ def evaluate(rows, cfg, now=None):
             for key, value in extract_levels(points).items():
                 levels[('long_' if j == 0 else 'short_')+key] = value
         bullish = bearish = False
+        crossed=[]
         if i and rows[i-1]['time']+duration == row['time']:
             for key, level in levels.items():
                 if key.endswith('_major') and not cfg.major: continue
@@ -101,9 +102,9 @@ def evaluate(rows, cfg, now=None):
                 old = previous.get(key)
                 if old is None: continue
                 if 'resistance' in key and rows[i-1]['close'] <= old['value'] and row['close'] > level['value']:
-                    bullish = True
+                    bullish = True;crossed.append((key,'Long'))
                 if 'support' in key and rows[i-1]['close'] >= old['value'] and row['close'] < level['value']:
-                    bearish = True
+                    bearish = True;crossed.append((key,'Short'))
         if cfg.sma_enabled:
             bullish = bullish and average is not None and row['close'] > average
             bearish = bearish and average is not None and row['close'] < average
@@ -118,6 +119,6 @@ def evaluate(rows, cfg, now=None):
         signal = 'Long' if bullish and not bearish else 'Short' if bearish and not bullish else None
         if cfg.strategy=='sr_hourly_intrabar':signal=None  # OHLC replay cannot reconstruct sampled live crossings.
         output.append(dict(time=row['time'], levels=levels, sma=average, signal=signal,
-                           conflict=bullish and bearish, close=row['close']))
+                           conflict=bullish and bearish, close=row['close'],entry_sources=['sr:'+key for key,side in crossed if side==signal]))
         previous = levels
     return output

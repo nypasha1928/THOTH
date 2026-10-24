@@ -28,12 +28,13 @@ class SMACross:
             if self.previous<=0 and diff>0:signal='Long'
             elif self.previous>=0 and diff<0:signal='Short'
         self.previous=diff;self.last_time=row['time']
-        return dict(time=row['time'],levels={},sma=slow,sma7=fast,signal=signal,conflict=False,close=row['close'])
+        return dict(time=row['time'],levels={},sma=slow,sma7=fast,signal=signal,conflict=False,close=row['close'],entry_sources=['sma:7_'+str(self.slow_period)] if signal else [])
 
 
 def combine_sr_sma(sr,cross):
     directions={s for s in (sr['signal'],cross['signal']) if s}
     if sr['conflict']:directions.update(('Long','Short'))
-    return {**sr,'signal':next(iter(directions)) if len(directions)==1 else None,
+    entry_sources=sorted(set(sr.get('entry_sources',[])+cross.get('entry_sources',[]))) if len(directions)==1 else []
+    return {**sr,'entry_sources':entry_sources,'signal':next(iter(directions)) if len(directions)==1 else None,
         'conflict':len(directions)>1,'sr_signal':sr['signal'],'sma_signal':cross['signal'],
         'sma7':cross['sma7'],'sma50':cross['sma']}

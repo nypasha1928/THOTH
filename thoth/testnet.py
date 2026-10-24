@@ -138,7 +138,7 @@ class TestnetSupervisor:
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
-        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed')
+        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources')
         record={key:trade[key] for key in allowed if key in trade}
         if link.startswith('legacy:') and 'strategy' not in record:record['strategy']='sr_breakout'
         with self.db() as db:
@@ -149,13 +149,16 @@ class TestnetSupervisor:
         params=(symbol,) if symbol else ()
         with self.db() as db:
             count=db.execute('SELECT COUNT(*) FROM trade_history'+where,params).fetchone()[0]
-            rows=db.execute('SELECT payload FROM trade_history'+where+' ORDER BY closed_at DESC,link LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
-        return dict(items=[json.loads(row[0]) for row in rows],total=count,limit=limit,offset=offset)
+            rows=db.execute('SELECT link,payload FROM trade_history'+where+' ORDER BY closed_at DESC,link LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
+            from .signal_sources import trade_records
+            records=trade_records(db,rows)
+        return dict(items=records,total=count,limit=limit,offset=offset)
 
     def analysis(self,symbol=None,strategy=None,time_basis='entry'):
         from .analytics import analyze
         with self.db() as db:
-            records=[json.loads(row[0]) for row in db.execute('SELECT payload FROM trade_history'+(' WHERE symbol=?' if symbol else ''),(symbol,) if symbol else ())]
+            from .signal_sources import trade_records
+            records=trade_records(db,db.execute('SELECT link,payload FROM trade_history'+(' WHERE symbol=?' if symbol else ''),(symbol,) if symbol else ()).fetchall())
         if strategy:records=[r for r in records if r.get('strategy','unknown')==strategy]
         return analyze(records,time_basis)
 
@@ -369,6 +372,7 @@ class TestnetSupervisor:
         self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
             stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
             close_link=None,close_attempt=0,reason=None,
+            entry_sources=record.get('instrument',{}).get('thoth_entry_sources',[]),
             strategy=record.get('instrument',{}).get('thoth_strategy',self.state['config']['strategy']),
             entry_timeframe=record.get('instrument',{}).get('thoth_entry_timeframe',self.state['config']['timeframe']),
             exit_timeframe=record.get('instrument',{}).get('thoth_exit_timeframe','1' if self.state['config']['strategy'] in HOURLY_MINUTE_STRATEGIES else self.state['config']['timeframe']),trailing=new_trailing((record.get('instrument') or {}).get('thoth_trailing',{}),entry,filled,entry*filled/leverage,record['payload']['side']),protection_confirmed=record['phase']=='protected',
@@ -425,7 +429,7 @@ class TestnetSupervisor:
         if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
             self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
         trade=dict(link=owner['link'],symbol=symbol,side='Long' if owner['side']=='Buy' else 'Short',entry=float(owner['entry']),qty=float(owner['qty']),opened_at=owner['opened_ms']/1000,
-            strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
+            entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
         self._record_trade(owner['link'],trade)
         self.state['closures']=(self.state['closures']+[trade])[-200:]
         # Mark entry terminal so startup does not treat old fills as pending ownership.
@@ -734,7 +738,7 @@ class TestnetSupervisor:
         alert_key='thoth-'+hashlib.sha256((identity+':'+symbol+':'+str(stamp)).encode()).hexdigest()[:28]
         details=dict(alert_key=alert_key,time=self.clock(),symbol=symbol,reason=reason,
             strategy=self.state['config']['strategy'],signal=observation.get('signal'),
-            observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'))
+            observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'),entry_sources=observation.get('entry_sources',[]))
         with self.db() as db:
             db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',
                 (details['time'],symbol,json.dumps(details,allow_nan=False)))
@@ -854,7 +858,11 @@ class TestnetSupervisor:
             try:self.client.request('POST','/v5/position/set-leverage',dict(category='linear',symbol=symbol,buyLeverage=str(cfg.leverage),sellLeverage=str(cfg.leverage)),private=True)
             except BybitError as exc:
                 if exc.code!=110043:raise
-            metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            from .signal_sources import recorded_source_map
+            with self.db() as db:entry_sources=recorded_source_map(db,payload['orderLinkId']).get(payload['orderLinkId'],[])
+            if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
+                entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
+            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             record=self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='rejected':
                 code=record.get('result',{}).get('exchange_code')
