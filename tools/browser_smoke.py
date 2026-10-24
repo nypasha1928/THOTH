@@ -169,6 +169,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.check('#selectedOnly');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','NO_SUCH_SYMBOL');expect(page.locator('#coins')).to_contain_text('No matching symbols')
    page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable).length'))
+   page.click('#saveSymbols');page.wait_for_function('() => lv.config.symbols.length===watchlist.filter(x=>x.selectable).length')
+   assert set(writes[-1][1]['symbols'])=={x['symbol'] for x in payloads['watchlist'] if x['selectable']}
+   page.reload();page.click('[data-page-link=settings]');expect(page.locator('#selectedSymbols button')).to_have_count(len([x for x in payloads['watchlist'] if x['selectable']]))
+   page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');page.click('[data-page-link=settings]')
    page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
    page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
    expect(page.locator('#savedSymbols')).to_contain_text('Saved trading symbols (1): SOLUSDT')
@@ -688,7 +692,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#historyRows tr.trade-loss')).to_contain_text('BTCUSDT')
    expect(page.locator('#historyRows .pnl-loss')).to_have_text('-$0.31')
    assert page.locator('#historyRows tr.trade-loss td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(255, 110, 110, 0.15)'
-   expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(1)
+   expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(0)
    page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
    history_many.extend(dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000-i,pnl=.01,reason='Synthetic trade '+str(i),strategy='sr_breakout') for i in range(123))
    page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(50)

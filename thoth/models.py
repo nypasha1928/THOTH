@@ -87,7 +87,7 @@ class Settings(BaseModel):
         import re
         if len(set(self.symbols)) != len(self.symbols):
             raise ValueError('Duplicate symbols')
-        if any(not re.fullmatch(r'[A-Z0-9]{2,30}USDT', s) for s in self.symbols):
+        if any(not re.fullmatch(r'[A-Z0-9]{1,30}USDT', s) for s in self.symbols):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
@@ -109,7 +109,7 @@ class Settings(BaseModel):
 
 class PaperOrder(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    symbol: str = Field(pattern=r'^[A-Z0-9]{2,30}USDT$')
+    symbol: str = Field(pattern=r'^[A-Z0-9]{1,30}USDT$')
     side: str = Field(pattern=r'^(Long|Short)$')
     price: float = Field(gt=0, allow_inf_nan=False)
     signal_id: str = Field(min_length=1, max_length=100)

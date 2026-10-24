@@ -120,12 +120,12 @@ def trailing_comparison_settings(settings: ObservationSettings):
 
 
 @app.get('/api/live/history')
-def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
+def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
     return live.history(symbol,limit,offset)
 
 
 @app.get('/api/live/analysis')
-def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{2,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_hourly_intrabar|rsi_hourly_intrabar|unknown)$'),time_basis: str=Query('entry',pattern=r'^(entry|exit)$')):
+def trade_analysis(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),strategy: str | None = Query(None,pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_hourly_intrabar|rsi_hourly_intrabar|unknown)$'),time_basis: str=Query('entry',pattern=r'^(entry|exit)$')):
     return live.analysis(symbol,strategy,time_basis)
 
 
@@ -183,7 +183,7 @@ def watchlist():
 @app.get('/api/quote/{symbol}')
 def current_quote(symbol: str, environment: str = 'live'):
     import re
-    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT',symbol) or environment!='live':
+    if not re.fullmatch(r'[A-Z0-9]{1,30}USDT',symbol) or environment!='live':
         raise HTTPException(422,'Unsupported symbol or environment')
     try:return quote(symbol,environment)
     except Exception:raise HTTPException(502,'Current Bybit price unavailable') from None
@@ -192,7 +192,7 @@ def current_quote(symbol: str, environment: str = 'live'):
 @app.get('/api/chart/{symbol}')
 def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback: int = Query(1000,ge=1000,le=5000), include_rsi: bool=False):
     import re
-    if not re.fullmatch(r'[A-Z0-9]{2,30}USDT', symbol) or interval not in INTERVALS or environment!='live':
+    if not re.fullmatch(r'[A-Z0-9]{1,30}USDT', symbol) or interval not in INTERVALS or environment!='live':
         raise HTTPException(422, 'Unsupported symbol or interval')
     try:
         rows = chart_history(symbol,interval,lookback,'live') if lookback>1000 else candles(symbol, interval)

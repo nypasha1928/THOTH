@@ -77,8 +77,8 @@ class ExecutionJournal:
                 response=self.client.submit(payload)
             except AmbiguousOrder:
                 return self.update(link,'unknown',{'reason':'Submission outcome unknown; reconcile before continuing'})
-            except BybitError:
-                return self.update(link,'rejected',{'reason':'Exchange rejected submission'})
+            except BybitError as exc:
+                return self.update(link,'rejected',{'reason':'Exchange rejected submission','exchange_code':exc.code})
             except Exception:
                 return self.update(link,'unknown',{'reason':'Submission interrupted; reconcile before continuing'})
             if response['state']=='reconciled':
