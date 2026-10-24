@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -69,6 +69,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
+   elif path=='live/signal-alerts':
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    records=[item for item in alert_items if not params.get('symbol') or item['symbol']==params['symbol'][0]]
+    offset=int(params.get('offset',['0'])[0]);limit=int(params.get('limit',['50'])[0])
+    result=dict(items=list(reversed(records))[offset:offset+limit],total=len(records),limit=limit,offset=offset)
    elif path=='security/status':result=dict(totp_enabled=False,recovery_codes_remaining=0,passkeys=[])
    elif path=='live/trailing-comparison':
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
@@ -692,6 +697,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#historyRows tr.trade-loss')).to_contain_text('BTCUSDT')
    expect(page.locator('#historyRows .pnl-loss')).to_have_text('-$0.31')
    assert page.locator('#historyRows tr.trade-loss td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(255, 110, 110, 0.15)'
+   page.click('[data-page-link=alerts]');expect(page.locator('#signalAlertStatus')).to_contain_text('No saved signal alerts')
+   page.evaluate('floatingAlertNewest=0')
+   alert_items.append(dict(id=1,time=1792300000,observed_at=1792300000,symbol='JCTUSDT',strategy='sr_rsi_daily',signal='Long',reason='queued: Long; awaiting entry checks',diagnostic={'rsi_events':['ml_long_up'],'sr_levels':[]}))
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(1)
+   expect(page.locator('.signal-toast')).to_contain_text('JCTUSDT · Bullish / Long')
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(1)
+   page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
+   expect(page.locator('#signalAlertRows')).to_contain_text('RSI over Long')
+   page.fill('#signalAlertSymbol','ETHUSDT');expect(page.locator('#signalAlertRows tr')).to_have_count(0)
+   page.fill('#signalAlertSymbol','');page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
+   page.get_by_role('button',name='Dismiss signal alert').click();expect(page.locator('.signal-toast')).to_have_count(0)
+   alert_items.clear()
+   page.click('[data-page-link=history]')
    expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(0)
    page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
    history_many.extend(dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000-i,pnl=.01,reason='Synthetic trade '+str(i),strategy='sr_breakout') for i in range(123))

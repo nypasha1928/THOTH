@@ -127,6 +127,16 @@ def signal_decisions(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}US
     return {'items':[json.loads(row[0]) for row in rows]}
 
 
+@app.get('/api/live/signal-alerts')
+def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
+    where=' WHERE symbol=?' if symbol else ''
+    params=(symbol,) if symbol else ()
+    with live.db() as db:
+        total=db.execute('SELECT COUNT(*) FROM signal_decisions'+where,params).fetchone()[0]
+        rows=db.execute('SELECT id,payload FROM signal_decisions'+where+' ORDER BY id DESC LIMIT ? OFFSET ?',params+(limit,offset)).fetchall()
+    return dict(items=[{**json.loads(payload),'id':identity} for identity,payload in rows],total=total,limit=limit,offset=offset)
+
+
 @app.get('/api/live/history')
 def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
     return live.history(symbol,limit,offset)
