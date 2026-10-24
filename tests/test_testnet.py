@@ -140,6 +140,26 @@ class TestnetIntegration(unittest.TestCase):
         self.assertIn('leverage is unsupported',result['items'][0]['reason'])
         self.assertFalse(self.exchange.orders)
 
+    def test_entry_sources_survive_fill_restart_and_close(self):
+        self.activate();self.signal(self.now[0]-60,None);self.now[0]+=60
+        cfg=Settings(**{k:v for k,v in self.cfg.model_dump().items() if k in Settings.model_fields}).model_dump()
+        diagnostic=dict(sr_signal='Long',rsi_signal='Long',sr_levels=['short_resistance_minor'],rsi_events=['ml_long_up'])
+        self.service.apply_signals(cfg,{'BTCUSDT':dict(time=self.now[0]-60,mark=100,signal='Long',signal_diagnostic=diagnostic)})
+        link=next(iter(self.exchange.orders))
+        expected=['rsi:ml_long_up','sr:short_resistance_minor']
+        self.assertEqual(self.service.journal.get(link)['instrument']['thoth_entry_sources'],expected)
+        self.exchange.fill(link);self.service.monitor()
+        restarted=self.create();restarted.activate('ENABLE TESTNET ORDERS',recovery=True)
+        self.service=restarted
+        self.assertEqual(self.service.state['owned']['BTCUSDT']['entry_sources'],expected)
+        self.service.close_all();self.fill_closes();self.service.monitor()
+        history=self.service.history()['items'][0]
+        self.assertEqual(history['entry_sources'],expected)
+        self.assertIn('short-term minor resistance',history['entry_source_label'])
+        analysis=self.service.analysis()
+        self.assertEqual(analysis['by_source'][0]['trades'],1)
+        self.assertEqual(analysis['by_symbol_source'][0]['sources'],expected)
+
     def test_signal_skip_audit_paused_queue_expiry_and_recovery(self):
         import json
         self.activate()

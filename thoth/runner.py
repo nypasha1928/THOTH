@@ -85,7 +85,9 @@ class Runner:
         with sqlite3.connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
+            before=set(tracker.get('fired',[])) if tracker.get('bar')==int(now)//duration*duration else set()
             observation=observe_breakout(tracker,history,result[-1]['levels'],cfg,now)
+            observation['entry_sources']=['sr:'+key for key in sorted(set(tracker.get('fired',[]))-before) if ('resistance' in key)==(observation['signal']=='Long')] if observation['signal'] else []
             # Persist consumption before dispatch: a crash must not replay an entry.
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation
@@ -115,7 +117,7 @@ class Runner:
             signal=next(iter(sides)) if fresh and len(sides)==1 and not preview['conflict'] else None
             tracker.update(bar=start,observed_at=now,fired=sorted(fired))
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
-        return dict(time=now,mark=history[-1]['close'],signal=signal,entry_bar=start,entry_timeframe=cfg.timeframe,exit_timeframe='1')
+        return dict(time=now,mark=history[-1]['close'],signal=signal,entry_sources=['rsi:'+event['kind'] for event in events] if signal else [],entry_bar=start,entry_timeframe=cfg.timeframe,exit_timeframe='1')
 
     def daily_sr_rsi_observation(self,symbol,cfg,history,result,now):
         duration=interval_seconds(cfg.timeframe)
@@ -188,7 +190,7 @@ class Runner:
                 if count < (2 if cfg.strategy==DAILY_COMBINED else cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
-                observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'])
+                observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'],entry_sources=latest.get('entry_sources',[]))
                 statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
                 if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observations[symbol])
             except Exception as exc:

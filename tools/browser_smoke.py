@@ -81,13 +81,13 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path=='live/trailing-comparison/settings' and method=='PUT':
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
    elif path=='live/history':
-    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
+    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
     if history_many:
      params=parse_qs(url.split('?',1)[1] if '?' in url else '')
      offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
    elif path=='live/analysis':
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
-    records=list(analysis_many) if analysis_many else [dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24,opened_at=1792501200,closed_at=1792508400),dict(symbol='BTCUSDT',strategy='sr_breakout',pnl=-.31,opened_at=1792504800,closed_at=1792512000),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0,closed_at=1792515600)]
+    records=list(analysis_many) if analysis_many else [dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24,opened_at=1792501200,closed_at=1792508400),dict(symbol='BTCUSDT',strategy='sr_breakout',entry_sources=['sr:short_support_minor'],pnl=-.31,opened_at=1792504800,closed_at=1792512000),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0,closed_at=1792515600)]
     if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
     if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
     result=analyze(records,params.get('time_basis',['entry'])[0])
@@ -728,8 +728,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.get_by_role('button',name='History page 1',exact=True).click()
    expect(page.locator('#tradeHistoryStatus')).to_contain_text('1–50 of 123')
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
+   expect(page.locator('#historyRows')).to_contain_text('S/R short-term minor support')
+   expect(page.locator('#historyRows')).to_contain_text('Source not recorded')
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   expect(page.locator('#sourceAnalysis')).to_contain_text('S/R short-term minor support')
+   expect(page.locator('#coinSourceAnalysis')).to_contain_text('BTCUSDT')
    timing_writes=len(writes)
    expect(page.locator('#timingCoverage')).to_contain_text('Opening time')
    expect(page.locator('#timingCoverage')).to_contain_text('2 trades included · 1 excluded')

@@ -91,6 +91,7 @@ class IndicatorState:
             for key,value in extract_levels(points).items():levels[('long_' if j==0 else 'short_')+key]=value
             prune(self.machines[j])
         bullish=bearish=False
+        crossed=[]
         if self.count and self.last_time+duration==row['time']:
             prev_close=self.buffer[-2]['close']
             for key,level in levels.items():
@@ -98,8 +99,8 @@ class IndicatorState:
                 if key.endswith('_minor') and not cfg.minor:continue
                 old=self.previous.get(key)
                 if not old:continue
-                if 'resistance' in key and prev_close<=old['value'] and row['close']>level['value']:bullish=True
-                if 'support' in key and prev_close>=old['value'] and row['close']<level['value']:bearish=True
+                if 'resistance' in key and prev_close<=old['value'] and row['close']>level['value']:bullish=True;crossed.append((key,'Long'))
+                if 'support' in key and prev_close>=old['value'] and row['close']<level['value']:bearish=True;crossed.append((key,'Short'))
         if cfg.sma_enabled:
             bullish=bullish and average is not None and row['close']>average
             bearish=bearish and average is not None and row['close']<average
@@ -115,7 +116,7 @@ class IndicatorState:
         self.previous=levels;self.last_time=row['time'];self.count+=1
         keep=max(51,cfg.sma_length+1,2*cfg.pivot_long+1,2*cfg.pivot_short+1)
         if len(self.buffer)>keep:del self.buffer[:-keep]
-        result=dict(time=row['time'],levels=levels,sma=average,signal=signal,conflict=bullish and bearish,close=row['close'])
+        result=dict(time=row['time'],levels=levels,sma=average,signal=signal,conflict=bullish and bearish,close=row['close'],entry_sources=['sr:'+key for key,side in crossed if side==signal])
         if cfg.strategy=='sr_rsi_daily':
             from .daily_sr_rsi import combine
             result=combine(result,self.rsi.step(row,duration))

@@ -25,12 +25,18 @@ def summarize(records):
 
 
 def analyze(records,time_basis='entry'):
+    from .signal_sources import source_label
     records=list(records)
+    sources=defaultdict(list);coin_sources=defaultdict(list)
     coins=defaultdict(list);strategies=defaultdict(list);combined=defaultdict(list)
     for record in records:
         symbol=record['symbol'];strategy=record.get('strategy','unknown')
+        source=tuple(sorted(set(record.get('entry_sources') or [])))
+        sources[source].append(record);coin_sources[(symbol,source)].append(record)
         coins[symbol].append(record);strategies[strategy].append(record);combined[(symbol,strategy)].append(record)
-    return dict(totals=summarize(records),timing=timing_analysis(records,time_basis),
+    return dict(by_source=[dict(sources=list(key),source=source_label(key),**summarize(value)) for key,value in sorted(sources.items())],
+        by_symbol_source=[dict(symbol=key[0],sources=list(key[1]),source=source_label(key[1]),**summarize(value)) for key,value in sorted(coin_sources.items())],
+        totals=summarize(records),timing=timing_analysis(records,time_basis),
         by_symbol=[dict(symbol=key,**summarize(value)) for key,value in sorted(coins.items())],
         by_strategy=[dict(strategy=key,**summarize(value)) for key,value in sorted(strategies.items())],
         by_symbol_strategy=[dict(symbol=key[0],strategy=key[1],**summarize(value)) for key,value in sorted(combined.items())])
