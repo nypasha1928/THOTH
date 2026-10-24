@@ -103,6 +103,43 @@ class DailyCombinationTests(unittest.TestCase):
         self.assertTrue(any(b['sr_signal'] for b in actual));self.assertTrue(any(b['rsi_signal'] for b in actual))
         self.assertEqual(actual[-1]['thresholds']['ml_long'],56.68)
 
+    def test_measured_scan_budget_accepts_reported_gaps_but_not_restarts_or_missed_scans(self):
+        for gap in (101.2814,108.484,121.455):
+            for source in ('sr','rsi'):
+                with self.subTest(gap=gap,source=source), tempfile.TemporaryDirectory() as d:
+                    engine=Engine(Path(d)/'fixture.sqlite');runner=Runner(engine)
+                    cfg=Settings(strategy='sr_rsi_daily',symbols=[f'COIN{i}USDT' for i in range(223)])
+                    levels=[dict(time=self.start-86400,levels=self.levels)]
+                    preview=dict(time=self.start,rsi=50,events=[],conflict=False)
+                    runner.scan_cycle=1
+                    with patch.object(runner,'rsi_preview',return_value=preview):
+                        runner.daily_sr_rsi_observation('ETHUSDT',cfg,[dict(time=self.start,close=100)],levels,self.start+10)
+                        runner.previous_scan_seconds=110;runner.scan_cycle=2
+                        if source=='rsi':preview['events']=[dict(kind='ml_long_up',side='Long')]
+                        price=102 if source=='sr' else 100
+                        result=runner.daily_sr_rsi_observation('ETHUSDT',cfg,[dict(time=self.start,close=price)],levels,self.start+10+gap)
+                        self.assertEqual(result['signal'],'Long')
+                        self.assertTrue(result['signal_diagnostic']['continuous_scan'])
+                        self.assertGreater(result['signal_diagnostic']['gap_limit'],gap)
+                        self.assertIsNone(runner.daily_sr_rsi_observation('ETHUSDT',cfg,[dict(time=self.start,close=price)],levels,self.start+11+gap)['signal'])
+                    # A different worker session must baseline even with a large budget.
+                    restored=Runner(engine);restored.previous_scan_seconds=200;restored.scan_cycle=3
+                    preview['events']=[dict(kind='ml_short_down',side='Short')]
+                    with patch.object(restored,'rsi_preview',return_value=preview):
+                        result=restored.daily_sr_rsi_observation('ETHUSDT',cfg,[dict(time=self.start,close=100)],levels,self.start+12+gap)
+                        self.assertIsNone(result['signal'])
+                        self.assertFalse(result['signal_diagnostic']['continuous_scan'])
+                        # Missing a cycle also requires a new baseline.
+                        restored.scan_cycle=5;preview['events']=[dict(kind='ml_long_down',side='Short')]
+                        result=restored.daily_sr_rsi_observation('ETHUSDT',cfg,[dict(time=self.start,close=100)],levels,self.start+13+gap)
+                        self.assertIsNone(result['signal'])
+                        self.assertFalse(result['signal_diagnostic']['continuous_scan'])
+                        restored.scan_cycle=6;restored.previous_scan_seconds=1000
+                        preview['events']=[dict(kind='static70_up',side='Long')]
+                        result=restored.daily_sr_rsi_observation('ETHUSDT',cfg,[dict(time=self.start,close=100)],levels,self.start+500+gap)
+                        self.assertIsNone(result['signal'])
+                        self.assertEqual(result['signal_diagnostic']['gap_limit'],300)
+
     def test_joint_observation_survives_runner_restart_and_requires_current_day(self):
         with tempfile.TemporaryDirectory() as d:
             engine=Engine(Path(d)/'fixture.sqlite');runner=Runner(engine)
