@@ -31,7 +31,21 @@ def observe(tracker,rows,levels,preview,cfg,now):
     sides={e['side'] for e in events}
     rsi_conflict=preview.get('rsi_conflict',preview['conflict'])
     signal=next(iter(sides)) if fresh and len(sides)==1 and not rsi_conflict else None
-    r.update(bar=start,observed_at=now,fired=sorted(fired),ready=rsi_ready)
+    previous_observed_at=r.get('observed_at')
+    r.update(bar=start,observed_at=now,fired=sorted(fired),ready=rsi_ready,
+        fresh=fresh,observation_gap=now-previous_observed_at if previous_observed_at is not None else None,gap_limit=gap)
     result=combine(sr,dict(signal=signal,conflict=fresh and (len(sides)>1 or rsi_conflict)))
+    new_sr=set(state['sr'].get('fired',[]))-(set(tracker.get('sr',{}).get('fired',[])) if tracker.get('sr',{}).get('bar')==start else set())
+    if events or new_sr:
+        result['signal_diagnostic']={
+            'entry_bar':start,'rsi_events':[e['kind'] for e in events],
+            'sr_levels':sorted(new_sr),'sr_signal':sr.get('signal'),'rsi_signal':signal,
+            'reason':('opposing source signals' if result['conflict'] else
+                      'recovery baseline; existing RSI crossing not replayed' if events and not fresh and not new_sr else
+                      'fresh crossing observed'),
+            'signal':result['signal'],'previous_observed_at':previous_observed_at,
+            'observation_gap':r['observation_gap'],'gap_limit':gap}
+    if result.get('signal_diagnostic'):
+        state['last_decision']={**result['signal_diagnostic'],'observed_at':now}
     tracker.clear();tracker.update(state)
     return result

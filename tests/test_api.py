@@ -57,6 +57,18 @@ class ApiTests(unittest.TestCase):
         for symbol in ('USDT','badUSDT','H/USDT'):
             self.assertEqual(self.client.put('/api/live/settings',json={'symbols':[symbol]}).status_code,422)
 
+    def test_signal_decisions_are_filtered_and_bounded(self):
+        import json
+        from thoth.app import live
+        with live.db() as db:
+            for symbol in ('JCTUSDT','ETHUSDT','JCTUSDT'):
+                payload=dict(symbol=symbol,reason='skipped: recovery baseline')
+                db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',(1,symbol,json.dumps(payload)))
+        result=self.client.get('/api/live/signal-decisions?symbol=JCTUSDT&limit=1')
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(result.json()['items'],[dict(symbol='JCTUSDT',reason='skipped: recovery baseline')])
+        self.assertEqual(self.client.get('/api/live/signal-decisions?limit=201').status_code,422)
+
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
         with patch('thoth.app.candles', return_value=rows):

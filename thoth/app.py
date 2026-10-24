@@ -119,6 +119,14 @@ def trailing_comparison_settings(settings: ObservationSettings):
     return trailing_observation.configure(settings)
 
 
+@app.get('/api/live/signal-decisions')
+def signal_decisions(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=200)):
+    with live.db() as db:
+        rows=db.execute('SELECT payload FROM signal_decisions'+(' WHERE symbol=?' if symbol else '')+' ORDER BY id DESC LIMIT ?',
+            (symbol,limit) if symbol else (limit,)).fetchall()
+    return {'items':[json.loads(row[0]) for row in rows]}
+
+
 @app.get('/api/live/history')
 def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
     return live.history(symbol,limit,offset)
