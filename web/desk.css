@@ -47,6 +47,6 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 
 .timing-details{margin:16px 0}.timing-details>summary{cursor:pointer;font-weight:600;padding:10px 0}
 
-.floating-signal-alerts{position:fixed;bottom:16px;left:16px;width:min(360px,calc(100vw - 32px));z-index:1000;display:grid;gap:8px;pointer-events:none}
+.floating-signal-alerts{position:fixed;bottom:16px;left:16px;width:min(360px,calc(100vw - 32px));z-index:1000;display:grid;gap:8px;max-height:45vh;overflow-y:auto;pointer-events:auto}
 .signal-toast{background:#1a2521;color:#edf3e8;border:1px solid #b6ed75;border-radius:10px;padding:14px;box-shadow:0 4px 20px #0006;pointer-events:auto;overflow-wrap:anywhere}
 .signal-toast strong,.signal-toast a{color:#b6ed75}.signal-toast button{float:right;padding:2px 9px;margin-left:8px}.signal-toast p{margin:8px 0;font-size:13px}.signal-toast a{font-size:13px}

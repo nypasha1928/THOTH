@@ -73,15 +73,14 @@ async function pollFloatingSignalAlerts(){
    const tone=signalAlertAudio.createOscillator(),gain=signalAlertAudio.createGain();tone.connect(gain);gain.connect(signalAlertAudio.destination);gain.gain.value=.04;tone.frequency.value=660;tone.start();tone.stop(signalAlertAudio.currentTime+.15);
   }
   const stack=$('floatingSignalAlerts');
-  for(const item of fresh.slice(0,3).reverse()){
+  for(const item of fresh.slice().reverse()){
    const box=document.createElement('div');box.className='signal-toast';
    const title=document.createElement('strong');title.textContent=item.symbol+' · '+signalAlertDirection(item);
    const text=document.createElement('p');text.textContent=signalAlertSources(item)+' · '+item.reason;
-   const link=document.createElement('a');link.href='#alerts';link.textContent='View signal alerts';
+   const link=document.createElement('a');link.href='#alerts';link.textContent='View signal alerts';link.onclick=()=>box.remove();
    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Dismiss signal alert');close.onclick=()=>box.remove();
-   box.append(title,close,text,link);stack.append(box);setTimeout(()=>box.remove(),12000);
+   box.append(title,close,text,link);stack.append(box);
   }
-  while(stack.children.length>3)stack.firstElementChild.remove();
  }catch{/* Read failures never change trading state; Alerts page shows fetch errors. */}
  finally{floatingAlertBusy=false}
 }
