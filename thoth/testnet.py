@@ -16,7 +16,7 @@ from .verification import source_fingerprint,strategy_fingerprint,execution_fing
 from .intrabar_exit import observe_exit
 from .timeframes import interval_seconds,HOURLY_MINUTE_STRATEGIES
 from .account_risk import new_risk, sample, closure, day, symbol_paused
-from .bybit_testnet import TestnetClient, BybitError, dec, order_payload, stop_price
+from .bybit_testnet import TestnetClient, BybitError, AmbiguousOrder, dec, order_payload, stop_price
 from .credentials import runtime_secret
 from .execution import ExecutionJournal
 from .diagnostics import failure_details, failure_summary
@@ -826,10 +826,18 @@ class TestnetSupervisor:
             except BybitError as exc:
                 if exc.code!=110043:raise
             metadata={**instrument,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
-            self.journal.submit(payload,cfg.stop_dollars,metadata)
+            record=self.journal.submit(payload,cfg.stop_dollars,metadata)
+            if record['phase']=='rejected':
+                code=record.get('result',{}).get('exchange_code')
+                self.event(symbol+': entry rejected by Bybit'+(' (code '+str(code)+')' if code is not None else '')+'; skipped this coin, other coins continue')
+                self.save();return
             self.event(symbol+(': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:self.event(symbol+': entry skipped: '+str(exc))
-        except Exception:self._lock('safety_lock','Testnet entry operation failed; reconcile before enabling entries')
+        except AmbiguousOrder:
+            self._lock('safety_lock','Entry operation outcome unavailable; reconcile before enabling entries')
+        except BybitError as exc:
+            self.event(symbol+': entry rejected by Bybit'+(' (code '+str(exc.code)+')' if exc.code is not None else '')+'; skipped this coin, other coins continue')
+        except Exception:self._lock('safety_lock','Entry operation outcome unavailable; reconcile before enabling entries')
         self.save()
 
     def _drain(self,cfg):

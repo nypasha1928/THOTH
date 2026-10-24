@@ -42,6 +42,21 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/live/activate', headers={'Origin': 'https://attacker.example'}).status_code, 403)
         self.assertEqual(self.client.get('/', headers={'Host': 'attacker.example'}).status_code, 400)
 
+    def test_entire_watchlist_saves_and_single_letter_coins_are_accessible(self):
+        symbols=[row['symbol'] for row in self.client.get('/api/watchlist').json() if row['selectable']]
+        response=self.client.put('/api/live/settings',json={'symbols':symbols})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(self.client.get('/api/live').json()['config']['symbols'],symbols)
+        rows=[dict(time=i*60,open=100,high=101,low=99,close=100,volume=5) for i in range(201)]
+        for symbol in ('HUSDT','WUSDT','SUSDT','FUSDT'):
+            with self.subTest(symbol=symbol), patch('thoth.app.candles',return_value=rows), patch('thoth.app.quote',return_value={'price':100}):
+                self.assertEqual(self.client.get('/api/chart/'+symbol).status_code,200)
+                self.assertEqual(self.client.get('/api/quote/'+symbol).status_code,200)
+                self.assertEqual(self.client.get('/api/live/history',params={'symbol':symbol}).status_code,200)
+                self.assertEqual(self.client.get('/api/live/analysis',params={'symbol':symbol}).status_code,200)
+        for symbol in ('USDT','badUSDT','H/USDT'):
+            self.assertEqual(self.client.put('/api/live/settings',json={'symbols':[symbol]}).status_code,422)
+
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
         with patch('thoth.app.candles', return_value=rows):

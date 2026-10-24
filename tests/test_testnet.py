@@ -102,6 +102,32 @@ class TestnetIntegration(unittest.TestCase):
         self.exchange.fill(link);self.service.monitor()
         return link
 
+    def test_definite_rejection_does_not_pause_other_symbols(self):
+        from unittest.mock import patch
+        for stage in ('instrument','leverage','order'):
+            with self.subTest(stage=stage):
+                self.activate()
+                original_request=self.exchange.request
+                original_instrument=self.exchange.instrument
+                def request(method,path,params,private=False):
+                    if params.get('symbol')=='BTCUSDT' and path==({'leverage':'/v5/position/set-leverage','order':'/v5/order/create'}.get(stage)):
+                        raise BybitError('Rejected fixture',code=110003)
+                    return original_request(method,path,params,private)
+                def instrument(symbol):
+                    if symbol=='BTCUSDT' and stage=='instrument':raise BybitError('Invalid symbol',code=10001)
+                    return original_instrument(symbol)
+                self.service.instrument_cache.clear()
+                with patch.object(self.exchange,'request',side_effect=request), patch.object(self.exchange,'instrument',side_effect=instrument):
+                    self.service._entry('BTCUSDT','Long',self.now[0],stage,self.cfg)
+                    self.assertTrue(self.service.state['entries'])
+                    self.assertEqual(self.service.state['status'],'running')
+                    self.assertIn('other coins continue',self.service.state['events'][-1]['message'])
+                    self.service._entry('ETHUSDT','Long',self.now[0],stage+'-other',self.cfg)
+                    self.assertTrue(any(o['symbol']=='ETHUSDT' for o in self.exchange.orders.values()))
+                # Remove this unfilled fixture order before the next scenario.
+                self.exchange.orders.clear()
+                with self.service.journal.db() as db:db.execute('DELETE FROM execution')
+
     def fill_closes(self):
         for link,o in list(self.exchange.orders.items()):
             if o['reduceOnly'] and o['orderStatus']=='New':self.exchange.fill(link)
