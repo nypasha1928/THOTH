@@ -748,13 +748,15 @@ class TestnetSupervisor:
         if not self.state['entries']:reasons.append('new entries disabled')
         return '; '.join(reasons)
 
-    def apply_signals(self,cfg,observations):
+    def apply_signals(self,cfg,observations,*,monitor_account=True):
         with self.lock:
             if not self.client or not self.state['management']:return
             current=TestnetSettings(**self.state['config'])
             if cfg!=Settings(**current.model_dump(exclude={'margin_mode','dedicated_account'})).model_dump():return
-            try:self.monitor()
-            except Exception as exc:self._monitor_failure(exc)
+            last_monitor=self.state.get('last_monitor')
+            if monitor_account or last_monitor is None or not 0<=self.clock()-last_monitor<=15:
+                try:self.monitor()
+                except Exception as exc:self._monitor_failure(exc)
             identity=hashlib.sha256(json.dumps(cfg,sort_keys=True).encode()).hexdigest()[:16]
             for symbol,observation in observations.items():
                 key=identity+':'+symbol;stamp=observation['time'];previous=self.state['cursors'].get(key)
