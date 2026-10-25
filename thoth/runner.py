@@ -17,7 +17,7 @@ from .intrabar_entry import observe_breakout,STRATEGY
 from .daily_sr_rsi import observe as observe_daily,STRATEGY as DAILY_COMBINED
 
 
-def bounded_downloads(pool,symbols,fetch,stop_event):
+def bounded_downloads(pool,symbols,fetch,stop_event,heartbeat=None):
     """Keep at most four higher-history packets in flight or awaiting analysis."""
     symbols=iter(symbols);pending={}
     def submit():
@@ -26,7 +26,8 @@ def bounded_downloads(pool,symbols,fetch,stop_event):
     for _ in range(4):submit()
     try:
         while pending and not stop_event.is_set():
-            completed,_=wait(pending,return_when=FIRST_COMPLETED)
+            if heartbeat:heartbeat()
+            completed,_=wait(pending,timeout=1 if heartbeat else None,return_when=FIRST_COMPLETED)
             for future in completed:
                 symbol=pending.pop(future)
                 yield symbol,future
@@ -241,6 +242,9 @@ class Runner:
             except Exception as exc:errors[timeframe]=str(exc)[:200]
         volume={}
         try:
+            if packet.get('minute_not_needed'):
+                return dict(time=now,mark=None,signal=None,primary_events=primary,volume_signal=None,volume_sources=[],source_errors=errors,
+                    volume_delta_status='No minute request: waiting for higher-timeframe permission or cooldown')
             if packet.get('minute_on_demand'):
                 minute,now=self.fresh_staged_minute(symbol)
             else:
@@ -267,6 +271,31 @@ class Runner:
                    callable(getattr(self.engine,'begin_market_scan',None)) and
                    callable(getattr(self.engine,'market_observation',None)))
         if streaming:self.engine.begin_market_scan()
+        # All dispatch/indicator/SQLite work remains on this thread. While slow
+        # higher fetches run in the pool, revisit up to four due armed coins.
+        # A bounded group prevents a large armed set starving permission scans.
+        armed_checks={};next_armed_poll=[0.];priority_checks=[0]
+        def record(symbol,observation):
+            observations[symbol]=observation
+            statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,
+                signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}))
+            if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
+        def poll_armed():
+            mono=time.monotonic()
+            if mono<next_armed_poll[0] or self.stop_event.is_set():return
+            next_armed_poll[0]=mono+5
+            getter=getattr(self.engine,'staged_armed_symbols',None)
+            if not getter:return
+            due=[symbol for symbol in getter() if symbol in symbols and mono-armed_checks.get(symbol,float('-inf'))>=5]
+            for symbol in sorted(due,key=lambda symbol:armed_checks.get(symbol,float('-inf')))[:4]:
+                if self.stop_event.is_set():return
+                try:
+                    observation=self.staged_observation(symbol,cfg,dict(primary={},minute_on_demand=True),time.time())
+                    record(symbol,observation);priority_checks[0]+=1
+                except Exception as exc:
+                    observations.pop(symbol,None);statuses[symbol]=dict(status='error',message=str(exc)[:240])
+                finally:armed_checks[symbol]=time.monotonic()
+        if cfg.strategy=='sr_rsi_volume_gate':poll_armed()
         futures = {}
         # Four in-flight fetches, globally spaced starts: maximum eight requests/sec.
         # Download concurrently; indicator state and SQLite remain on this single thread.
@@ -282,7 +311,7 @@ class Runner:
             return self.fetch(symbol, cfg.timeframe)
         with ThreadPoolExecutor(max_workers=4) as pool:
             if cfg.strategy=='sr_rsi_volume_gate':
-                completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event)
+                completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event,heartbeat=poll_armed)
             else:
                 for symbol in symbols:
                     if self.stop_event.is_set(): return
@@ -293,14 +322,14 @@ class Runner:
                 if self.stop_event.is_set():return
                 try:
                     rows=future.result()
+                    if cfg.strategy=='sr_rsi_volume_gate' and rows.get('minute_on_demand') and symbol in armed_checks:continue
                     if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
                         # Delta needs current 1m inputs: process ready symbols now,
                         # rather than age their samples behind the whole download.
                         now=time.time()
                         observation=self.staged_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_rsi_volume_gate' else self.volume_delta_observation(symbol,cfg,rows,now)
-                        observations[symbol]=observation
-                        statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}))
-                        if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
+                        record(symbol,observation)
+                        if cfg.strategy=='sr_rsi_volume_gate' and rows.get('minute_on_demand'):armed_checks[symbol]=time.monotonic()
                     else:downloaded[symbol]=rows
                 except Exception as exc:
                     if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
@@ -337,6 +366,7 @@ class Runner:
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) or any(s['status']!='ok' for s in statuses.values()) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
+                       'priority_minute_checks':priority_checks[0] if cfg.strategy=='sr_rsi_volume_gate' else 0,
                        'note': '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy=='sr_rsi_volume_gate' else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):

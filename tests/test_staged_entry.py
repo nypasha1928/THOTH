@@ -148,7 +148,9 @@ class StagedAccountTests(unittest.TestCase):
             self.assertFalse(self.exchange.orders)
             self.assertEqual(self.service.state['entry_gates']['BTCUSDT']['phase'],'armed')
             first[0]=False;self.now[0]+=5
-            runner.cycle(paced=False)
+            runner.cycle(paced=False)  # First minute observation after arming is a baseline.
+            self.assertFalse(self.exchange.orders)
+            self.now[0]+=5;runner.cycle(paced=False)
             entries=[o for o in self.exchange.orders.values() if not o['reduceOnly']]
             self.assertEqual(len(entries),1)  # One submitted order; others wait for protection.
             self.assertEqual(entries[0]['side'],'Sell')
@@ -179,6 +181,8 @@ class StagedAccountTests(unittest.TestCase):
             self.assertFalse(self.exchange.orders)
             self.assertEqual(self.service.state['entry_gates']['BTCUSDT']['phase'],'armed')
             self.now[0]+=5;phase[0]=2;runner.cycle(paced=False)
+            self.assertFalse(self.exchange.orders)  # Establish the new minute baseline first.
+            self.now[0]+=5;runner.cycle(paced=False)
             orders=[o for o in self.exchange.orders.values() if not o['reduceOnly']]
             self.assertEqual(len(orders),1);self.assertEqual(orders[0]['side'],'Sell')
             self.assertEqual(runner.health['status'],'ok')
@@ -187,11 +191,22 @@ class StagedAccountTests(unittest.TestCase):
         adapter=FeedAdapter(self.service);calls=[]
         def fetch(symbol,tf,**kw):calls.append(tf);return []
         with patch.object(self.exchange,'candles',side_effect=fetch):
-            packet=adapter.fetch('BTCUSDT','1');self.assertEqual(calls,['240','D']);self.assertTrue(packet['minute_on_demand']);calls.clear()
+            packet=adapter.fetch('BTCUSDT','1');self.assertEqual(calls,['240','D']);self.assertFalse(packet['minute_on_demand']);self.assertTrue(packet['minute_not_needed']);calls.clear()
             adapter.staged_minute_inputs('BTCUSDT');self.assertEqual(calls,['1']);calls.clear()
             self.sample([primary(self.now[0]+5)])
             adapter.fetch('BTCUSDT','1');self.assertEqual(calls,[])
             adapter.staged_minute_inputs('BTCUSDT');self.assertEqual(calls,['1'])
+
+    def test_waiting_coin_never_requests_minute_data(self):
+        adapter=FeedAdapter(self.service);runner=Runner(adapter)
+        with patch.object(self.exchange,'candles',return_value=[]):packet=adapter.fetch('BTCUSDT','1')
+        with patch.object(runner,'history',return_value=[]),patch.object(runner,'analysis',return_value=([],100)),patch.object(runner,'daily_sr_rsi_observation',return_value=dict(signal=None)),patch.object(adapter,'staged_minute_inputs',side_effect=AssertionError('Unarmed coins need no minute read')):
+            obs=runner.staged_observation('BTCUSDT',self.cfg,packet,self.now[0])
+        self.assertEqual(obs['source_errors'],{});self.assertIsNone(obs['volume_signal'])
+        self.assertIn('No minute request',obs['volume_delta_status'])
+        self.assertEqual(adapter.staged_armed_symbols(),[])
+        self.sample([primary(self.now[0]+5)])
+        self.assertEqual(adapter.staged_armed_symbols(),['BTCUSDT'])
 
     def test_minute_is_fetched_after_slow_higher_analysis_with_new_timestamp(self):
         adapter=FeedAdapter(self.service);runner=Runner(adapter);calls=[]
@@ -293,3 +308,31 @@ class BoundedPacketTests(unittest.TestCase):
         # Caller performs higher analysis and fresh minute read before asking for more.
         next(results);self.assertEqual(len(submitted),5)
         results.close()
+
+
+class PrioritySchedulingTests(unittest.TestCase):
+    def test_armed_coin_checked_again_before_slow_permission_fetch_finishes(self):
+        from types import SimpleNamespace
+        from threading import Event
+        release=Event();started=Event();sent=[];mono=[0.]
+        def monotonic():mono[0]+=10;return mono[0]
+        cfg=Settings(strategy=STRATEGY,automatic_paper=True,symbols=['ARMEDUSDT','SLOWUSDT'])
+        with tempfile.TemporaryDirectory() as directory:
+            def fetch(symbol,tf):
+                if symbol=='SLOWUSDT':
+                    started.set()
+                    if not release.wait(2):raise AssertionError('Armed polling was held behind the permission fetch')
+                return dict(primary={},minute_on_demand=symbol=='ARMEDUSDT',minute_not_needed=symbol!='ARMEDUSDT')
+            def dispatch(config,symbol,obs):
+                sent.append(symbol)
+                if sent.count('ARMEDUSDT')==2:
+                    self.assertTrue(started.wait(1));release.set()
+            engine=SimpleNamespace(path=Path(directory)/'fixture.sqlite',snapshot=lambda:dict(settings=cfg.model_dump(),status='running',positions=[]),
+                begin_market_scan=lambda:None,market_observation=dispatch,staged_armed_symbols=lambda:['ARMEDUSDT'])
+            runner=Runner(engine,fetch=fetch)
+            with patch('thoth.runner.time.monotonic',side_effect=monotonic),patch.object(runner,'staged_observation',side_effect=lambda symbol,cfg,packet,now:dict(time=now,signal=None,volume_delta_status='fixture',source_errors={})):
+                runner.cycle(paced=False)
+            self.assertTrue(release.is_set())
+            self.assertGreaterEqual(sent.count('ARMEDUSDT'),2)
+            self.assertGreater(sent.index('SLOWUSDT'),1)
+            self.assertGreaterEqual(runner.health['priority_minute_checks'],2)
