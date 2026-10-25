@@ -106,6 +106,7 @@ class TestnetSupervisor:
     def load(self):
         with self.db() as db:state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
         state.setdefault('pending_signals',{})
+        state.setdefault('entry_gates',{})
         state.setdefault('blocked_symbols',{})
         state.setdefault('sma_exit_blocks',{})
         state.setdefault('rate_limit_resume',False)
@@ -130,7 +131,7 @@ class TestnetSupervisor:
     def snapshot(self):
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
-            'pnl_trailing':s['pnl_trailing'],
+            'pnl_trailing':s['pnl_trailing'],'entry_gates':s.get('entry_gates',{}),
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
@@ -177,6 +178,12 @@ class TestnetSupervisor:
             if not cfg.sma_exit_enabled:
                 self.state['sma_exit_blocks']={}
                 for owner in self.state['owned'].values():owner.pop('sma_exit_error',None)
+            if cfg.strategy=='sr_rsi_volume_gate':
+                before=Settings(**{k:v for k,v in self.state['config'].items() if k in Settings.model_fields})
+                changed=before.strategy!=cfg.strategy or strategy_fingerprint(before)!=strategy_fingerprint(cfg)
+                for symbol,gate in self.state.get('entry_gates',{}).items():
+                    if gate['phase']=='armed' and (changed or symbol not in set(before.symbols)&set(cfg.symbols)):
+                        gate.update(phase='waiting',direction=None,armed_at=None,sources=[],primary_timeframe=None)
             self.state['rate_limit_resume']=False
             pnl_keys=('pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars')
             if any(self.state['config'][key]!=getattr(cfg,key) for key in pnl_keys) and not self.state['pnl_trailing']['triggered']:
@@ -424,7 +431,14 @@ class TestnetSupervisor:
             return False  # Delay entries until complete realized results are visible.
         pnl=float(sum((dec(r['closedPnl']) for r in unique.values()),dec(0)))
         previous_pause=self.state['risk'].get('symbols',{}).get(symbol,{}).get('pause_until')
-        closure(self.state['risk'],owner['link'],pnl,cfg,self.clock(),symbol)
+        new_closure=closure(self.state['risk'],owner['link'],pnl,cfg,self.clock(),symbol)
+        if new_closure and owner.get('strategy')=='sr_rsi_volume_gate':
+            from .staged_entry import new_gate,result
+            gate=self.state.setdefault('entry_gates',{}).setdefault(symbol,new_gate())
+            if result(gate,pnl,self.clock(),cfg.consecutive_losses,cfg.pause_minutes):
+                self.state['pending_signals'].pop(symbol,None);self.state['reversals'].pop(symbol,None)
+                self.event(symbol+': two-stage gate locked after '+str(gate['losses'])+' consecutive losses; cooldown '+str(cfg.pause_minutes)+' minutes, then a NEW 4h/Daily signal is required')
+            elif pnl>0:self.event(symbol+': profitable closure; two-stage loss count reset to zero, Volume Delta remains armed')
         coin_pause=self.state['risk'].get('symbols',{}).get(symbol,{}).get('pause_until')
         if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
             self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
@@ -520,7 +534,7 @@ class TestnetSupervisor:
             self.save()
 
     def _manage_sma_exit(self,symbol,owner,p,cfg):
-        if owner.get('strategy')=='volume_delta_intrabar':return
+        if owner.get('strategy') in ('volume_delta_intrabar','sr_rsi_volume_gate'):return
         if (not cfg.sma_exit_enabled and owner.get('strategy') not in HOURLY_MINUTE_STRATEGIES) or owner['close_link']:return
         tracker=owner.setdefault('sma_exit',{})
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
@@ -760,6 +774,18 @@ class TestnetSupervisor:
         if not self.state['entries']:reasons.append('new entries disabled')
         return '; '.join(reasons)
 
+    def _staged_observation(self,symbol,observation,cfg):
+        from .staged_entry import new_gate,apply
+        gate=self.state.setdefault('entry_gates',{}).setdefault(symbol,new_gate())
+        enabled=bool(self.state['entries'] and self.state['status']=='running' and not self.state['flatten_reason']
+            and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,cfg,self.clock()))
+        volume=dict(signal=observation.get('volume_signal'),time=observation['time'],entry_sources=observation.get('volume_sources',[]))
+        confirmation,events=apply(gate,observation.get('primary_events',[]),volume,self.clock(),enabled=enabled,
+            position_open=symbol in self.state['owned'])
+        for message in events:
+            self._signal_decision(symbol,'two-stage gate: '+message,dict(time=observation['time'],signal=None,entry_sources=gate['sources']))
+        return {**observation,'signal':None,**(confirmation or {})}
+
     def apply_signals(self,cfg,observations,*,monitor_account=True):
         with self.lock:
             if not self.client or not self.state['management']:return
@@ -773,6 +799,7 @@ class TestnetSupervisor:
             for symbol,observation in observations.items():
                 key=identity+':'+symbol;stamp=observation['time'];previous=self.state['cursors'].get(key)
                 if previous is not None and stamp<=previous:continue
+                if current.strategy=='sr_rsi_volume_gate':observation=self._staged_observation(symbol,observation,current)
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
                 if observation.get('inverse_delay_event'):self.event(symbol+': '+observation['inverse_delay_event'])
@@ -791,10 +818,10 @@ class TestnetSupervisor:
                 if owner:
                     if owner['side']==side:
                         self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
-                    reason='Opposite Volume Delta signal' if current.strategy=='volume_delta_intrabar' else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
+                    reason='Opposite Volume Delta signal' if current.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate') else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
-                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
+                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=observation.get('entry_context'))
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
                         self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
@@ -806,7 +833,7 @@ class TestnetSupervisor:
                     except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
                 if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
-                    self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
+                    self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=observation.get('entry_context'))
                     self._signal_decision(symbol,'queued: '+observation['signal']+'; awaiting entry checks',observation)
                 else:self._signal_decision(symbol,'skipped: '+self._reversal_block_reason(symbol),observation)
             self._reversals(current)
@@ -829,7 +856,11 @@ class TestnetSupervisor:
         self.event(symbol+': fresh SMA exit data verified; coin entry block cleared')
         self.save();return True
 
-    def _entry(self,symbol,side,stamp,identity,cfg):
+    def _entry(self,symbol,side,stamp,identity,cfg,context=None):
+        if cfg.strategy=='sr_rsi_volume_gate':
+            gate=self.state.get('entry_gates',{}).get(symbol,{})
+            if gate.get('phase')!='armed' or not context or context.get('arm_id')!=gate.get('arm_id'):
+                self._signal_decision(symbol,'skipped: two-stage gate is not armed for this signal',dict(time=stamp,signal=side));return
         if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):return
         if symbol in self.state['blocked_symbols']:return
         if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries']:return
@@ -867,13 +898,13 @@ class TestnetSupervisor:
             with self.db() as db:entry_sources=recorded_source_map(db,payload['orderLinkId']).get(payload['orderLinkId'],[])
             if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
                 entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
-            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':cfg.timeframe,'thoth_exit_timeframe':'none' if cfg.strategy=='volume_delta_intrabar' else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':(context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'none' if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate') else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             record=self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='rejected':
                 code=record.get('result',{}).get('exchange_code')
                 self.event(symbol+': entry rejected by Bybit'+(' (code '+str(code)+')' if code is not None else '')+'; skipped this coin, other coins continue')
                 self.save();return
-            self.event(symbol+(': Volume Delta signal' if cfg.strategy=='volume_delta_intrabar' else ': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': Two-stage Volume Delta confirmation' if cfg.strategy=='sr_rsi_volume_gate' else ': Volume Delta signal' if cfg.strategy=='volume_delta_intrabar' else ': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:
             self._signal_decision(symbol,'entry skipped: '+str(exc),{'time':stamp,'signal':side})
         except AmbiguousOrder:
@@ -895,7 +926,7 @@ class TestnetSupervisor:
             if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries'] or len(self.state['owned'])>=cfg.max_positions:return
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
             del self.state['pending_signals'][symbol]
-            self._entry(symbol,intent['side'],intent['time'],intent['identity'],cfg)
+            self._entry(symbol,intent['side'],intent['time'],intent['identity'],cfg,intent.get('context'))
             return
 
     def _reversals(self,cfg):
@@ -913,7 +944,7 @@ class TestnetSupervisor:
             if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return
             if len(self.state['owned'])>=cfg.max_positions:continue
             del self.state['reversals'][symbol]
-            self._entry(symbol,reversal['side'],reversal['time'],reversal['identity'],cfg)
+            self._entry(symbol,reversal['side'],reversal['time'],reversal['identity'],cfg,reversal.get('context'))
 
     def run(self):
         while not self.stop_event.is_set():

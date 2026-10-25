@@ -547,6 +547,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['volume_delta']['sma_filter'] and not writes[-1][1]['sma_exit_enabled']
    page.uncheck('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.volume_delta.sma_filter')
    page.check('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => lv.config.volume_delta.sma_filter')
+   page.select_option('#strategyLogic','sr_rsi_volume_gate')
+   expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#vd_sma_filter')).to_be_checked();expect(page.locator('#vd_sma_filter')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#lossStreakScope')).to_have_value('per_coin');expect(page.locator('#lossStreakScope')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('opens Long OR Short')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_rsi_volume_gate'")
+   assert writes[-1][1]['timeframe']=='1' and writes[-1][1]['volume_delta']['sma_filter']
+   assert not writes[-1][1]['sma_exit_enabled'] and not writes[-1][1]['rsi']['volume_filter']
+   page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:2,primary_timeframe:'D'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('ARMED · 1m Volume Delta may enter Long or Short')
+   page.evaluate("() => {lv.entry_gates.ETHUSDT={phase:'cooldown',losses:3,cooldown_until:Date.now()/1000+3600};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('LOCKED · cooldown')
    page.select_option('#strategyLogic','sr_inverse_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('240')
    expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')
