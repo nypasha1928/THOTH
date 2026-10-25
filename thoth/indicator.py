@@ -56,6 +56,19 @@ def evaluate(rows, cfg, now=None):
         from .rsi import RSIState
         state=RSIState(cfg.rsi)
         return [state.step(row,duration) for row in rows if row['time']+duration<=now]
+    if cfg.strategy=='volume_delta_intrabar':
+        from .volume_delta import signal
+        output=[]
+        for i,row in enumerate(rows):
+            if row['time']+duration>now:break
+            item=dict(time=row['time'],levels={},sma=None,signal=None,conflict=False,close=row['close'],entry_sources=[])
+            if duration==60:
+                v=cfg.volume_delta
+                result=signal(rows[max(0,i-49):i+1],[],cfg.timeframe,row['time']+59,
+                    sma_filter=v.sma_filter,bull_type=v.bull_type,bear_type=v.bear_type,bullish_enabled=v.bullish,bearish_enabled=v.bearish)
+                item.update(signal=result['signal'],entry_sources=result['entry_sources'])
+            output.append(item)
+        return output
     if cfg.strategy=='sr_rsi_daily':
         from .rsi import RSIState
         from .daily_sr_rsi import combine

@@ -8,6 +8,7 @@ class FeedAdapter:
     def __init__(self,supervisor):
         self.supervisor=supervisor
         self.path=supervisor.path
+        self.volume_delta_data={}
 
     def snapshot(self):
         state=self.supervisor.load()
@@ -20,6 +21,11 @@ class FeedAdapter:
     def market_cycle(self,cfg,observations):
         cfg={**cfg,'automatic_paper':False}
         self.supervisor.apply_signals(cfg,observations)
+
+    def volume_delta_inputs(self,symbol,interval,bar):
+        data=self.volume_delta_data.get(symbol)
+        if not data or data['interval']!=interval or data['bar']!=bar:raise ValueError('Volume Delta lower-timeframe sample unavailable')
+        return data['rows']
 
     def entry_delay_allowed(self,symbol):
         state=self.supervisor.load()
@@ -42,8 +48,13 @@ class FeedAdapter:
 
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
-        rows=self.supervisor.client.candles(symbol,interval)
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
+        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy=='volume_delta_intrabar' else self.supervisor.client.candles(symbol,interval)
+        if cfg.strategy=='volume_delta_intrabar':
+            from .volume_delta import lower_inputs
+            lower=lower_inputs(self.supervisor.client.candles,symbol,interval,rows,self.supervisor.clock(),self.volume_delta_data.get(symbol,{}).get('rows',[]))
+            self.volume_delta_data[symbol]=dict(interval=interval,bar=rows[-1]['time'],rows=lower)
+            return rows
         if cfg.strategy!='rsi_hourly_intrabar' or not cfg.rsi.ml_signals or cfg.rsi.calculation_mode!='corrected':return rows
         required=cfg.rsi.max_data+cfg.rsi.rsi_length+6*cfg.rsi.smooth_period+2
         path=str(Path(self.path).with_suffix('.candles.sqlite'))

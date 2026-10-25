@@ -351,7 +351,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert ' V' not in major.get_attribute('d')
    expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
    page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
-   assert page.locator('#appearanceFields > details.indicator-dropdown').count()==8
+   assert page.locator('#appearanceFields > details.indicator-dropdown').count()==9
    assert page.locator('#appearanceFields > details.indicator-dropdown[open]').count()==0
    page.locator('#appearanceFields > details.indicator-dropdown').evaluate_all('(items)=>items.forEach(el=>el.open=true)')
    candle=page.locator('[data-candle]').last
@@ -528,6 +528,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
    expect(page.locator('#tf')).to_have_value('1')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R intrabar → Exit 1m');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','volume_delta_intrabar')
+   expect(page.locator('#volumeDeltaSettings')).to_be_visible()
+   expect(page.locator('#vd_sma_filter')).to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('NO SMA EXIT')
+   page.select_option('#strategyTf','5');page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='volume_delta_intrabar'")
+   assert writes[-1][1]['volume_delta']['sma_filter'] and not writes[-1][1]['sma_exit_enabled']
+   page.uncheck('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.volume_delta.sma_filter')
+   page.check('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => lv.config.volume_delta.sma_filter')
    page.select_option('#strategyLogic','sr_inverse_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('240')
    expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')

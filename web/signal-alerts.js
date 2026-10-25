@@ -20,6 +20,7 @@ function bindSignalAlerts(){
 function signalAlertSources(item){
  const d=item.diagnostic||{},names={static30_up:'RSI over 30',static30_down:'RSI below 30',static70_up:'RSI over 70',static70_down:'RSI below 70',ml_long_up:'RSI over Long',ml_long_down:'RSI below Long',ml_short_up:'RSI over Short',ml_short_down:'RSI below Short'};
  const recorded=(item.entry_sources||[]).map(source=>{
+  if(source.startsWith('volume_delta:'))return ({bullish_strong:'Volume Delta Strong Bullish (Up)',bullish_weak:'Volume Delta Weak Bullish (Up-)',bullish_all:'Volume Delta All Bullish',bearish_strong:'Volume Delta Strong Bearish (Down)',bearish_weak:'Volume Delta Weak Bearish (Down+)',bearish_all:'Volume Delta All Bearish'})[source.split(':')[1]]||source;
   if(source.startsWith('rsi:'))return names[source.slice(4)]||source;
   if(source.startsWith('sma:'))return 'SMA '+source.slice(4).replace('_','/')+' crossover';
   const [prefix,key]=source.split(':');if(['sr','inverse_sr'].includes(prefix)&&key){const [term,side,grade]=key.split('_');return (prefix==='inverse_sr'?'Inverse S/R ':'S/R ')+(term==='long'?'long-term':'short-term')+' '+grade+' '+side+(prefix==='inverse_sr'&&item.source_signal?' · '+item.source_signal+' signal → '+item.signal+' position':'');}

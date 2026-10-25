@@ -69,6 +69,16 @@ class IndicatorState:
         validate(row)
         cfg=self.cfg;duration=interval_seconds(cfg.timeframe)
         if self.last_time is not None and row['time']<=self.last_time:raise ValueError('Candle checkpoint must advance')
+        if cfg.strategy=='volume_delta_intrabar':
+            from .volume_delta import signal
+            self.buffer=(self.buffer+[row])[-50:];self.count+=1;self.last_time=row['time']
+            item=dict(time=row['time'],levels={},sma=None,signal=None,conflict=False,close=row['close'],entry_sources=[])
+            if duration==60:
+                v=cfg.volume_delta
+                result=signal(self.buffer,[],cfg.timeframe,row['time']+59,sma_filter=v.sma_filter,
+                    bull_type=v.bull_type,bear_type=v.bear_type,bullish_enabled=v.bullish,bearish_enabled=v.bearish)
+                item.update(signal=result['signal'],entry_sources=result['entry_sources'])
+            return item
         if cfg.strategy=='rsi_hourly_intrabar':
             result=self.rsi.step(row,duration)
             self.count+=1;self.last_time=row['time']
