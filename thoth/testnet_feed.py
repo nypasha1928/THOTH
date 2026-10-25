@@ -46,6 +46,12 @@ class FeedAdapter:
         self.supervisor.apply_signals({**cfg,'automatic_paper':False},
             {symbol:observation},monitor_account=False)
 
+    def staged_armed_symbols(self):
+        state=self.supervisor.load()
+        if state['config']['strategy']!='sr_rsi_volume_gate' or not state['management']:return []
+        return [symbol for symbol in state['config']['symbols']
+            if state.get('entry_gates',{}).get(symbol,{}).get('phase')=='armed']
+
     def staged_minute_inputs(self,symbol):
         """Read only when the runner is ready to evaluate this coin, not in prefetch."""
         if not self.supervisor.client:raise ValueError('Account is not connected')
@@ -68,7 +74,8 @@ class FeedAdapter:
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
         if cfg.strategy=='sr_rsi_volume_gate':
             gate=self.supervisor.load().get('entry_gates',{}).get(symbol,{})
-            packet=dict(primary={},minute_on_demand=True)
+            armed=gate.get('phase')=='armed'
+            packet=dict(primary={},minute_on_demand=armed,minute_not_needed=not armed)
             needs_primary=gate.get('phase')!='armed' and self.supervisor.clock()>=(gate.get('cooldown_until') or 0)
             if needs_primary:
                 for timeframe in ('240','D'):
