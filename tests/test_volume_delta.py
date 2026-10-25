@@ -54,3 +54,13 @@ class VolumeDeltaTests(unittest.TestCase):
             if i==30:state=IndicatorState(cfg,state.checkpoint())
             actual.append(state.step(row))
         self.assertEqual(actual,expected)
+
+    def test_historical_higher_timeframe_references_require_every_actual_minute(self):
+        from thoth.volume_delta import reference_history
+        rows=self.rows('Long',300);start=rows[-1]['time']
+        minute_rows=[dict(time=start+i*60,open=100,close=101,volume=2) for i in range(5)]
+        result=reference_history(rows,minute_rows,'5',start+300)
+        self.assertEqual(len(result),1);self.assertEqual(result[0]['signal'],'Long')
+        self.assertEqual(result[0]['time'],start)
+        self.assertEqual(reference_history(rows,minute_rows[:-1],'5',start+300),[])
+        self.assertEqual(reference_history(rows,minute_rows,'5',start+299),[])

@@ -59,13 +59,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];delta_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
     chart_queries.append(url)
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
     result=chart_older if 'lookback=2000' in url else chart_intervals[params.get('interval',['1'])[0]]
+    if delta_preview[0] and params.get('include_volume_delta')==['true']:result={**result,'volume_delta_analysis':[dict(time=result['candles'][-1]['time'],signal='Long')],'volume_delta_status':'Synthetic Volume Delta fixture; not exchange evidence'}
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -170,10 +171,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#symbol')).to_have_value('ETHUSDT')
    assert writes[-1][1]['symbols']==['ETHUSDT']
    if page.locator('#sma_7_50_filter_enabled').is_visible():
-    page.check('#sma_enabled');page.check('#sma_7_50_filter_enabled');page.click('#saveSymbols')
+    page.check('#sma_enabled');page.check('#sma_7_50_filter_enabled');page.click('#saveSymbols');page.wait_for_function('() => lv.config.sma_7_50_filter_enabled && lv.config.sma_enabled')
     assert writes[-1][1]['sma_7_50_filter_enabled'] is True
     assert writes[-1][1]['sma_enabled'] is True
-    page.uncheck('#sma_enabled');page.uncheck('#sma_7_50_filter_enabled');page.click('#saveSymbols')
+    page.uncheck('#sma_enabled');page.uncheck('#sma_7_50_filter_enabled');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.sma_7_50_filter_enabled && !lv.config.sma_enabled')
    page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
    assert writes[-1][1]['symbols']==['ETHUSDT']
    page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
@@ -352,6 +353,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
    page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
    assert page.locator('#appearanceFields > details.indicator-dropdown').count()==9
+   delta_preview[0]=True;page.click('#refresh')
+   expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
+   assert page.evaluate('referenceSignalStrategy')!='volume_delta_intrabar'
+   expect(page.locator('[data-signal-source="Volume Delta"]')).to_contain_text('V▲')
+   page.get_by_text('Volume Delta signals',exact=True).click()
+   page.get_by_label('Show Volume Delta reference arrows',exact=True).uncheck();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
+   page.get_by_label('Show Volume Delta reference arrows',exact=True).check();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
+   delta_preview[0]=False;page.click('#refresh');expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
+   page.get_by_text('Volume Delta signals',exact=True).click()
    assert page.locator('#appearanceFields > details.indicator-dropdown[open]').count()==0
    page.locator('#appearanceFields > details.indicator-dropdown').evaluate_all('(items)=>items.forEach(el=>el.open=true)')
    candle=page.locator('[data-candle]').last

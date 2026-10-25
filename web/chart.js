@@ -19,7 +19,7 @@ function draw(){
  const levelSnapshot=srAnalysis.filter(b=>b.time<=finish).at(-1);
  const family=key=>(key.startsWith('long_')?'long_':'short_')+(key.endsWith('_major')?'major':'minor');
  const displaySmas=[{period:7,color:chartStyle.sma7},{period:50,color:chartStyle.sma50},{period:200,color:chartStyle.sma}].map(line=>({...line,values:displayAverage(displayRows,line.period,'close')})),volumeMA=displayAverage(chartRows,20,'volume');
- const byTime=new Map(analysis.map(b=>[b.time,b])),srByTime=new Map(srAnalysis.map(b=>[b.time,b]));
+ const byTime=new Map(analysis.map(b=>[b.time,b])),srByTime=new Map(srAnalysis.map(b=>[b.time,b])),volumeDeltaByTime=new Map(volumeDeltaRows.map(b=>[b.time,b]));
  const settings=current().settings,showLevels=$('showLevels').checked;
  const enabled=key=>(!key.endsWith('_major')||settings.major)&&(!key.endsWith('_minor')||settings.minor)&&chartStyle[family(key)]?.visible;
  const active=rows.map(r=>byTime.get(r.time)).filter(Boolean),positions=current().positions.filter(p=>p.symbol===$('symbol').value);
@@ -91,10 +91,10 @@ function draw(){
   if(tinted)shape('title',{},candle).textContent='S/R '+srSignal+' signal candle · display tint only';
   const markers=[];if(chartStyle.showSRArrows&&srSignal)markers.push([srSignal,'S/R']);
   const bar=byTime.get(r.time);if(['sma_cross','sma_7_50','sr_sma_7_50'].includes(referenceSignalStrategy)&&chartStyle.showSMAArrows){const signal=referenceSignalStrategy==='sr_sma_7_50'?bar?.sma_signal:bar?.signal;if(signal)markers.push([signal,referenceSignalStrategy==='sma_cross'?'SMA 7/200':'SMA 7/50'])}
-  if(referenceSignalStrategy==='volume_delta_intrabar'&&chartStyle.showVolumeDeltaArrows&&bar?.signal)markers.push([bar.signal,'Volume Delta']);
+  if(chartStyle.showVolumeDeltaArrows&&volumeDeltaByTime.get(r.time)?.signal)markers.push([volumeDeltaByTime.get(r.time).signal,'Volume Delta']);
   if($('showSignals').checked)for(const [slot,[signal,source]]of markers.entries()){
    const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
-   marker.textContent=source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
+   marker.textContent=source==='Volume Delta'?(signal==='Long'?'V▲':'V▼'):source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
   }
  });
  function line(value,color,label,dash=''){const yy=y(value);if(yy<T||yy>B)return;shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':dash,'data-price-line':label},plot);shape('text',{x:L+5,y:yy-5,fill:color,'font-size':11},plot).textContent=label+' '+price(value)}

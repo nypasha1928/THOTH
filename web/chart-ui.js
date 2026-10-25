@@ -35,7 +35,7 @@ function renderAppearance(){const target=$('appearanceFields');target.replaceChi
  for(const [key,label]of [['showSRArrows','Show S/R breakout arrows'],['paintSRCandles','Color candles on S/R signals']])srGroup.append(appearanceInput(label,'checkbox',chartStyle[key],value=>chartStyle[key]=value));
  for(const [key,label]of [['srLongCandle','S/R bullish signal candle color'],['srShortCandle','S/R bearish signal candle color']])srGroup.append(appearanceInput(label,'color',chartStyle[key],value=>chartStyle[key]=value));
  renderRSIAppearance(rsiGroup);
- const deltaGroup=indicatorDropdown(target,'Volume Delta signals');deltaGroup.append(appearanceInput('Show Volume Delta reference arrows','checkbox',chartStyle.showVolumeDeltaArrows,v=>chartStyle.showVolumeDeltaArrows=v));
+ const deltaGroup=indicatorDropdown(target,'Volume Delta signals');deltaGroup.append(appearanceInput('Show Volume Delta reference arrows','checkbox',chartStyle.showVolumeDeltaArrows,v=>{chartStyle.showVolumeDeltaArrows=v;if(v&&state)loadChart()}));
  const crossoverGroup=indicatorDropdown(target,'SMA crossover signals');crossoverGroup.append(appearanceInput('Show SMA crossover reference arrows','checkbox',chartStyle.showSMAArrows,v=>chartStyle.showSMAArrows=v));
  for(const [key,label]of [['longSignal','S/R / SMA bullish arrow'],['shortSignal','S/R / SMA bearish arrow']])target.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
  target.append(appearanceInput('Signal size','number',chartStyle.signalSize,v=>{if(Number.isInteger(v)&&v>=10&&v<=32)chartStyle.signalSize=v},{min:10,max:32}));

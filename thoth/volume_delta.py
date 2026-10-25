@@ -67,3 +67,22 @@ def lower_inputs(fetch,symbol,interval,rows,now,known=()):
         older=fetch(symbol,'1',limit=1000,end=page[0]['time']*1000-1)
         merged.update({row['time']:row for row in older if start<=row['time']<page[0]['time']})
     return sorted(merged.values(),key=lambda row:row['time'])
+
+
+def reference_history(rows,minute_rows,interval,now,**settings):
+    """Closed-candle references only where every actual 1m candle is present."""
+    duration=interval_seconds(interval)
+    groups={}
+    for row in minute_rows:groups.setdefault(int(row['time'])//duration*duration,[]).append(row)
+    output=[]
+    for i,row in enumerate(rows):
+        if row['time']+duration>now:continue
+        lower=groups.get(row['time'],[])
+        if not lower:continue
+        expected=set(range(row['time'],row['time']+duration,60))
+        if not expected.issubset({bar['time'] for bar in lower}):continue
+        try:
+            result=signal(rows[max(0,i-49):i+1],lower,interval,row['time']+duration-1,**settings)
+        except ValueError:continue
+        output.append(dict(time=row['time'],levels={},sma=None,signal=result['signal'],conflict=False,entry_sources=result['entry_sources']))
+    return output
