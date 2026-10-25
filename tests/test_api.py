@@ -14,11 +14,13 @@ class ApiTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.patch = patch('thoth.app.live', ProductionSupervisor(Path(self.tmp.name) / 'live.sqlite'))
         self.patch.start()
+        self.feed_patch=patch('thoth.app.live_feed',None);self.feed_patch.start()
         self.client = TestClient(app)
 
     def tearDown(self):
         self.client.close()
         self.patch.stop()
+        self.feed_patch.stop()
         self.tmp.cleanup()
 
     def test_removed_modes_and_controls_are_unavailable(self):
@@ -130,6 +132,21 @@ class ApiTests(unittest.TestCase):
             data=self.client.get('/api/chart/BTCUSDT?interval=5').json()
         self.assertTrue(all(row['signal'] is None for row in data['analysis']))
         self.assertIn('no signal fabricated',data['indicator_status'])
+
+    def test_volume_delta_overlay_independent_of_saved_trading_strategy(self):
+        start=300*10000
+        rows=[dict(time=start-(59-i)*300,open=100,high=111,low=99,close=100 if i<59 else 110,volume=10) for i in range(60)]
+        lower=[dict(time=start,open=100,high=102,low=99,close=101,volume=10)]
+        with patch('thoth.app.candles',return_value=rows),patch('thoth.app.chart_history',return_value=lower) as fetch,patch('time.time',return_value=start+20):
+            without=self.client.get('/api/chart/BTCUSDT?interval=5').json()
+            self.assertEqual(without['volume_delta_analysis'],[]);fetch.assert_not_called()
+            data=self.client.get('/api/chart/BTCUSDT?interval=5&include_volume_delta=true').json()
+        self.assertEqual(data['chart_signal_strategy'],'sr_breakout')
+        self.assertEqual(data['volume_delta_analysis'][-1]['signal'],'Long')
+        self.assertTrue(all(row['signal'] is None for row in data['volume_delta_analysis'][:-1]))
+        self.assertIn('closed reference bars covered',data['volume_delta_status'])
+        from thoth.app import live
+        self.assertEqual(live.snapshot()['config']['strategy'],'sr_breakout')
 
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
