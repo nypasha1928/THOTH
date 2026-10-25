@@ -356,7 +356,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    delta_preview[0]=True;page.click('#refresh')
    expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
    assert page.evaluate('referenceSignalStrategy')!='volume_delta_intrabar'
-   expect(page.locator('[data-signal-source="Volume Delta"]')).to_contain_text('V▲')
+   expect(page.locator('[data-signal-source="Volume Delta"]')).to_contain_text('▲')
    page.get_by_text('Volume Delta signals',exact=True).click()
    page.get_by_label('Show Volume Delta reference arrows',exact=True).uncheck();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
    page.get_by_label('Show Volume Delta reference arrows',exact=True).check();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)

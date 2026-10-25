@@ -94,7 +94,7 @@ function draw(){
   if(chartStyle.showVolumeDeltaArrows&&volumeDeltaByTime.get(r.time)?.signal)markers.push([volumeDeltaByTime.get(r.time).signal,'Volume Delta']);
   if($('showSignals').checked)for(const [slot,[signal,source]]of markers.entries()){
    const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
-   marker.textContent=source==='Volume Delta'?(signal==='Long'?'V▲':'V▼'):source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
+   marker.textContent=source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
   }
  });
  function line(value,color,label,dash=''){const yy=y(value);if(yy<T||yy>B)return;shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':dash,'data-price-line':label},plot);shape('text',{x:L+5,y:yy-5,fill:color,'font-size':11},plot).textContent=label+' '+price(value)}
