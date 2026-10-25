@@ -38,8 +38,14 @@ def bounded_downloads(pool,symbols,fetch,stop_event,heartbeat=None):
 
 
 class Runner:
-    def __init__(self, engine, fetch=candles, interval=5):
+    def __init__(self, engine, fetch=candles, interval=5, *, confirmation_only=False):
         self.engine, self.fetch, self.interval = engine, fetch, interval
+        self.confirmation_only=confirmation_only
+        self.confirmation_runner=None
+        self.confirmation_last_checked={}
+        self.confirmation_symbol_cycles={}
+        self.confirmation_statuses={}
+        self.confirmation_checks=0
         self.stop_event = threading.Event()
         self.thread = None
         self.health = {'status': 'idle', 'symbols': {}, 'last_cycle': None}
@@ -53,6 +59,21 @@ class Runner:
             db.execute('CREATE TABLE IF NOT EXISTS candles(symbol TEXT, interval TEXT, time INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,time))')
             db.execute('CREATE TABLE IF NOT EXISTS checkpoints(symbol TEXT, interval TEXT, strategy TEXT, source TEXT, stamp INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS analyses(symbol TEXT, interval TEXT, strategy TEXT, source TEXT, stamp INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,strategy,stamp))')
+
+    @property
+    def health(self):
+        report=dict(self._health)
+        if self.confirmation_runner:
+            confirmation=self.confirmation_runner.health
+            report['confirmation']=confirmation
+            report['priority_minute_checks']=self.confirmation_runner.confirmation_checks
+            report['priority_check_count_basis']='since worker start'
+            if confirmation.get('status') in ('error','degraded') and report.get('status') in ('ok','scanning'):
+                report['status']='degraded'
+        return report
+
+    @health.setter
+    def health(self,value):self._health=value
 
     def history(self, symbol, interval, rows):
         """Persist history so moving API windows don't reset major/minor state."""
@@ -172,6 +193,7 @@ class Runner:
             observation=observe_daily(tracker,history,result[-1]['levels'],preview,cfg,now,
                 max_gap=budget,continuous=continuous)
             tracker.update(session=self.observation_session,scan_cycle=self.scan_cycle)
+            observation['sampling']=dict(continuous=continuous,gap=tracker['rsi'].get('observation_gap'),limit=budget)
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation
 
@@ -184,19 +206,20 @@ class Runner:
             bull_type=settings.bull_type,bear_type=settings.bear_type,
             bullish_enabled=settings.bullish,bearish_enabled=settings.bearish)
         identity=strategy_fingerprint(cfg)
+        cycle=self.confirmation_symbol_cycles.get(symbol,0) if self.confirmation_only else self.scan_cycle
         with sqlite3.connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             gap=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
             fresh=(result['ready'] and tracker.get('ready') and tracker.get('session')==self.observation_session and
-                tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle) and
+                tracker.get('scan_cycle') in (cycle-1,cycle) and
                 0<now-tracker.get('observed_at',0)<=gap)
             fired=set(tracker.get('fired',[])) if tracker.get('bar')==start else set()
             new=result['signal'] and not fired.intersection(result['entry_sources'])
             emitted=result['signal'] if fresh and new else None
             if emitted:fired.update(result['entry_sources'])
             tracker.update(bar=start,observed_at=now,ready=result['ready'],session=self.observation_session,
-                scan_cycle=self.scan_cycle,fired=sorted(fired))
+                scan_cycle=cycle,fired=sorted(fired))
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return dict(time=now,mark=rows[-1]['close'],signal=emitted,entry_sources=result['entry_sources'] if emitted else [],
             volume_delta_status=result['status'])
@@ -220,6 +243,15 @@ class Runner:
         for timeframe,rows in packet['primary'].items():
             try:
                 if isinstance(rows,Exception):raise rows
+                source_now=now
+                if packet.get('refresh_primary'):
+                    source_now=time.time()
+                    expected=int(source_now)//interval_seconds(timeframe)*interval_seconds(timeframe)
+                    if not rows or rows[-1]['time']!=expected:
+                        rows=self.engine.staged_primary_inputs(symbol,timeframe)
+                        source_now=time.time()
+                        expected=int(source_now)//interval_seconds(timeframe)*interval_seconds(timeframe)
+                        if not rows or rows[-1]['time']!=expected:raise ValueError('Current higher candle unavailable: expected '+str(expected)+', received '+str(rows[-1]['time'] if rows else None))
                 source_cfg=cfg.model_copy(update={'strategy':DAILY_COMBINED,'timeframe':timeframe})
                 identity=strategy_fingerprint(source_cfg)
                 with sqlite3.connect(self.history_path) as db:
@@ -227,10 +259,13 @@ class Runner:
                 previous=json.loads(saved[0]) if saved else {}
                 window_start=min(previous.get(part,{}).get('observed_at',0) for part in ('sr','rsi'))
                 history=self.history(symbol,timeframe,rows)
-                result,count=self.analysis(symbol,source_cfg,history,now,latest_only=True)
-                observation=self.daily_sr_rsi_observation(symbol,source_cfg,history,result,now)
+                result,count=self.analysis(symbol,source_cfg,history,source_now,latest_only=True)
+                observation=self.daily_sr_rsi_observation(symbol,source_cfg,history,result,source_now)
                 # Either family supplies permission, including simultaneous opposing
                 # families: direction is irrelevant at this first stage.
+                sampling=observation.get('sampling',{})
+                if sampling.get('continuous') and sampling.get('gap') is not None and sampling['gap']>sampling['limit']:
+                    errors[timeframe]='Higher observation gap '+str(round(sampling['gap'],2))+'s exceeds '+str(sampling['limit'])+'s freshness limit; baseline refreshed'
                 diagnostic=observation.get('signal_diagnostic') or {}
                 for family in ('sr','rsi'):
                     direction=diagnostic.get(family+'_signal')
@@ -238,8 +273,9 @@ class Runner:
                     item={'signal':direction,'diagnostic':{**diagnostic,('rsi_signal' if family=='sr' else 'sr_signal'):None}}
                     sources=['htf:'+timeframe+':'+source for source in sources_from_decision(item)]
                     primary.append(dict(id=identity+':'+str(diagnostic['entry_bar'])+':'+family+':'+','.join(sources),
-                        signal=direction,time=now,timeframe=timeframe,sources=sources,window_start=window_start))
+                        signal=direction,time=source_now,timeframe=timeframe,sources=sources,window_start=window_start))
             except Exception as exc:errors[timeframe]=str(exc)[:200]
+        if packet.get('refresh_primary'):now=time.time()
         volume={}
         try:
             if packet.get('minute_not_needed'):
@@ -256,7 +292,40 @@ class Runner:
             volume_signal=volume.get('signal'),volume_sources=volume.get('entry_sources',[]),source_errors=errors,
             volume_delta_status=volume.get('volume_delta_status','1m data unavailable'))
 
+    def confirmation_cycle(self):
+        started=time.monotonic()
+        state=self.engine.snapshot();cfg=Settings(**state['settings'])
+        if not cfg.automatic_paper or cfg.strategy!='sr_rsi_volume_gate':
+            self.health=dict(status='disabled',symbols={},last_cycle=time.time())
+            return
+        self.scan_cycle+=1
+        armed=self.engine.staged_armed_symbols()
+        self.confirmation_statuses={s:v for s,v in self.confirmation_statuses.items() if s in armed}
+        due=[s for s in armed if started-self.confirmation_last_checked.get(s,float('-inf'))>=self.interval]
+        selected=sorted(due,key=lambda s:self.confirmation_last_checked.get(s,float('-inf')))[:4]
+        for symbol in selected:
+            if self.stop_event.is_set():return
+            self.confirmation_symbol_cycles[symbol]=self.confirmation_symbol_cycles.get(symbol,0)+1
+            try:
+                obs=self.staged_observation(symbol,cfg,dict(primary={},minute_on_demand=True),time.time())
+                self.engine.market_observation(cfg.model_dump(),symbol,obs)
+                self.confirmation_checks+=1
+                self.confirmation_statuses[symbol]=dict(status='degraded' if obs.get('source_errors') else 'ok',
+                    observed_at=obs['time'],source_errors=obs.get('source_errors',{}),note=obs['volume_delta_status'])
+            except Exception as exc:
+                self.confirmation_statuses[symbol]=dict(status='error',observed_at=time.time(),message=str(exc)[:240])
+            finally:self.confirmation_last_checked[symbol]=time.monotonic()
+        duration=max(0.,time.monotonic()-started)
+        self.previous_scan_seconds=max(duration,self.interval)*max(1,(len(armed)+3)//4)
+        ages={s:time.monotonic()-self.confirmation_last_checked[s] for s in armed if s in self.confirmation_last_checked}
+        self.health=dict(status='degraded' if any(v['status']!='ok' for v in self.confirmation_statuses.values()) or any(age>300 for age in ages.values()) else 'ok' if armed else 'waiting_for_permission',
+            symbols=dict(self.confirmation_statuses),last_cycle=time.time(),scan_seconds=duration,estimated_round_seconds=self.previous_scan_seconds,
+            armed_coins=len(armed),checked_this_cycle=len(selected),total_checks=self.confirmation_checks,
+            max_check_age_seconds=max(ages.values(),default=0),stale_symbols=[s for s,age in ages.items() if age>300],
+            pending_first_check=sum(s not in self.confirmation_last_checked for s in armed))
+
     def cycle(self, paced=True):
+        if self.confirmation_only:return self.confirmation_cycle()
         scan_started=time.monotonic()
         state = self.engine.snapshot()
         cfg = Settings(**state['settings'])
@@ -271,31 +340,13 @@ class Runner:
                    callable(getattr(self.engine,'begin_market_scan',None)) and
                    callable(getattr(self.engine,'market_observation',None)))
         if streaming:self.engine.begin_market_scan()
-        # All dispatch/indicator/SQLite work remains on this thread. While slow
-        # higher fetches run in the pool, revisit up to four due armed coins.
-        # A bounded group prevents a large armed set starving permission scans.
-        armed_checks={};next_armed_poll=[0.];priority_checks=[0]
         def record(symbol,observation):
             observations[symbol]=observation
             statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,
                 signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}))
             if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
-        def poll_armed():
-            mono=time.monotonic()
-            if mono<next_armed_poll[0] or self.stop_event.is_set():return
-            next_armed_poll[0]=mono+5
-            getter=getattr(self.engine,'staged_armed_symbols',None)
-            if not getter:return
-            due=[symbol for symbol in getter() if symbol in symbols and mono-armed_checks.get(symbol,float('-inf'))>=5]
-            for symbol in sorted(due,key=lambda symbol:armed_checks.get(symbol,float('-inf')))[:4]:
-                if self.stop_event.is_set():return
-                try:
-                    observation=self.staged_observation(symbol,cfg,dict(primary={},minute_on_demand=True),time.time())
-                    record(symbol,observation);priority_checks[0]+=1
-                except Exception as exc:
-                    observations.pop(symbol,None);statuses[symbol]=dict(status='error',message=str(exc)[:240])
-                finally:armed_checks[symbol]=time.monotonic()
-        if cfg.strategy=='sr_rsi_volume_gate':poll_armed()
+        if cfg.strategy=='sr_rsi_volume_gate':
+            self.health={**self._health,'status':'scanning','scan_started':time.time()}
         futures = {}
         # Four in-flight fetches, globally spaced starts: maximum eight requests/sec.
         # Download concurrently; indicator state and SQLite remain on this single thread.
@@ -311,7 +362,7 @@ class Runner:
             return self.fetch(symbol, cfg.timeframe)
         with ThreadPoolExecutor(max_workers=4) as pool:
             if cfg.strategy=='sr_rsi_volume_gate':
-                completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event,heartbeat=poll_armed)
+                completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event)
             else:
                 for symbol in symbols:
                     if self.stop_event.is_set(): return
@@ -322,14 +373,18 @@ class Runner:
                 if self.stop_event.is_set():return
                 try:
                     rows=future.result()
-                    if cfg.strategy=='sr_rsi_volume_gate' and rows.get('minute_on_demand') and symbol in armed_checks:continue
+                    if cfg.strategy=='sr_rsi_volume_gate' and rows.get('minute_on_demand'):
+                        # Confirmation worker owns this tracker/cursor. Never send
+                        # empty primary observations that could race a minute signal.
+                        observations[symbol]=dict(signal=None)
+                        statuses[symbol]=dict(status='ok',signal=None,note='Armed; checked by independent minute worker')
+                        continue
                     if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
                         # Delta needs current 1m inputs: process ready symbols now,
                         # rather than age their samples behind the whole download.
                         now=time.time()
                         observation=self.staged_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_rsi_volume_gate' else self.volume_delta_observation(symbol,cfg,rows,now)
                         record(symbol,observation)
-                        if cfg.strategy=='sr_rsi_volume_gate' and rows.get('minute_on_demand'):armed_checks[symbol]=time.monotonic()
                     else:downloaded[symbol]=rows
                 except Exception as exc:
                     if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
@@ -366,21 +421,25 @@ class Runner:
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) or any(s['status']!='ok' for s in statuses.values()) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
-                       'priority_minute_checks':priority_checks[0] if cfg.strategy=='sr_rsi_volume_gate' else 0,
                        'note': '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy=='sr_rsi_volume_gate' else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():
+            started=time.monotonic()
             try:
                 self.cycle()
             except Exception as exc:
                 self.health = {'status':'error','message':str(exc)[:240], 'last_cycle':time.time()}
-            self.stop_event.wait(self.interval)
+            self.stop_event.wait(max(0,self.interval-(time.monotonic()-started)) if self.confirmation_only else self.interval)
 
     def start(self):
-        self.thread = threading.Thread(target=self.run, name='thoth-paper', daemon=True)
+        if not self.confirmation_only:
+            self.confirmation_runner=Runner(self.engine,fetch=self.fetch,interval=self.interval,confirmation_only=True)
+            self.confirmation_runner.start()
+        self.thread = threading.Thread(target=self.run, name='thoth-confirmation' if self.confirmation_only else 'thoth-market', daemon=True)
         self.thread.start()
 
     def stop(self):
         self.stop_event.set()
+        if self.confirmation_runner:self.confirmation_runner.stop()
         if self.thread: self.thread.join(timeout=15)
