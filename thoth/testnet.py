@@ -525,7 +525,10 @@ class TestnetSupervisor:
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
         timeframe='1' if owner.get('strategy') in HOURLY_MINUTE_STRATEGIES else cfg.timeframe
         rows=self.client.candles(symbol,timeframe,limit=51)
-        reason=observe_exit(tracker,rows,timeframe,p['side'],self.clock())
+        inverse=owner.get('strategy')=='sr_inverse_intrabar'
+        exit_side=({'Buy':'Sell','Sell':'Buy'}[p['side']] if inverse else p['side'])
+        reason=observe_exit(tracker,rows,timeframe,exit_side,self.clock())
+        if reason and inverse:reason='Inverse '+reason
         if tracker.get('waiting_for_candle') is not None:
             self.save();return
         previous_error=owner.pop('sma_exit_error',None)

@@ -67,7 +67,7 @@ async function loadHistory(){
   historyTotal=data.total;if(historyOffset>=historyTotal&&historyOffset>0){historyOffset=Math.max(0,(Math.ceil(historyTotal/50)-1)*50);loadHistory();return}$('historyRows').replaceChildren();
   for(const trade of data.items){const row=document.createElement('tr');row.classList.toggle('trade-loss',Number(trade.pnl)<0);row.classList.toggle('trade-win',Number(trade.pnl)>0);
    const symbolButton=document.createElement('button');symbolButton.type='button';symbolButton.textContent=trade.symbol;symbolButton.onclick=()=>openChartSymbol(trade.symbol);
-   const reason=trade.reason==='Open P&L trailing stop'?'Combined Trailing Stop':/^SMA 7 crossed (below|above) SMA 50 \(intrabar exit\)$/.test(trade.reason||'')?'SMA 7/50 (EXIT)':trade.reason||'—';
+   const reason=trade.reason==='Open P&L trailing stop'?'Combined Trailing Stop':/^(Inverse )?SMA 7 crossed (below|above) SMA 50 \(intrabar exit\)$/.test(trade.reason||'')?(trade.reason.startsWith('Inverse ')?'Inverse SMA 7/50 (EXIT)':'SMA 7/50 (EXIT)'):trade.reason||'—';
    const cells=[tradeTimestamp(trade.opened_at),tradeTimestamp(trade.closed_at,false,false),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),reason,strategyName(trade.strategy),trade.entry_source_label||'Source not recorded'];
    for(const [index,value] of cells.entries()){const cell=document.createElement('td');if(index===6){cell.classList.add('reason-cell');cell.title=trade.reason||'';}if(index===5){if(Number(trade.pnl)<0)cell.classList.add('pnl-loss');else if(Number(trade.pnl)>0)cell.classList.add('pnl-win');}if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
   }

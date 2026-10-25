@@ -531,6 +531,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#strategyLogic','sr_inverse_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('240')
    expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')
+   expect(page.locator('#strategyDescription')).to_contain_text('actual SHORT exits when SMA 7 crosses BELOW SMA 50')
+   expect(page.locator('#strategyDescription')).to_contain_text('actual LONG exits when SMA 7 crosses ABOVE SMA 50')
    expect(page.locator('#inverse_direction_confirmed')).to_be_visible()
    page.check('#inverse_direction_confirmed')
    expect(page.locator('#inverse_entry_delay_seconds')).to_be_visible()
