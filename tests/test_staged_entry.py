@@ -211,6 +211,61 @@ class StagedAccountTests(unittest.TestCase):
         self.assertEqual(observation['source_errors'],{})
         self.assertIn('proxy',observation['volume_delta_status'])
 
+    def test_minute_rollover_retries_only_previous_bar_near_boundary(self):
+        adapter=FeedAdapter(self.service);runner=Runner(adapter)
+        now=int(self.now[0])//60*60+2;bar=int(now)//60*60
+        with patch('thoth.runner.time.time',return_value=now),patch.object(runner.stop_event,'wait',return_value=False) as pause:
+            with patch.object(adapter,'staged_minute_inputs',side_effect=[[{'time':bar-60}],[{'time':bar}]]) as read:
+                rows,stamp=runner.fresh_staged_minute('BTCUSDT')
+                self.assertEqual(rows[-1]['time'],bar);self.assertEqual(stamp,now)
+                self.assertEqual(read.call_count,2);pause.assert_called_once_with(.25)
+            for actual in (bar-120,bar+60,None):
+                with patch.object(adapter,'staged_minute_inputs',return_value=[] if actual is None else [{'time':actual}]) as read:
+                    with self.assertRaisesRegex(ValueError,'expected'):runner.fresh_staged_minute('BTCUSDT')
+                    self.assertEqual(read.call_count,1)
+            with patch.object(adapter,'staged_minute_inputs',return_value=[{'time':bar-60}]) as read:
+                with self.assertRaisesRegex(ValueError,'received'):runner.fresh_staged_minute('BTCUSDT')
+                self.assertEqual(read.call_count,3)
+        with patch('thoth.runner.time.time',return_value=bar+20),patch.object(adapter,'staged_minute_inputs',return_value=[{'time':bar-60}]) as read:
+            with self.assertRaises(ValueError):runner.fresh_staged_minute('BTCUSDT')
+            self.assertEqual(read.call_count,1)
+
+    def test_higher_history_bootstrap_then_small_overlap_and_gap_catchup(self):
+        adapter=FeedAdapter(self.service);runner=Runner(adapter)
+        duration=14400;start=int(self.now[0])//duration*duration
+        self.assertEqual(adapter.staged_history_limit('BTCUSDT','240'),1000)
+        rows=[dict(time=start-(99-i)*duration,open=100,high=101,low=99,close=100,volume=10) for i in range(100)]
+        runner.history('BTCUSDT','240',rows)
+        self.assertEqual(adapter.staged_history_limit('BTCUSDT','240'),3)
+        self.now[0]+=duration*4
+        self.assertEqual(adapter.staged_history_limit('BTCUSDT','240'),7)
+        self.now[0]+=duration*2000
+        self.assertEqual(adapter.staged_history_limit('BTCUSDT','240'),1000)
+
+    def test_latest_analysis_matches_full_replay_and_keeps_closed_state_unchanged(self):
+        import math,sqlite3
+        adapter=FeedAdapter(self.service);runner=Runner(adapter)
+        duration=14400;start=int(self.now[0])//duration*duration
+        cfg=Settings(strategy='sr_rsi_daily').model_copy(update={'timeframe':'240'})
+        rows=[]
+        for i in range(100):
+            close=100+math.sin(i*.4)*5
+            rows.append(dict(time=start-(99-i)*duration,open=100,high=max(100,close)+1,low=min(100,close)-1,close=close,volume=10))
+        history=runner.history('BTCUSDT','240',rows)
+        all_bars,_=runner.analysis('BTCUSDT',cfg,history,self.now[0])
+        with sqlite3.connect(runner.history_path) as db:before=db.execute('SELECT payload FROM checkpoints').fetchall()
+        recent=runner.history('BTCUSDT','240',rows[-3:])
+        latest,_=runner.analysis('BTCUSDT',cfg,recent,self.now[0],latest_only=True)
+        self.assertEqual(latest,[all_bars[-1]])
+        with sqlite3.connect(runner.history_path) as db:self.assertEqual(db.execute('SELECT payload FROM checkpoints').fetchall(),before)
+        # Finalize a changed forming candle; the incremental replay still agrees.
+        rows[-1].update(close=104,high=105);self.now[0]=start+duration+20
+        rows.append(dict(time=start+duration,open=104,close=103,high=105,low=102,volume=10))
+        history=runner.history('BTCUSDT','240',rows[-3:])
+        latest,_=runner.analysis('BTCUSDT',cfg,history,self.now[0],latest_only=True)
+        from thoth.indicator import evaluate
+        self.assertEqual(latest[-1],evaluate(rows,cfg,self.now[0])[-1])
+
     def test_runner_keeps_healthy_source_permission_when_minute_or_other_source_fails(self):
         runner=Runner(FeedAdapter(self.service))
         packet=dict(primary={'240':[], 'D':ValueError('fixture daily unavailable')},minute=[],minute_error=ValueError('fixture minute unavailable'))

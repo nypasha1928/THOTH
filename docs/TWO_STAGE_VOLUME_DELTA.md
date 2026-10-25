@@ -28,3 +28,7 @@ Validation uses local simulated exchanges, actual indicator calculations, restar
 ### Minute data freshness fix
 
 Higher histories are now prefetched with a maximum of four outstanding packets. The runner completes each coin's higher calculations before requesting its 60 most recent minute candles and refreshing the observation clock. Minute candles are not stored in the prefetched packets, which previously allowed them to expire while queued on large watchlists. Current-minute validation remains strict. Initial higher-history bootstrap and the full watchlist sweep may still be slow; inspect `scan_seconds` in the worker report rather than assuming every coin is sampled every five seconds.
+
+After initial history bootstrap, higher-timeframe downloads refresh a recent three-candle overlap plus elapsed periods; saved warmup is retained. The staged source check reads only the latest closed indicator result and avoids rewriting unchanged checkpoints. Initial bootstrap still requests up to 1,000 candles, and large-watchlist sweep duration must be measured on the server.
+
+At a minute rollover, if Bybit returns exactly the previous minute within the first five seconds, the worker makes at most two additional reads with short bounded waits. It still requires the actual current candle. Exhaustion, older/future data and missing data remain errors; diagnostics include expected and received bar times.

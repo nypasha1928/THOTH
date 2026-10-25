@@ -51,6 +51,18 @@ class FeedAdapter:
         if not self.supervisor.client:raise ValueError('Account is not connected')
         return self.supervisor.client.candles(symbol,'1',limit=60)
 
+    def staged_history_limit(self,symbol,interval):
+        """Bootstrap once, then refresh overlap plus any elapsed higher candles."""
+        from .timeframes import interval_seconds
+        path=Path(self.path).with_suffix('.candles.sqlite')
+        if not path.exists():return 1000
+        try:
+            with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+                count,last=db.execute('SELECT COUNT(*),MAX(time) FROM candles WHERE symbol=? AND interval=?',(symbol,interval)).fetchone()
+            if count<50 or last is None or last>self.supervisor.clock():return 1000
+            return min(1000,max(3,int((self.supervisor.clock()-last)//interval_seconds(interval))+3))
+        except sqlite3.OperationalError:return 1000
+
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
@@ -60,7 +72,7 @@ class FeedAdapter:
             needs_primary=gate.get('phase')!='armed' and self.supervisor.clock()>=(gate.get('cooldown_until') or 0)
             if needs_primary:
                 for timeframe in ('240','D'):
-                    try:packet['primary'][timeframe]=self.supervisor.client.candles(symbol,timeframe)
+                    try:packet['primary'][timeframe]=self.supervisor.client.candles(symbol,timeframe,limit=self.staged_history_limit(symbol,timeframe))
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
         rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy=='volume_delta_intrabar' else self.supervisor.client.candles(symbol,interval)
