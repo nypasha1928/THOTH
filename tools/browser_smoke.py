@@ -533,7 +533,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')
    expect(page.locator('#inverse_direction_confirmed')).to_be_visible()
    page.check('#inverse_direction_confirmed')
+   expect(page.locator('#inverse_entry_delay_seconds')).to_be_visible()
+   page.fill('#inverse_entry_delay_seconds','60')
    page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_inverse_intrabar'")
+   assert writes[-1][1]['inverse_entry_delay_seconds']==60
    expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
    page.select_option('#strategyTf','D');page.click('#saveSymbols');page.wait_for_function("() => lv.config.timeframe==='D'")
    page.select_option('#strategyLogic','sr_rsi_daily')

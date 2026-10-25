@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent.parent
-STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','minor','sma_enabled','sma_length','sma_7_50_filter_enabled','rsi')
+STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','minor','sma_enabled','sma_length','sma_7_50_filter_enabled','rsi','inverse_entry_delay_seconds')
 
 
 def source_fingerprint():
     h=hashlib.sha256()
-    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/intrabar_entry.py','thoth/rsi.py','thoth/daily_sr_rsi.py','reference/ml_rsi_900_uploaded.pine','thoth/timeframes.py','reference/support_resistance.pine'):
+    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/intrabar_entry.py','thoth/inverse_entry_delay.py','thoth/rsi.py','thoth/daily_sr_rsi.py','reference/ml_rsi_900_uploaded.pine','thoth/timeframes.py','reference/support_resistance.pine'):
         path=ROOT/relative
         h.update(relative.encode());h.update(path.read_bytes())
     return h.hexdigest()

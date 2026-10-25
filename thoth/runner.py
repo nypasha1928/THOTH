@@ -100,6 +100,9 @@ class Runner:
                 observation['source_signal']=raw
                 observation['signal']={'Long':'Short','Short':'Long'}.get(raw)
                 observation['entry_sources']=[source.replace('sr:','inverse_sr:',1) for source in observation['entry_sources']]
+                from .inverse_entry_delay import apply_delay
+                allowed=getattr(self.engine,'entry_delay_allowed',lambda symbol:False)(symbol)
+                observation=apply_delay(tracker,observation,cfg,result[-1]['levels'],now,continuous=continuous,entries_allowed=allowed,rows=history)
             # Persist consumption before dispatch: a crash must not replay an entry.
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation

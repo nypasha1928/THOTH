@@ -24,7 +24,7 @@ class InverseSRTests(unittest.TestCase):
                     duration=interval_seconds(interval);start=duration*100;now=[start+10]
                     exchange=Exchange(lambda:now[0]);path=Path(d)/'account.sqlite'
                     def create():return TestnetSupervisor(path,enabled=True,password_configured=True,client_factory=lambda *a,**k:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
-                    service=create();cfg=TestnetSettings(strategy='sr_inverse_intrabar',timeframe=interval,inverse_direction_confirmed=True,dedicated_account=True,symbols=['BTCUSDT'])
+                    service=create();cfg=TestnetSettings(strategy='sr_inverse_intrabar',timeframe=interval,inverse_direction_confirmed=True,inverse_entry_delay_seconds=0,dedicated_account=True,symbols=['BTCUSDT'])
                     service.configure(cfg);service.activate(service.confirmation)
                     adapter=FeedAdapter(service);runner=Runner(adapter)
                     plain=Settings(**{k:v for k,v in cfg.model_dump().items() if k in Settings.model_fields})
