@@ -308,3 +308,5 @@ The separate **S/R + RSI 4h/D → Volume Delta 1m** strategy monitors both highe
 ### S/R-only permission → Order Block 5m
 
 The separate **S/R 4h/D → Order Block 5m** strategy arms a coin from either higher S/R timeframe (no RSI), then waits for a new intrabar5m Order Block event. Only SMA200 is used: bullish formation below / bearish formation above; supply breakout Long above / demand breakdown Short below. Other filters are off. It retains independent workers, configured protection, opposite-signal action and per-coin loss lock/cooldown/fresh-S/R rearming. Select it only after pausing entries and closing/reconciling current positions. See [rules, source preservation and implementation limits](docs/SR_ORDER_BLOCK_STRATEGY.md).
+
+S/R chart arrows have their own **S/R arrows** control and appear independently of the selected strategy on every supported chart timeframe. Chart references show both Major/Minor families without trading entry filters. Closed-candle arrows are confirmed; a forming-candle preview uses confirmed levels and may change. These displays do not enable entries or prove a trade occurred.

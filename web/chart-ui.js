@@ -1,5 +1,5 @@
 // Appearance is device-local display state; never included in trading settings.
-const chartStyleDefaults={...rsiVisualDefaults,background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,volumeCollapsed:false,rsiCollapsed:false,showVolume:true,showRSI:true,showRSISignals:true,showRSIPriceSignals:true,showRSIPaneSignals:true,showRSIStatic:true,showRSIML:true,showRSIVWAP:false,showSRArrows:true,showSMAArrows:true,showVolumeDeltaArrows:true,showOrderBlockZones:true,obBullish:'#2157f3',obBearish:'#ff5d00',paintSRCandles:false,srLongCandle:'#81d4fa',srShortCandle:'#ffb3ba',
+const chartStyleDefaults={srDisplayVersion:2,...rsiVisualDefaults,background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,volumeCollapsed:false,rsiCollapsed:false,showVolume:true,showRSI:true,showRSISignals:true,showRSIPriceSignals:true,showRSIPaneSignals:true,showRSIStatic:true,showRSIML:true,showRSIVWAP:false,showSRArrows:true,showSMAArrows:true,showVolumeDeltaArrows:true,showOrderBlockZones:true,obBullish:'#2157f3',obBearish:'#ff5d00',paintSRCandles:false,srLongCandle:'#81d4fa',srShortCandle:'#ffb3ba',
  long_major:{support:'#085d31',resistance:'#b70909',style:'solid',width:4,visible:true},
  long_minor:{support:'#3e7d5c',resistance:'#b14848',style:'dotted',width:2,visible:true},
  short_major:{support:'#83a091',resistance:'#986464',style:'dashed',width:3,visible:true},
@@ -11,13 +11,13 @@ let chartPinch=null;
 let chartStyle=copyStyle(),chartDrag=null,suppressChartClick=false,chartPriceShift=0,chartPriceZoom=1,chartGeometry=null;
 try{const stored=JSON.parse(localStorage.getItem(chartStyleKey)||'null');if(stored&&typeof stored==='object'){
  for(const key of ['bull','bear','longSignal','shortSignal','sma','sma7','sma50','background','srLongCandle','srShortCandle','obBullish','obBearish'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
- for(const key of ['volumeCollapsed','rsiCollapsed','showVolume','showLastPrice','showRSI','showRSISignals','showRSIPriceSignals','showRSIPaneSignals','showRSIStatic','showRSIML','showRSIVWAP','showSRArrows','showSMAArrows','showVolumeDeltaArrows','showOrderBlockZones','paintSRCandles'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
+ for(const key of ['volumeCollapsed','rsiCollapsed','showVolume','showLastPrice','showRSI','showRSISignals','showRSIPriceSignals','showRSIPaneSignals','showRSIStatic','showRSIML','showRSIVWAP','showSRArrows','showSMAArrows','showVolumeDeltaArrows','showOrderBlockZones','paintSRCandles'])if(typeof stored[key]==='boolean'&&(key!=='showSRArrows'||stored.srDisplayVersion===2))chartStyle[key]=stored[key];
  restoreRSIVisual(stored,chartStyle);
  if(Number.isInteger(stored.rightGap)&&stored.rightGap>=0&&stored.rightGap<=100)chartStyle.rightGap=stored.rightGap;
  if(Number.isInteger(stored.signalSize)&&stored.signalSize>=10&&stored.signalSize<=32)chartStyle.signalSize=stored.signalSize;
  for(const key of ['long_major','long_minor','short_major','short_minor']){const value=stored[key];if(!value||typeof value!=='object')continue;for(const side of ['support','resistance'])if(/^#[0-9a-f]{6}$/i.test(value[side]))chartStyle[key][side]=value[side];if(['solid','dotted','dashed'].includes(value.style))chartStyle[key].style=value.style;if(Number.isInteger(value.width)&&value.width>=1&&value.width<=6)chartStyle[key].width=value.width;if(typeof value.visible==='boolean')chartStyle[key].visible=value.visible}
 }}catch{/* Invalid/unavailable local storage uses defaults. */}
-function persistChartStyle(){try{localStorage.setItem(chartStyleKey,JSON.stringify(chartStyle));$('appearanceStatus').textContent='Appearance saved on this device.'}catch{$('appearanceStatus').textContent='Appearance changed for this session; browser storage unavailable.'}if(state)draw()}
+function persistChartStyle(){if($('showSRSignals'))$('showSRSignals').checked=chartStyle.showSRArrows;try{localStorage.setItem(chartStyleKey,JSON.stringify(chartStyle));$('appearanceStatus').textContent='Appearance saved on this device.'}catch{$('appearanceStatus').textContent='Appearance changed for this session; browser storage unavailable.'}if(state)draw()}
 function appearanceInput(label,type,value,oninput,options={}){const row=document.createElement('label');row.append(document.createTextNode(label));const input=document.createElement(type==='select'?'select':'input');if(type!=='select')input.type=type;input.setAttribute('aria-label',label);for(const [key,val]of Object.entries(options))input.setAttribute(key,val);if(type==='select')for(const name of ['solid','dotted','dashed']){const option=document.createElement('option');option.value=name;option.textContent=name;input.append(option)}if(type==='checkbox')input.checked=value;else input.value=value;input.oninput=()=>{oninput(type==='checkbox'?input.checked:type==='number'?Number(input.value):input.value);persistChartStyle()};row.append(input);return row}
 function indicatorDropdown(target,name){const group=document.createElement('details'),heading=document.createElement('summary');group.className='indicator-dropdown';group.dataset.indicator=name;heading.textContent=name;group.append(heading);target.append(group);return group}
 function renderAppearance(){const target=$('appearanceFields');target.replaceChildren();
@@ -68,6 +68,8 @@ function expandChart(expanded){const card=$('chartCard');card.classList.toggle('
 $('maximizeChart').onclick=()=>expandChart(!$('chartCard').classList.contains('chart-expanded'));
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('chartSearchDialog').open&&!$('liveDialog').open){if(!$('chartAppearance').hidden)toggleAppearance(false);else if($('chartCard').classList.contains('chart-expanded'))expandChart(false)}});
 renderAppearance();
+$('showSRSignals').checked=chartStyle.showSRArrows;
+$('showSRSignals').onchange=()=>{chartStyle.showSRArrows=$('showSRSignals').checked;renderAppearance();persistChartStyle()};
 
 // Keep keyboard focus within the expanded chart; background trading controls
 // must not be reachable by tabbing behind this view.

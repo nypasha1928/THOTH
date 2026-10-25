@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];delta_preview=[False];ob_preview=[False]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -69,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if delta_preview[0] and params.get('include_volume_delta')==['true']:result={**result,'volume_delta_analysis':[dict(time=result['candles'][-1]['time'],signal='Long')],'volume_delta_status':'Synthetic Volume Delta fixture; not exchange evidence'}
     if ob_preview[0] and params.get('include_order_block')==['true']:
      last=result['candles'][-1];result={**result,'order_block_analysis':[dict(time=last['time'],events=[dict(kind='bullish_formed',side='Long')],zones={'demand':[dict(time=last['time']-600,high=last['close']+1,low=last['close']-2)],'supply':[dict(time=last['time']-3600,high=last['close']+7,low=last['close']+5)]})],'order_block_status':'Synthetic Order Block reference fixture'}
+    if sr_preview[0]:result={**result,'sr_analysis':[{**bar,'signal':'Long','provisional':True} if bar['time']==result['candles'][-1]['time'] else bar for bar in result['analysis']]}
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -109,6 +110,23 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page=browser.new_page(viewport={'width':1440,'height':1080})
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   # S/R visibility is independent of bot filters/timeframe and other arrow layers.
+   for interval in ['1','5','60','240','D']:
+    page.select_option('#tf',interval);expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   page.select_option('#tf','1');page.uncheck('#showSignals')
+   expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   page.uncheck('#showSRSignals');expect(page.locator('[data-signal-source="S/R"]')).to_have_count(0)
+   page.check('#showSRSignals');page.check('#showSignals')
+   sr_preview[0]=True;page.click('#refresh')
+   expect(page.locator('[data-sr-provisional="true"]')).to_have_count(1)
+   expect(page.locator('[data-sr-provisional="true"] title')).to_contain_text('Forming candle preview')
+   sr_preview[0]=False;page.click('#refresh')
+   page.evaluate("() => localStorage.setItem(chartStyleKey,JSON.stringify({...chartStyle,showSRArrows:false,srDisplayVersion:1}))")
+   page.reload();expect(page.locator('#showSRSignals')).to_be_checked()
+   page.uncheck('#showSRSignals');page.reload();expect(page.locator('#showSRSignals')).not_to_be_checked()
+   page.check('#showSRSignals');expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   assert not writes  # Chart controls never saved bot configuration.
+
    # Read-only risk displays use the server clock and never activate orders.
    payloads['live']['risk'].update(day='2026-10-20',baseline_ms=1792454402000,peak_ms=1792458000000,baseline=100,peak=150,loss_allowance=5,loss_used=2,remaining=3,remaining_pct=3,stop_equity=145,loss_pct=2,symbols={'XVGUSDT':dict(streak=3,pause_until=time.time()+125)})
    payloads['live']['events']=[dict(time=time.time()-40+i,message='Synthetic activity '+str(i)) for i in range(40)]
