@@ -75,7 +75,7 @@ class Runner:
             raise ValueError('Candle history contains a gap; no automatic entries')
         return stored
 
-    def analysis(self,symbol,cfg,history,now):
+    def analysis(self,symbol,cfg,history,now,*,latest_only=False):
         strategy=strategy_fingerprint(cfg);duration=interval_seconds(cfg.timeframe)
         for row in history:validate(row)
         with sqlite3.connect(self.history_path) as db:
@@ -89,11 +89,12 @@ class Runner:
                 if row['time']+duration>now:break
                 if state.last_time is not None and row['time']<=state.last_time:continue
                 output.append(state.step(row))
-            if state.last_time is not None:
+            if state.last_time is not None and (output or not valid):
                 db.execute('INSERT OR REPLACE INTO checkpoints VALUES(?,?,?,?,?,?)',(symbol,cfg.timeframe,strategy,self.source_fingerprint,state.last_time,json.dumps(state.checkpoint(),allow_nan=False)))
                 db.executemany('INSERT OR REPLACE INTO analyses VALUES(?,?,?,?,?,?)',[(symbol,cfg.timeframe,strategy,self.source_fingerprint,b['time'],json.dumps(b,allow_nan=False)) for b in output])
                 db.execute('DELETE FROM analyses WHERE symbol=? AND interval=? AND stamp<?',(symbol,cfg.timeframe,state.last_time-duration*1000))
-            cached=[json.loads(r[0]) for r in db.execute('SELECT payload FROM analyses WHERE symbol=? AND interval=? AND strategy=? AND source=? ORDER BY stamp',(symbol,cfg.timeframe,strategy,self.source_fingerprint))]
+            query='SELECT payload FROM analyses WHERE symbol=? AND interval=? AND strategy=? AND source=? ORDER BY stamp'+(' DESC LIMIT 1' if latest_only else '')
+            cached=[json.loads(r[0]) for r in db.execute(query,(symbol,cfg.timeframe,strategy,self.source_fingerprint))]
         return cached,state.count
 
     def intrabar_observation(self,symbol,cfg,history,result,now):
@@ -199,6 +200,19 @@ class Runner:
         return dict(time=now,mark=rows[-1]['close'],signal=emitted,entry_sources=result['entry_sources'] if emitted else [],
             volume_delta_status=result['status'])
 
+    def fresh_staged_minute(self,symbol):
+        """Bounded retry only when Bybit has not published the newly opened minute."""
+        for attempt in range(3):
+            rows=self.engine.staged_minute_inputs(symbol)
+            now=time.time();expected=int(now)//60*60
+            actual=rows[-1]['time'] if rows else None
+            if actual==expected:return rows,now
+            # Never accept an old/future candle, or retry a multi-minute outage.
+            rollover=actual==expected-60 and now-expected<=5
+            if not rollover or attempt==2:
+                raise ValueError('Current Volume Delta candle unavailable: expected '+str(expected)+', received '+str(actual))
+            if self.stop_event.wait((.25,.75)[attempt]):raise RuntimeError('Worker stopping')
+
     def staged_observation(self,symbol,cfg,packet,now):
         from .signal_sources import sources_from_decision
         primary=[];errors={}
@@ -212,7 +226,7 @@ class Runner:
                 previous=json.loads(saved[0]) if saved else {}
                 window_start=min(previous.get(part,{}).get('observed_at',0) for part in ('sr','rsi'))
                 history=self.history(symbol,timeframe,rows)
-                result,count=self.analysis(symbol,source_cfg,history,now)
+                result,count=self.analysis(symbol,source_cfg,history,now,latest_only=True)
                 observation=self.daily_sr_rsi_observation(symbol,source_cfg,history,result,now)
                 # Either family supplies permission, including simultaneous opposing
                 # families: direction is irrelevant at this first stage.
@@ -228,8 +242,7 @@ class Runner:
         volume={}
         try:
             if packet.get('minute_on_demand'):
-                minute=self.engine.staged_minute_inputs(symbol)
-                now=time.time()  # After the network read and higher-history processing.
+                minute,now=self.fresh_staged_minute(symbol)
             else:
                 if packet.get('minute_error'):raise packet['minute_error']
                 minute=packet['minute']
