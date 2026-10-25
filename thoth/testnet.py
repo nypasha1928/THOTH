@@ -771,6 +771,7 @@ class TestnetSupervisor:
                 if previous is not None and stamp<=previous:continue
                 self.state['cursors'][key]=stamp
                 self.save()  # Never replay this closed candle after a crash.
+                if observation.get('inverse_delay_event'):self.event(symbol+': '+observation['inverse_delay_event'])
                 diagnostic=observation.get('signal_diagnostic')
                 if observation.get('signal') not in ('Long','Short'):
                     if diagnostic:self._signal_decision(symbol,'skipped: '+diagnostic['reason'],observation)

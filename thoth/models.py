@@ -81,6 +81,7 @@ class Settings(BaseModel):
     sma_enabled: bool = False
     sma_length: int = Field(default=200, ge=1, le=500)
     inverse_direction_confirmed: bool = False
+    inverse_entry_delay_seconds: int = Field(default=60,ge=0,le=3600)
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
 
     @model_validator(mode='after')

@@ -1,5 +1,5 @@
 """Reuse causal market replay on testnet prices, with a separate account engine."""
-from .models import Settings
+from .models import Settings,TestnetSettings
 import sqlite3
 from pathlib import Path
 
@@ -20,6 +20,14 @@ class FeedAdapter:
     def market_cycle(self,cfg,observations):
         cfg={**cfg,'automatic_paper':False}
         self.supervisor.apply_signals(cfg,observations)
+
+    def entry_delay_allowed(self,symbol):
+        state=self.supervisor.load()
+        from .account_risk import symbol_paused
+        cfg=TestnetSettings(**state['config'])
+        return bool(state['entries'] and state['status']=='running' and not state.get('flatten_reason')
+            and symbol not in state.get('blocked_symbols',{})
+            and not symbol_paused(state['risk'],symbol,cfg,self.supervisor.clock()))
 
     def begin_market_scan(self):
         # The supervisor's independent management loop continues monitoring risk
