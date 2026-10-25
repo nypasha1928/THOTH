@@ -19,7 +19,13 @@ function bindSignalAlerts(){
 }
 function signalAlertSources(item){
  const d=item.diagnostic||{},names={static30_up:'RSI over 30',static30_down:'RSI below 30',static70_up:'RSI over 70',static70_down:'RSI below 70',ml_long_up:'RSI over Long',ml_long_down:'RSI below Long',ml_short_up:'RSI over Short',ml_short_down:'RSI below Short'};
- const parts=[...(d.rsi_events||[]).map(k=>names[k]||k),...(d.sr_levels||[]).map(k=>'S/R '+k.replaceAll('_',' '))];
+ const recorded=(item.entry_sources||[]).map(source=>{
+  if(source.startsWith('rsi:'))return names[source.slice(4)]||source;
+  if(source.startsWith('sma:'))return 'SMA '+source.slice(4).replace('_','/')+' crossover';
+  const [prefix,key]=source.split(':');if(['sr','inverse_sr'].includes(prefix)&&key){const [term,side,grade]=key.split('_');return (prefix==='inverse_sr'?'Inverse S/R ':'S/R ')+(term==='long'?'long-term':'short-term')+' '+grade+' '+side+(prefix==='inverse_sr'&&item.source_signal?' · '+item.source_signal+' signal → '+item.signal+' position':'');}
+  return source;
+ });
+ const parts=recorded.length?recorded:[...(d.rsi_events||[]).map(k=>names[k]||k),...(d.sr_levels||[]).map(k=>'S/R '+k.replaceAll('_',' '))];
  return parts.join(' · ')||(item.strategy?.startsWith('sr_')?'S/R / strategy signal':item.strategy?.startsWith('sma')?'SMA crossover':'RSI / strategy signal');
 }
 function signalAlertDirection(item){

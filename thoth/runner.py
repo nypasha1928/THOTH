@@ -86,8 +86,20 @@ class Runner:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             before=set(tracker.get('fired',[])) if tracker.get('bar')==int(now)//duration*duration else set()
-            observation=observe_breakout(tracker,history,result[-1]['levels'],cfg,now)
+            inverse=cfg.strategy=='sr_inverse_intrabar'
+            if inverse:
+                continuous=(tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle))
+                budget=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
+                observation=observe_breakout(tracker,history,result[-1]['levels'],cfg,now,max_gap=budget if continuous else 0)
+                tracker.update(session=self.observation_session,scan_cycle=self.scan_cycle)
+            else:
+                observation=observe_breakout(tracker,history,result[-1]['levels'],cfg,now)
             observation['entry_sources']=['sr:'+key for key in sorted(set(tracker.get('fired',[]))-before) if ('resistance' in key)==(observation['signal']=='Long')] if observation['signal'] else []
+            if inverse:
+                raw=observation['signal']
+                observation['source_signal']=raw
+                observation['signal']={'Long':'Short','Short':'Long'}.get(raw)
+                observation['entry_sources']=[source.replace('sr:','inverse_sr:',1) for source in observation['entry_sources']]
             # Persist consumption before dispatch: a crash must not replay an entry.
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation
@@ -150,7 +162,7 @@ class Runner:
         symbols = cfg.symbols if state['status'] == 'running' else [p['symbol'] for p in state['positions']]
         self.scan_cycle+=1
         observations, statuses = {}, {}
-        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED) and
+        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar') and
                    callable(getattr(self.engine,'begin_market_scan',None)) and
                    callable(getattr(self.engine,'market_observation',None)))
         if streaming:self.engine.begin_market_scan()
@@ -190,7 +202,7 @@ class Runner:
                 if count < (2 if cfg.strategy==DAILY_COMBINED else cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
-                observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy==STRATEGY else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'],entry_sources=latest.get('entry_sources',[]))
+                observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy in (STRATEGY,'sr_inverse_intrabar') else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'],entry_sources=latest.get('entry_sources',[]))
                 statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
                 if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observations[symbol])
             except Exception as exc:
@@ -200,13 +212,13 @@ class Runner:
         # Missing held-position data blocks new entries. An unavailable unheld symbol
         # does not suppress otherwise valid signals on unrelated symbols.
         held={p['symbol'] for p in state['positions']}
-        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED):
+        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar'):
             for observation in observations.values(): observation['signal'] = None
         if not streaming:self.engine.market_cycle(cfg.model_dump(), observations)
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
-                       'note': 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; 1m exits follow actual position' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

@@ -738,7 +738,7 @@ class TestnetSupervisor:
         alert_key='thoth-'+hashlib.sha256((identity+':'+symbol+':'+str(stamp)).encode()).hexdigest()[:28]
         details=dict(alert_key=alert_key,time=self.clock(),symbol=symbol,reason=reason,
             strategy=self.state['config']['strategy'],signal=observation.get('signal'),
-            observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'),entry_sources=observation.get('entry_sources',[]))
+            observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'),source_signal=observation.get('source_signal'),entry_sources=observation.get('entry_sources',[]))
         with self.db() as db:
             db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',
                 (details['time'],symbol,json.dumps(details,allow_nan=False)))
@@ -786,7 +786,7 @@ class TestnetSupervisor:
                 if owner:
                     if owner['side']==side:
                         self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
-                    reason='Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
+                    reason='Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity)
@@ -868,7 +868,7 @@ class TestnetSupervisor:
                 code=record.get('result',{}).get('exchange_code')
                 self.event(symbol+': entry rejected by Bybit'+(' (code '+str(code)+')' if code is not None else '')+'; skipped this coin, other coins continue')
                 self.save();return
-            self.event(symbol+(': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:
             self._signal_decision(symbol,'entry skipped: '+str(exc),{'time':stamp,'signal':side})
         except AmbiguousOrder:
