@@ -135,6 +135,7 @@ class StagedAccountTests(unittest.TestCase):
 
     def test_runner_real_minute_delta_requires_permission_then_can_short(self):
         adapter=FeedAdapter(self.service);runner=Runner(adapter,fetch=adapter.fetch)
+        confirmation=Runner(adapter,confirmation_only=True,interval=0)
         start=int(self.now[0])//60*60
         minute=[dict(time=start-(59-i)*60,open=200-i,close=199-i,high=201-i,low=198-i,volume=10) for i in range(60)]
         diagnostic=dict(entry_bar=start,sr_signal='Long',rsi_signal=None,sr_levels=['short_resistance_major'],rsi_events=[])
@@ -142,15 +143,17 @@ class StagedAccountTests(unittest.TestCase):
         def source(*args):
             if first[0]:return dict(signal='Long',signal_diagnostic=diagnostic)
             return dict(signal=None)
-        def fetch(symbol,tf,**kw):return minute if tf=='1' else [dict(time=0)]
+        def fetch(symbol,tf,**kw):
+            from thoth.timeframes import interval_seconds
+            return minute if tf=='1' else [dict(time=int(self.now[0])//interval_seconds(tf)*interval_seconds(tf))]
         with patch.object(self.exchange,'candles',side_effect=fetch),patch.object(runner,'history',return_value=[]),patch.object(runner,'analysis',return_value=([],100)),patch.object(runner,'daily_sr_rsi_observation',side_effect=source),patch('thoth.runner.time.time',side_effect=lambda:self.now[0]):
             runner.cycle(paced=False)
             self.assertFalse(self.exchange.orders)
             self.assertEqual(self.service.state['entry_gates']['BTCUSDT']['phase'],'armed')
             first[0]=False;self.now[0]+=5
-            runner.cycle(paced=False)  # First minute observation after arming is a baseline.
+            confirmation.cycle(paced=False)  # First minute observation after arming is a baseline.
             self.assertFalse(self.exchange.orders)
-            self.now[0]+=5;runner.cycle(paced=False)
+            self.now[0]+=5;confirmation.cycle(paced=False)
             entries=[o for o in self.exchange.orders.values() if not o['reduceOnly']]
             self.assertEqual(len(entries),1)  # One submitted order; others wait for protection.
             self.assertEqual(entries[0]['side'],'Sell')
@@ -163,6 +166,7 @@ class StagedAccountTests(unittest.TestCase):
         self.feed_cfg=Settings(**{k:v for k,v in cfg.model_dump().items() if k in Settings.model_fields}).model_dump()
         self.service.activate(self.service.confirmation)
         adapter=FeedAdapter(self.service);runner=Runner(adapter,fetch=adapter.fetch)
+        confirmation=Runner(adapter,confirmation_only=True,interval=0)
         phase=[0]
         def fetch(symbol,tf,**kw):
             from thoth.timeframes import interval_seconds
@@ -180,12 +184,56 @@ class StagedAccountTests(unittest.TestCase):
             self.now[0]+=5;phase[0]=1;runner.cycle(paced=False)
             self.assertFalse(self.exchange.orders)
             self.assertEqual(self.service.state['entry_gates']['BTCUSDT']['phase'],'armed')
-            self.now[0]+=5;phase[0]=2;runner.cycle(paced=False)
+            self.now[0]+=5;phase[0]=2;confirmation.cycle(paced=False)
             self.assertFalse(self.exchange.orders)  # Establish the new minute baseline first.
-            self.now[0]+=5;runner.cycle(paced=False)
+            self.now[0]+=5;confirmation.cycle(paced=False)
             orders=[o for o in self.exchange.orders.values() if not o['reduceOnly']]
             self.assertEqual(len(orders),1);self.assertEqual(orders[0]['side'],'Sell')
             self.assertEqual(runner.health['status'],'ok')
+
+    def test_confirmation_can_place_protected_order_while_higher_worker_is_blocked(self):
+        from threading import Thread,Event
+        self.sample([primary(self.now[0]+5)])
+        adapter=FeedAdapter(self.service);started=Event();release=Event();failures=[]
+        def blocked_fetch(symbol,tf):
+            if symbol=='ETHUSDT':
+                started.set()
+                if not release.wait(2):raise AssertionError('Higher fetch was not released')
+                return dict(primary={},minute_not_needed=True)
+            return dict(primary={},minute_on_demand=True)
+        higher=Runner(adapter,fetch=blocked_fetch)
+        minute=Runner(adapter,confirmation_only=True,interval=0);higher.confirmation_runner=minute
+        def cycle():
+            try:higher.cycle(paced=False)
+            except Exception as exc:failures.append(exc)
+        def fresh(symbol,tf,**kw):
+            self.assertEqual(tf,'1');start=int(self.now[0])//60*60
+            return [dict(time=start-(59-i)*60,open=200-i,close=199-i,high=201-i,low=198-i,volume=10) for i in range(60)]
+        thread=Thread(target=cycle)
+        with patch('thoth.runner.time.time',side_effect=lambda:self.now[0]),patch.object(self.exchange,'candles',side_effect=fresh):
+            try:
+                thread.start();self.assertTrue(started.wait(1))
+                minute.cycle();self.assertFalse(self.exchange.orders)
+                self.now[0]+=5;minute.cycle()
+                order=next(iter(self.exchange.orders.values()));self.assertEqual(order['side'],'Sell')
+                self.exchange.fill(order['orderLinkId']);self.service.monitor()
+                self.assertTrue(self.service.state['owned']['BTCUSDT']['protection_confirmed'])
+                self.assertTrue(thread.is_alive())  # Higher scan still has NOT returned.
+                self.assertEqual(higher.health['confirmation']['status'],'ok')
+                self.assertEqual(higher.health['priority_minute_checks'],2)
+            finally:release.set();thread.join(2)
+        self.assertFalse(failures);self.assertFalse(thread.is_alive())
+
+    def test_higher_rollover_refresh_and_timing_gap_are_reported(self):
+        adapter=FeedAdapter(self.service);runner=Runner(adapter)
+        now=self.now[0];expected=int(now)//14400*14400
+        packet=dict(primary={'240':[dict(time=expected-14400)]},minute_not_needed=True,refresh_primary=True)
+        diagnostic=dict(signal=None,sampling=dict(continuous=True,gap=453,limit=300))
+        with patch('thoth.runner.time.time',return_value=now),patch.object(adapter,'staged_primary_inputs',return_value=[dict(time=expected)]) as refresh,patch.object(runner,'history',return_value=[]),patch.object(runner,'analysis',return_value=([],100)),patch.object(runner,'daily_sr_rsi_observation',return_value=diagnostic):
+            obs=runner.staged_observation('BTCUSDT',self.cfg,packet,now-5)
+        refresh.assert_called_once_with('BTCUSDT','240')
+        self.assertIn('453',obs['source_errors']['240']);self.assertIn('300',obs['source_errors']['240'])
+        self.assertIsNone(obs['volume_signal']);self.assertEqual(obs['primary_events'],[])
 
     def test_feed_fetches_both_sources_and_minute_then_skips_primary_when_armed(self):
         adapter=FeedAdapter(self.service);calls=[]
@@ -201,7 +249,7 @@ class StagedAccountTests(unittest.TestCase):
         adapter=FeedAdapter(self.service);runner=Runner(adapter)
         with patch.object(self.exchange,'candles',return_value=[]):packet=adapter.fetch('BTCUSDT','1')
         with patch.object(runner,'history',return_value=[]),patch.object(runner,'analysis',return_value=([],100)),patch.object(runner,'daily_sr_rsi_observation',return_value=dict(signal=None)),patch.object(adapter,'staged_minute_inputs',side_effect=AssertionError('Unarmed coins need no minute read')):
-            obs=runner.staged_observation('BTCUSDT',self.cfg,packet,self.now[0])
+            obs=runner.staged_observation('BTCUSDT',self.cfg,{**packet,'refresh_primary':False},self.now[0])
         self.assertEqual(obs['source_errors'],{});self.assertIsNone(obs['volume_signal'])
         self.assertIn('No minute request',obs['volume_delta_status'])
         self.assertEqual(adapter.staged_armed_symbols(),[])
@@ -310,29 +358,41 @@ class BoundedPacketTests(unittest.TestCase):
         results.close()
 
 
-class PrioritySchedulingTests(unittest.TestCase):
-    def test_armed_coin_checked_again_before_slow_permission_fetch_finishes(self):
+class IndependentSchedulingTests(unittest.TestCase):
+    def test_start_and_stop_own_both_workers(self):
         from types import SimpleNamespace
-        from threading import Event
-        release=Event();started=Event();sent=[];mono=[0.]
-        def monotonic():mono[0]+=10;return mono[0]
-        cfg=Settings(strategy=STRATEGY,automatic_paper=True,symbols=['ARMEDUSDT','SLOWUSDT'])
+        from threading import Event,current_thread
+        seen=set();both=Event()
+        cfg=Settings(automatic_paper=False)
+        def snapshot():
+            seen.add(current_thread().name)
+            if {'thoth-market','thoth-confirmation'}<=seen:both.set()
+            return dict(settings=cfg.model_dump(),status='paused',positions=[])
         with tempfile.TemporaryDirectory() as directory:
-            def fetch(symbol,tf):
-                if symbol=='SLOWUSDT':
-                    started.set()
-                    if not release.wait(2):raise AssertionError('Armed polling was held behind the permission fetch')
-                return dict(primary={},minute_on_demand=symbol=='ARMEDUSDT',minute_not_needed=symbol!='ARMEDUSDT')
-            def dispatch(config,symbol,obs):
-                sent.append(symbol)
-                if sent.count('ARMEDUSDT')==2:
-                    self.assertTrue(started.wait(1));release.set()
-            engine=SimpleNamespace(path=Path(directory)/'fixture.sqlite',snapshot=lambda:dict(settings=cfg.model_dump(),status='running',positions=[]),
-                begin_market_scan=lambda:None,market_observation=dispatch,staged_armed_symbols=lambda:['ARMEDUSDT'])
-            runner=Runner(engine,fetch=fetch)
-            with patch('thoth.runner.time.monotonic',side_effect=monotonic),patch.object(runner,'staged_observation',side_effect=lambda symbol,cfg,packet,now:dict(time=now,signal=None,volume_delta_status='fixture',source_errors={})):
-                runner.cycle(paced=False)
-            self.assertTrue(release.is_set())
-            self.assertGreaterEqual(sent.count('ARMEDUSDT'),2)
-            self.assertGreater(sent.index('SLOWUSDT'),1)
-            self.assertGreaterEqual(runner.health['priority_minute_checks'],2)
+            engine=SimpleNamespace(path=Path(directory)/'fixture.sqlite',snapshot=snapshot)
+            runner=Runner(engine,interval=.01)
+            try:
+                runner.start();self.assertTrue(both.wait(1))
+                self.assertIsNotNone(runner.confirmation_runner)
+                self.assertTrue(runner.confirmation_runner.confirmation_only)
+            finally:runner.stop()
+            self.assertFalse(runner.thread.is_alive());self.assertFalse(runner.confirmation_runner.thread.is_alive())
+
+    def test_rotating_eleven_coins_keep_per_coin_continuity(self):
+        from types import SimpleNamespace
+        now=[60020.];symbols=[f'COIN{i}USDT' for i in range(11)];observed=[]
+        cfg=Settings(strategy=STRATEGY,automatic_paper=True,symbols=symbols)
+        def minute(symbol):
+            start=int(now[0])//60*60
+            return [dict(time=start-(59-i)*60,open=200-i,close=199-i,high=201-i,low=198-i,volume=10) for i in range(60)]
+        with tempfile.TemporaryDirectory() as directory:
+            engine=SimpleNamespace(path=Path(directory)/'fixture.sqlite',snapshot=lambda:dict(settings=cfg.model_dump()),
+                staged_armed_symbols=lambda:symbols,staged_minute_inputs=minute,
+                market_observation=lambda config,symbol,obs:observed.append((symbol,obs['volume_signal'])))
+            worker=Runner(engine,confirmation_only=True)
+            with patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.runner.time.monotonic',side_effect=lambda:now[0]):
+                for _ in range(6):worker.cycle();now[0]+=5
+            self.assertEqual({symbol for symbol,signal in observed if signal=='Short'},set(symbols))
+            self.assertEqual(worker.health['status'],'ok')
+            # Each batch contains at most four even with eleven armed coins.
+            self.assertLessEqual(worker.health['checked_this_cycle'],4)

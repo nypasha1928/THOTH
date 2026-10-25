@@ -69,17 +69,21 @@ class FeedAdapter:
             return min(1000,max(3,int((self.supervisor.clock()-last)//interval_seconds(interval))+3))
         except sqlite3.OperationalError:return 1000
 
+    def staged_primary_inputs(self,symbol,timeframe):
+        if not self.supervisor.client:raise ValueError('Account is not connected')
+        return self.supervisor.client.candles(symbol,timeframe,limit=self.staged_history_limit(symbol,timeframe))
+
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
         if cfg.strategy=='sr_rsi_volume_gate':
             gate=self.supervisor.load().get('entry_gates',{}).get(symbol,{})
             armed=gate.get('phase')=='armed'
-            packet=dict(primary={},minute_on_demand=armed,minute_not_needed=not armed)
+            packet=dict(primary={},minute_on_demand=armed,minute_not_needed=not armed,refresh_primary=True)
             needs_primary=gate.get('phase')!='armed' and self.supervisor.clock()>=(gate.get('cooldown_until') or 0)
             if needs_primary:
                 for timeframe in ('240','D'):
-                    try:packet['primary'][timeframe]=self.supervisor.client.candles(symbol,timeframe,limit=self.staged_history_limit(symbol,timeframe))
+                    try:packet['primary'][timeframe]=self.staged_primary_inputs(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
         rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy=='volume_delta_intrabar' else self.supervisor.client.candles(symbol,interval)
