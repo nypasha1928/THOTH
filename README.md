@@ -304,3 +304,7 @@ Volume Delta chart arrows are independent of the saved trading strategy. Enable 
 ### Two-stage S/R + RSI permission → Volume Delta
 
 The separate **S/R + RSI 4h/D → Volume Delta 1m** strategy monitors both higher timeframes intrabar. A fresh S/R or fixed RSI signal gives that coin permission; a subsequent 1-minute Volume Delta signal independently chooses Long or Short with mandatory SMA7/50 alignment. Three consecutive settled losses by default lock only that coin for60minutes, then a fresh higher signal is required. Wins reset its loss streak; later higher signals do not reset permission. There is no SMA exit; configured stops, TP, trailing and account controls still apply. See [setup and lifecycle](docs/TWO_STAGE_VOLUME_DELTA.md). This is sampled trading logic, not proof of volume, direction or profitability.
+
+### S/R-only permission → Order Block 5m
+
+The separate **S/R 4h/D → Order Block 5m** strategy arms a coin from either higher S/R timeframe (no RSI), then waits for a new intrabar5m Order Block event. Only SMA200 is used: bullish formation below / bearish formation above; supply breakout Long above / demand breakdown Short below. Other filters are off. It retains independent workers, configured protection, opposite-signal action and per-coin loss lock/cooldown/fresh-S/R rearming. Select it only after pausing entries and closing/reconciling current positions. See [rules, source preservation and implementation limits](docs/SR_ORDER_BLOCK_STRATEGY.md).

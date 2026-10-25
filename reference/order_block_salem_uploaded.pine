@@ -1,0 +1,373 @@
+//@version=5
+indicator(" EXIT / Order Block 5000 (Salem)  +  SMA 7/50 ", overlay = true)
+
+// ************************** RSI FILTER SETTINGS **************************
+use_rsi_filter = input.bool(false, "Use RSI Filter", 
+     tooltip="Filter signals based on RSI levels", group="RSI Filter")
+rsi_length = input.int(14, "RSI Length", minval=1, maxval=50, group="RSI Filter")
+rsi_oversold = input.int(30, "RSI Oversold Level", minval=0, maxval=50, group="RSI Filter")
+rsi_overbought = input.int(70, "RSI Overbought Level", minval=50, maxval=100, group="RSI Filter")
+
+// Calculate RSI
+rsi_value = ta.rsi(close, rsi_length)
+
+// CORRECTED RSI Filter Conditions:
+// Bullish signals: NOT allowed when RSI is overbought (≥70)
+// Bearish signals: NOT allowed when RSI is oversold (≤30)
+rsi_filter_bull = not use_rsi_filter or rsi_value < rsi_overbought
+rsi_filter_bear = not use_rsi_filter or rsi_value > rsi_oversold
+
+// Optional RSI Plot
+plot_rsi = input.bool(false, "Show RSI Levels on Chart", group="RSI Filter")
+plot(plot_rsi and use_rsi_filter ? rsi_oversold : na, "RSI Oversold", 
+     color=color.new(color.green, 70), linewidth=1, style=plot.style_linebr)
+plot(plot_rsi and use_rsi_filter ? rsi_overbought : na, "RSI Overbought", 
+     color=color.new(color.red, 70), linewidth=1, style=plot.style_linebr)
+
+// ************************** VWAP FILTER SETTINGS (INVERTED LOGIC) **************************
+useVWAPFilter = input.bool(true, "Use VWAP Filter", 
+     tooltip="Filter signals based on VWAP line color (inverted: bullish when red, bearish when green)")
+vwapSource = input.source(hlc3, "VWAP Source", group="VWAP Filter")
+vwapLength = input.int(20, "VWAP Length", minval=1, maxval=100, group="VWAP Filter")
+vwapColorThreshold = input.float(0.0, "VWAP Color Threshold", step=0.001, 
+     tooltip="Minimum difference for VWAP color determination", group="VWAP Filter")
+
+// Calculate VWAP
+vwapValue = ta.vwap(vwapSource)
+
+// Determine VWAP color based on slope/trend
+vwapSlope = vwapValue - vwapValue[1]
+vwapGreen = vwapSlope >= vwapColorThreshold  // Positive/Bullish
+vwapRed = vwapSlope < -vwapColorThreshold    // Negative/Bearish
+
+// VWAP Color Conditions – INVERTED:
+// Bullish signals allowed when VWAP is RED (negative slope)
+// Bearish signals allowed when VWAP is GREEN (positive slope)
+vwapBullishCondition = not useVWAPFilter or vwapRed
+vwapBearishCondition = not useVWAPFilter or vwapGreen
+
+// Plot VWAP lines with color coding
+plotVWAP = input.bool(true, "Show VWAP Lines", group="VWAP Filter")
+vwapGreenColor = color.new(#00ff00, 0)
+vwapRedColor = color.new(#ff0000, 0)
+vwapNeutralColor = color.new(#808080, 0)
+
+vwapColor = vwapGreen ? vwapGreenColor : vwapRed ? vwapRedColor : vwapNeutralColor
+plot(plotVWAP ? vwapValue : na, "VWAP", color=vwapColor, linewidth=2)
+
+// ************************** SMA FILTER SETTINGS **************************
+useSMAFilter = input.bool(true, "Use SMA Filter", 
+     tooltip="Filter signals based on SMA 7 and SMA 50 relationship (inverted: bullish when SMA7 < SMA50)")
+sma7Length = input.int(7, "SMA 7 Length", minval=1, maxval=100, group="SMA Filter")
+sma50Length = input.int(50, "SMA 50 Length", minval=1, maxval=100, group="SMA Filter")
+sma200Length = input.int(200, "SMA 200 Length", minval=1, maxval=200, group="SMA Filter")
+
+// Calculate SMAs
+sma7 = ta.sma(close, sma7Length)
+sma50 = ta.sma(close, sma50Length)
+sma200 = ta.sma(close, sma200Length)
+
+// SMA 7/50 Conditions (inverted)
+smaBullishCondition = sma7 < sma50   // Bullish blocks require SMA7 below SMA50
+smaBearishCondition = sma7 > sma50   // Bearish blocks require SMA7 above SMA50
+
+// ************************** SMA 200 FILTER (INVERTED LOGIC) **************************
+useSMA200Filter = input.bool(false, "Use SMA 200 Filter", 
+     tooltip="Filter signals based on price vs SMA 200 (inverted: bullish when price < SMA200)", group="SMA Filter")
+
+// SMA 200 Conditions – inverted: bullish when price below SMA200, bearish when above
+sma200BullishCondition = not useSMA200Filter or close < sma200
+sma200BearishCondition = not useSMA200Filter or close > sma200
+
+// ************************** VOLUME PASS MA FILTER SETTINGS **************************
+useVolumeFilter = input.bool(true, "Use Volume Filter", 
+     tooltip="Filter signals based on volume passing above its moving average")
+volumeMALength = input.int(20, "Volume MA Length", minval=1, maxval=100,
+     tooltip="Length of the moving average for volume comparison")
+volumeMultiplier = input.float(1.0, "Volume Multiplier", minval=0.1, maxval=5.0, step=0.1,
+     tooltip="Minimum volume multiplier above MA (e.g., 1.0 = volume > MA, 1.5 = volume > 1.5 * MA)")
+
+// Calculate Volume MA and Condition
+volumeMA = ta.sma(volume, volumeMALength)
+volumePassMA = volume > (volumeMA * volumeMultiplier)
+
+// Create a condition for volume filtering
+volumeOk = useVolumeFilter ? volumePassMA : true
+
+// ************************** NEW INPUTS FOR STRENGTH FILTERING **************************
+// Add these inputs at the top of your code
+minStrength = input.float(0.0, "Minimum Order Block Strength", minval=0.0, 
+     tooltip="Filter out order blocks weaker than this value. Set to 0 to show all blocks.")
+useStrengthFilter = input.bool(true, "Use Strength Filter", 
+     tooltip="Enable to filter order blocks by strength")
+
+// functions
+get(arr, index) =>
+    index < array.size(arr) ? array.get(arr, index) : na
+
+busted(highs, lows, times, bounces) =>
+    array.shift(highs)
+    array.shift(lows)
+    array.shift(times)
+    array.shift(bounces) or true
+
+bounced(bounces) =>
+    status = array.get(bounces, 0)
+    array.set(bounces, 0, true)
+    status
+
+// A. CORE
+ceiling = math.max(high, close[1], open[1])
+floor = math.min(low, close[1], open[1])
+
+buying = close >= open and high != low
+selling = close <= open and low != high
+
+green = close > open and close > close[1]
+red = close < open and close < close[1]
+
+gapup = open > close[1]
+gapdown = open < close[1]
+
+higher = high > high[1]
+lowerf = low < low[1]
+
+bullish = green and higher
+bearish = red and lowerf
+
+// ************************** MODIFICATION: APPLY VOLUME FILTER TO NOTABLE PRICE ACTIONS **************************
+// notable price actions with volume filter
+bullishEngulf = selling[1] and (gapdown or lowerf) and bullish and close > open[1] and (close - open) > ta.atr(14) and volumeOk
+bearishEngulf = buying[1] and (gapup or higher) and bearish and close < open[1] and (open - close) > ta.atr(14) and volumeOk
+
+breakHigh = (selling[2] or selling[1]) and buying and close > ceiling[1] and volumeOk
+breakLow = (buying[2] or buying[1]) and selling and close < floor[1] and volumeOk
+
+whiteSoldiers = bearish[3] and buying[2] and bullish[1] and bullish and close > high[3] and volumeOk
+blackCrows = bullish[3] and selling[2] and bearish[1] and bearish and close < low[3] and volumeOk
+
+// pivot setups
+soaring = bullishEngulf or breakHigh or whiteSoldiers
+tumbling = bearishEngulf or breakLow or blackCrows
+
+reversal = switch
+    whiteSoldiers => not soaring[1] and not soaring[2]
+    blackCrows => not tumbling[1] and not tumbling[2]
+    breakHigh => not soaring[1] and (bearish[1] or bearish[2])
+    breakLow => not tumbling[1] and (bullish[1] or bullish[2])
+
+continuation = switch
+    breakHigh => bullish[2] and close > high[2] and not bearish[1]
+    breakLow => bearish[2] and close < low[2] and not bullish[1]
+
+engulfing = (bullishEngulf or bearishEngulf) and (higher[1] or lowerf[1])
+
+// B. PIVOT ZONES
+var buyzoneHigh = array.new_float(0)
+var buyzoneLow = array.new_float(0)
+var buyzoneTime = array.new_int(0)
+var bounceUp = array.new_bool(0)
+
+var sellzoneHigh = array.new_float(0)
+var sellzoneLow = array.new_float(0)
+var sellzoneTime = array.new_int(0)
+var bounceDown = array.new_bool(0)
+
+// 1. Broken Pivot Zones
+brokenHigh = while get(sellzoneHigh, 0) < high
+    busted(sellzoneHigh, sellzoneLow, sellzoneTime, bounceDown)
+
+brokenLow = while get(buyzoneLow, 0) > low
+    busted(buyzoneHigh, buyzoneLow, buyzoneTime, bounceUp)
+
+// 2. Distribution/Accumulation Bar and Pivot Bar
+// ************************** MODIFICATION: APPLY ALL FILTERS TO UPTURN/DOWNTURN **************************
+// Updated to include CORRECTED RSI filter and new inverted VWAP and SMA200 filters
+upturn = soaring and (reversal or continuation or engulfing) and 
+         (not useSMAFilter or smaBullishCondition) and 
+         (not useVWAPFilter or vwapBullishCondition) and
+         (not useSMA200Filter or sma200BullishCondition) and
+         rsi_filter_bull  // No bullish signals when RSI ≥ 70
+
+downturn = tumbling and (reversal or continuation or engulfing) and 
+           (not useSMAFilter or smaBearishCondition) and 
+           (not useVWAPFilter or vwapBearishCondition) and
+           (not useSMA200Filter or sma200BearishCondition) and
+           rsi_filter_bear  // No bearish signals when RSI ≤ 30
+
+dacbar = switch
+    upturn => whiteSoldiers ? 3 : (breakHigh and selling[2] ? 2 : 1)
+    downturn => blackCrows ? 3 : (breakLow and buying[2] ? 2 : 1)
+
+pivotbar = switch
+    upturn => whiteSoldiers ? 2 : (green[1] ? 1 : 0)
+    downturn => blackCrows ? 2 : (red[1] ? 1 : 0)
+
+// 3. Pivot Zone Values
+pzHigh = float(na)
+pzLow = float(na)
+
+switch
+    upturn =>
+        pzLow := math.min(low[dacbar], low[pivotbar], low[1], low)
+        pzHigh := switch
+            close[pivotbar] > high[dacbar] => high[dacbar]
+            open[pivotbar] > open[dacbar] => open[pivotbar]
+            => open[dacbar]
+
+    downturn =>
+        pzHigh := math.max(high[dacbar], high[pivotbar], high[1], high)
+        pzLow := switch
+            close[pivotbar] < low[dacbar] => low[dacbar]
+            open[pivotbar] < open[dacbar] => open[pivotbar]
+            => open[dacbar]
+
+// ************************** MODIFICATION: CALCULATE STRENGTH **************************
+// Calculate the strength of the current order block
+currentStrength = math.abs(pzHigh - pzLow)
+
+// 4. Overlapping Pivot Zones
+overlap = switch
+    upturn => get(buyzoneHigh, 0) >= pzLow
+    downturn => get(sellzoneLow, 0) <= pzHigh
+
+replace = switch
+    overlap and upturn => bounced(bounceUp)
+    overlap and downturn => bounced(bounceDown)
+
+switch
+    replace and upturn => busted(buyzoneHigh, buyzoneLow, buyzoneTime, bounceUp)
+    replace and downturn => busted(sellzoneHigh, sellzoneLow, sellzoneTime, bounceDown)
+    overlap and upturn => array.set(buyzoneHigh, 0, pzLow)
+    overlap and downturn => array.set(sellzoneLow, 0, pzHigh)
+
+// 5. Pivot Zones Queue
+// ************************** MODIFICATION: ONLY ADD IF STRONG ENOUGH **************************
+switch
+    upturn =>
+        if not useStrengthFilter or currentStrength >= minStrength
+            array.unshift(buyzoneHigh, pzHigh)
+            array.unshift(buyzoneLow, pzLow)
+            array.unshift(buyzoneTime, time[dacbar])
+            array.unshift(bounceUp, false)
+
+    downturn =>
+        if not useStrengthFilter or currentStrength >= minStrength
+            array.unshift(sellzoneHigh, pzHigh)
+            array.unshift(sellzoneLow, pzLow)
+            array.unshift(sellzoneTime, time[dacbar])
+            array.unshift(bounceDown, false)
+
+// Style inputs from LuxAlgo
+bullCss = input.color(color.new(#2157f3, 80), "Bullish OB", inline = "bullcss", group = "Style")
+bullBreakCss = input.color(color.new(#ff1100, 80), "Bullish Break", inline = "bullcss", group = "Style")
+
+bearCss = input.color(color.new(#ff5d00, 80), "Bearish OB", inline = "bearcss", group = "Style")
+bearBreakCss = input.color(color.new(#0cb51a, 80), "Bearish Break", inline = "bearcss", group = "Style")
+
+// Helper function to get opaque version of a color
+notransp(color css) => color.rgb(color.r(css), color.g(css), color.b(css))
+
+// 6. Pivot Zones Markup
+maxbox(redraw) => redraw ? 22 : na
+
+newbox(bg, isBullish) =>
+    borderColor = isBullish ? notransp(bullCss) : notransp(bearCss)
+    box.new(0, 0, 0, 0, xloc=xloc.bar_time, border_color=borderColor, border_width=2, bgcolor=bg, extend=extend.right, force_overlay = true)
+
+render(boxes, index, highs, lows, times, isBullish) =>
+    ibox = get(boxes, index)
+    top = get(highs, index)
+    bottom = get(lows, index)
+    left = get(times, index)
+    overlapped = if index > 0
+        lastbox = index - 1
+        top == get(lows, lastbox) or bottom == get(highs, lastbox)
+    box.set_lefttop(ibox, left, overlapped ? na : top)
+    box.set_rightbottom(ibox, time, overlapped ? na : bottom)
+    
+    // ************************** MODIFICATION: SHOW STRENGTH IN TEXT **************************
+    strength = math.abs(top - bottom)
+    textM = str.tostring(math.round(strength, 2))
+    box.set_text(ibox, "Strength: " + textM)
+    box.set_text_color(ibox, color.gray)
+    box.set_text_halign(ibox, text.align_left)
+    box.set_text_size(ibox, size.small)
+
+var buyBox = array.new_box(0)
+var sellBox = array.new_box(0)
+
+for i = 0 to maxbox(na(close[1]))
+    array.push(buyBox, newbox(bullCss, true))
+    array.push(sellBox, newbox(bearCss, false))
+
+for i = 0 to maxbox(upturn or brokenLow)
+    render(buyBox, i, buyzoneHigh, buyzoneLow, buyzoneTime, true)
+
+for i = 0 to maxbox(downturn or brokenHigh)
+    render(sellBox, i, sellzoneHigh, sellzoneLow, sellzoneTime, false)
+
+// ************************** PLOT SMA LINES FOR VISUAL REFERENCE **************************
+plotSMA = input.bool(true, "Show SMA Lines", group = "SMA Filter")
+plot(plotSMA ? sma7 : na, "SMA 7", color=color.new(color.white, 0), linewidth=2)
+plot(plotSMA ? sma50 : na, "SMA 50", color=color.new(color.orange, 0), linewidth=2)
+plot(plotSMA ? sma200 : na, "SMA 200", color=color.new(color.blue, 0), linewidth=2)
+
+// ************************** VOLUME PLOT FOR VISUAL REFERENCE **************************
+// Optional: Plot Volume MA for visual reference
+plotVolumeMA = input.bool(false, "Show Volume MA on Chart", group = "Volume Filter")
+plot(plotVolumeMA ? volumeMA : na, "Volume MA", color=color.new(color.blue, 70), linewidth=1, display=display.data_window)
+
+// ************************** ALERTS - For TradingView Alert Conditions **************************
+// ************************** MODIFICATION: ADD ALL FILTERS TO ALERTS **************************
+// Updated to include CORRECTED RSI filter, inverted VWAP, and SMA200
+bullishWithFilters = upturn and (not useStrengthFilter or currentStrength >= minStrength) and volumeOk and rsi_filter_bull
+bearishWithFilters = downturn and (not useStrengthFilter or currentStrength >= minStrength) and volumeOk and rsi_filter_bear
+
+// === COMBINED ORDER BLOCK ALERT (replaces separate bullish/bearish OB alerts) ===
+combinedOB = bullishWithFilters or bearishWithFilters
+alertcondition(combinedOB, title="Combined Order Block Formed", message="Order Block formed ")
+
+// Alert condition for breakout above supply zone
+alertcondition(brokenHigh, title="Breakout Above Supply", message="Breakout above supply zone ")
+
+// Alert condition for breakdown below demand zone
+alertcondition(brokenLow, title="Breakdown Below Demand", message="Breakdown below demand zone on ")
+
+// Alert condition for specific patterns with all filters
+alertcondition(bullishEngulf and (not useSMAFilter or smaBullishCondition) and (not useVWAPFilter or vwapBullishCondition) and (not useSMA200Filter or sma200BullishCondition) and rsi_filter_bull, 
+               title="Bullish Engulfing Pattern", message="Bullish Engulfing pattern ")
+alertcondition(bearishEngulf and (not useSMAFilter or smaBearishCondition) and (not useVWAPFilter or vwapBearishCondition) and (not useSMA200Filter or sma200BearishCondition) and rsi_filter_bear, 
+               title="Bearish Engulfing Pattern", message="Bearish Engulfing pattern ")
+alertcondition(whiteSoldiers and (not useSMAFilter or smaBullishCondition) and (not useVWAPFilter or vwapBullishCondition) and (not useSMA200Filter or sma200BullishCondition) and rsi_filter_bull, 
+               title="White Soldiers Pattern", message="White Soldiers pattern ")
+alertcondition(blackCrows and (not useSMAFilter or smaBearishCondition) and (not useVWAPFilter or vwapBearishCondition) and (not useSMA200Filter or sma200BearishCondition) and rsi_filter_bear, 
+               title="Black Crows Pattern", message="Black Crows pattern ")
+
+// === COMBINED ALERT CONDITIONS (OR logic) ===
+alertcondition(bullishWithFilters or brokenHigh, 
+               title="Bullish Order Block OR Breakout Above Supply", 
+               message="Bullish OB OR breakout above supply ")
+
+alertcondition(bearishWithFilters or brokenLow, 
+               title="Bearish Order Block OR Breakdown Below Demand", 
+               message="Bearish OB OR breakdown below demand ")
+
+// D. ALERTS - For on-chart alerts (optional)
+if brokenHigh
+    alert('Breakout', alert.freq_once_per_bar)
+
+if brokenLow
+    alert('Breakdown', alert.freq_once_per_bar)
+
+if upturn or downturn
+    setup = switch
+        whiteSoldiers => 'White Soldiers'
+        blackCrows => 'Black Crows'
+        breakHigh => bullishEngulf ? 'Engulf & Break High' : 'Break High'
+        breakLow => bearishEngulf ? 'Engulf & Break Low' : 'Break Low'
+        bullishEngulf => 'Bullish Engulf'
+        bearishEngulf => 'Bearish Engulf'
+    occurence = replace ? 'Replace' : (overlap ? 'Bounce' : 'Fresh')
+    message = setup + ' (' + occurence + ')'
+    alert(message, alert.freq_once_per_bar_close)

@@ -1,0 +1,9 @@
+function renderOrderBlockSettings(config){
+ const section=document.createElement('details');section.id='orderBlockSettings';const heading=document.createElement('summary');heading.textContent='Order Block · 5-minute confirmation';section.append(heading);
+ const note=document.createElement('p');note.className='note';note.textContent='Uploaded block/zone rules. Only SMA 200 is used, with event-specific rules: Bullish formation below / Bearish formation above SMA 200. Supply breakout Long above / Demand breakdown Short below SMA 200. Breaks use high/low, not a closing-price cross. RSI, VWAP, SMA 7/50, volume and strength filters are off. No SMA exit.';section.append(note);
+ const required=field('Use SMA 200 filter for Order Block events (required)','ob_sma200_required',true,'checkbox');required.querySelector('input').disabled=true;section.append(required);
+ for(const [key,label]of [['bullish_formed','Bullish Order Block formed → Long'],['supply_breakout','Breakout Above Supply → Long'],['bearish_formed','Bearish Order Block formed → Short'],['demand_breakdown','Breakdown Below Demand → Short']])section.append(field(label,'ob_'+key,config[key]??true,'checkbox'));
+ $('fields').append(section);syncOrderBlockSettings();
+}
+function syncOrderBlockSettings(){const section=$('orderBlockSettings');if(section){const active=$('strategyLogic').value==='sr_order_block_gate';section.hidden=!active;section.open=active;}}
+function collectOrderBlockSettings(){const value={filter_breaks:true};for(const key of ['bullish_formed','supply_breakout','bearish_formed','demand_breakdown'])value[key]=$('ob_'+key).checked;return value;}

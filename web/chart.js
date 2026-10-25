@@ -19,7 +19,8 @@ function draw(){
  const levelSnapshot=srAnalysis.filter(b=>b.time<=finish).at(-1);
  const family=key=>(key.startsWith('long_')?'long_':'short_')+(key.endsWith('_major')?'major':'minor');
  const displaySmas=[{period:7,color:chartStyle.sma7},{period:50,color:chartStyle.sma50},{period:200,color:chartStyle.sma}].map(line=>({...line,values:displayAverage(displayRows,line.period,'close')})),volumeMA=displayAverage(chartRows,20,'volume');
- const byTime=new Map(analysis.map(b=>[b.time,b])),srByTime=new Map(srAnalysis.map(b=>[b.time,b])),volumeDeltaByTime=new Map(volumeDeltaRows.map(b=>[b.time,b]));
+ const byTime=new Map(analysis.map(b=>[b.time,b])),srByTime=new Map(srAnalysis.map(b=>[b.time,b])),volumeDeltaByTime=new Map(volumeDeltaRows.map(b=>[b.time,b])),obByTime=new Map(orderBlockRows.map(b=>[b.time,b]));
+
  const settings=current().settings,showLevels=$('showLevels').checked;
  const enabled=key=>(!key.endsWith('_major')||settings.major)&&(!key.endsWith('_minor')||settings.minor)&&chartStyle[family(key)]?.visible;
  const active=rows.map(r=>byTime.get(r.time)).filter(Boolean),positions=current().positions.filter(p=>p.symbol===$('symbol').value);
@@ -81,6 +82,17 @@ function draw(){
  }
  if(chartStyle.showRSIVWAP){let d='',connected=false;rows.forEach((r,i)=>{const value=rsiByTime.get(r.time)?.vwap;if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${y(value)}`;connected=true});if(d)shape('path',{d,fill:'none',stroke:'#58c9c4','stroke-width':1.4,'data-rsi-vwap':'true'},plot)}
  if(chartStyle.showRSI&&chartStyle.rsiCollapsed)shape('text',{x:L,y:axisBottom-6,fill:axisText,'font-size':10,'data-rsi-minimized':'true'}).textContent='RSI · minimized';
+ if(chartStyle.showOrderBlockZones){const zones=obByTime.get(rows.at(-1).time)?.zones||{};
+  for(const [kind,list]of Object.entries(zones))for(const [i,zone]of list.entries()){
+   const previous=list[i-1];if(previous&&(zone.high===previous.low||zone.low===previous.high))continue;
+   const index=rows.findIndex(row=>row.time>=zone.time),left=zone.time<=rows[0].time?L:x(Math.max(0,index)),color=kind==='demand'?chartStyle.obBullish:chartStyle.obBearish;
+   if(Number.isFinite(zone.high)&&Number.isFinite(zone.low)&&zone.high>=zone.low){
+    const rect=shape('rect',{x:left,y:y(zone.high),width:Math.max(1,R-left),height:Math.max(1,y(zone.low)-y(zone.high)),fill:color,'fill-opacity':.2,stroke:color,'stroke-width':2,'data-order-block-zone':kind},plot);
+    const strength=Number(Math.abs(zone.high-zone.low).toFixed(2));shape('title',{},rect).textContent=kind+' Order Block · Strength: '+strength;
+    shape('text',{x:left+4,y:(y(zone.high)+y(zone.low))/2,fill:'#808080','font-size':10,'dominant-baseline':'central','data-order-block-strength':kind,'pointer-events':'none'},plot).textContent='Strength: '+strength;
+   }
+  }
+ }
  if(chartStyle.showRSISignals&&chartStyle.showRSIPriceSignals)for(const [i,row]of rows.entries()){const bar=rsiByTime.get(row.time),stack={};for(const event of visibleRSIEvents(bar)){const style=chartStyle.rsiSignalStyles[event.kind];if(!style.chartVisible)continue;const where=style.chartPosition,slot=stack[where]||0;stack[where]=slot+1;const above=where==='above'||where==='top',base=where==='top'?T+10:where==='bottom'?B-10:y(above?row.high:row.low)+(above?-12:12);const marker=shape('text',{x:x(i),y:base+(above?-1:1)*slot*(chartStyle.rsiSignalSize+2),fill:style.chartColor,'font-size':chartStyle.rsiSignalSize,'text-anchor':'middle','dominant-baseline':'central','data-rsi-signal':event.side,'data-rsi-kind':event.kind,'data-rsi-position':where,'data-signal-time':row.time},plot);marker.textContent=rsiMarkerSymbol(event,style.chartShape);shape('title',{},marker).textContent='RSI reference · '+rsiSignalTypes[event.kind].label}}
  rows.forEach((r,i)=>{
   const srBar=srByTime.get(r.time),srSignal=srBar?.signal;
@@ -92,8 +104,8 @@ function draw(){
   const markers=[];if(chartStyle.showSRArrows&&srSignal)markers.push([srSignal,'S/R']);
   const bar=byTime.get(r.time);if(['sma_cross','sma_7_50','sr_sma_7_50'].includes(referenceSignalStrategy)&&chartStyle.showSMAArrows){const signal=referenceSignalStrategy==='sr_sma_7_50'?bar?.sma_signal:bar?.signal;if(signal)markers.push([signal,referenceSignalStrategy==='sma_cross'?'SMA 7/200':'SMA 7/50'])}
   if(chartStyle.showVolumeDeltaArrows&&volumeDeltaByTime.get(r.time)?.signal)markers.push([volumeDeltaByTime.get(r.time).signal,'Volume Delta']);
-  if($('showSignals').checked)for(const [slot,[signal,source]]of markers.entries()){
-   const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
+  if($('showSignals').checked)for(const [slot,[signal,source,color]]of markers.entries()){
+   const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:color||(signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal),'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
    marker.textContent=source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
   }
  });

@@ -49,12 +49,22 @@ class VolumeDeltaSettings(BaseModel):
     bearish: bool=True
 
 
+class OrderBlockSettings(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    filter_breaks: bool=True
+    bullish_formed: bool=True
+    bearish_formed: bool=True
+    supply_breakout: bool=True
+    demand_breakdown: bool=True
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
+    order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
     automatic_paper: bool = False
     portfolio_loss_enabled: bool = False
     portfolio_loss_pct: float = Field(default=20, gt=0, le=100, allow_inf_nan=False)
@@ -103,6 +113,13 @@ class Settings(BaseModel):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
+        if self.strategy=='sr_order_block_gate':
+            self.sma_length=200
+            self.timeframe='5';self.sma_exit_enabled=False;self.loss_streak_scope='per_coin'
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False
+            self.order_block=self.order_block.model_copy(update={'filter_breaks':True})
+            if not any(getattr(self.order_block,key) for key in ('bullish_formed','bearish_formed','supply_breakout','demand_breakdown')):
+                raise ValueError('Enable at least one Order Block signal')
         if self.strategy=='sr_rsi_volume_gate':
             self.timeframe='1';self.sma_exit_enabled=False;self.loss_streak_scope='per_coin'
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
@@ -129,7 +146,7 @@ class Settings(BaseModel):
             self.sma_exit_enabled=True
         if self.strategy=='rsi_hourly_intrabar' and not (self.rsi.static_signals or self.rsi.ml_signals):
             raise ValueError('Enable at least one RSI entry signal family')
-        if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate') and not (self.major or self.minor):
+        if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate','sr_order_block_gate') and not (self.major or self.minor):
             raise ValueError('Enable at least one level family')
         return self
 

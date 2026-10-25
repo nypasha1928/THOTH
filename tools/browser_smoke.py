@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];delta_preview=[False]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];delta_preview=[False];ob_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -67,6 +67,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
     result=chart_older if 'lookback=2000' in url else chart_intervals[params.get('interval',['1'])[0]]
     if delta_preview[0] and params.get('include_volume_delta')==['true']:result={**result,'volume_delta_analysis':[dict(time=result['candles'][-1]['time'],signal='Long')],'volume_delta_status':'Synthetic Volume Delta fixture; not exchange evidence'}
+    if ob_preview[0] and params.get('include_order_block')==['true']:
+     last=result['candles'][-1];result={**result,'order_block_analysis':[dict(time=last['time'],events=[dict(kind='bullish_formed',side='Long')],zones={'demand':[dict(time=last['time']-600,high=last['close']+1,low=last['close']-2)],'supply':[dict(time=last['time']-3600,high=last['close']+7,low=last['close']+5)]})],'order_block_status':'Synthetic Order Block reference fixture'}
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -352,7 +354,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert ' V' not in major.get_attribute('d')
    expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
    page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
-   assert page.locator('#appearanceFields > details.indicator-dropdown').count()==9
+   assert page.locator('#appearanceFields > details.indicator-dropdown').count()==10
    delta_preview[0]=True;page.click('#refresh')
    expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
    assert page.evaluate('referenceSignalStrategy')!='volume_delta_intrabar'
@@ -362,6 +364,18 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.get_by_label('Show Volume Delta reference arrows',exact=True).check();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
    delta_preview[0]=False;page.click('#refresh');expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
    page.get_by_text('Volume Delta signals',exact=True).click()
+   page.get_by_text('Order Block · 5m',exact=True).click();ob_preview[0]=True;page.click('#refresh')
+   expect(page.locator('[data-order-block-zone="demand"]')).to_have_count(1)
+   expect(page.locator('[data-order-block-zone="demand"]')).to_have_attribute('stroke','#2157f3')
+   expect(page.locator('[data-order-block-strength="demand"]')).to_contain_text('Strength: 3')
+   expect(page.locator('[data-order-block-zone="supply"]')).to_have_attribute('stroke','#ff5d00')
+   page.locator('#chart').screenshot(path='/tmp/thoth-order-block-boxes-fixture.png')
+   expect(page.locator('[data-signal-source^="Order Block"]')).to_have_count(0)
+   page.get_by_label('Bullish block color',exact=True).fill('#123abc')
+   expect(page.locator('[data-order-block-zone="demand"]')).to_have_attribute('stroke','#123abc')
+   page.get_by_label('Show Order Block boxes',exact=True).uncheck();expect(page.locator('[data-order-block-zone]')).to_have_count(0)
+   page.get_by_label('Show Order Block boxes',exact=True).check();expect(page.locator('[data-order-block-zone="demand"]')).to_have_count(1)
+   ob_preview[0]=False;page.click('#refresh');page.get_by_text('Order Block · 5m',exact=True).click()
    assert page.locator('#appearanceFields > details.indicator-dropdown[open]').count()==0
    page.locator('#appearanceFields > details.indicator-dropdown').evaluate_all('(items)=>items.forEach(el=>el.open=true)')
    candle=page.locator('[data-candle]').last
@@ -560,6 +574,21 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#entryGateList')).to_contain_text('ARMED · 1m Volume Delta may enter Long or Short')
    page.evaluate("() => {lv.entry_gates.ETHUSDT={phase:'cooldown',losses:3,cooldown_until:Date.now()/1000+3600};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('LOCKED · cooldown')
+   page.select_option('#strategyLogic','sr_order_block_gate')
+   expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_length')).to_have_value('200');expect(page.locator('#sma_length')).to_be_disabled()
+   expect(page.locator('#ob_sma200_required')).to_be_checked();expect(page.locator('#ob_sma200_required')).to_be_disabled()
+   expect(page.locator('#orderBlockSettings')).to_be_visible();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#volumeDeltaSettings')).not_to_be_visible()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('NO RSI permission')
+   expect(page.locator('#strategyDescription')).to_contain_text('Supply breakout Long above')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_order_block_gate'")
+   assert writes[-1][1]['timeframe']=='5' and writes[-1][1]['order_block']['filter_breaks']
+   assert not writes[-1][1]['sma_enabled'] and not writes[-1][1]['sma_7_50_filter_enabled']
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_order_block_gate');expect(page.locator('#rsiSettings')).not_to_be_visible()
+   page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:0,primary_timeframe:'240'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('5m Order Block may enter Long or Short')
    page.select_option('#strategyLogic','sr_inverse_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('240')
    expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')

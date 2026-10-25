@@ -1,4 +1,5 @@
 """Reuse causal market replay on testnet prices, with a separate account engine."""
+from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY
 from .models import Settings,TestnetSettings
 import sqlite3
 from pathlib import Path
@@ -48,14 +49,27 @@ class FeedAdapter:
 
     def staged_armed_symbols(self):
         state=self.supervisor.load()
-        if state['config']['strategy']!='sr_rsi_volume_gate' or not state['management']:return []
+        if state['config']['strategy'] not in STAGED_STRATEGIES or not state['management']:return []
         return [symbol for symbol in state['config']['symbols']
             if state.get('entry_gates',{}).get(symbol,{}).get('phase')=='armed']
 
-    def staged_minute_inputs(self,symbol):
+    def staged_minute_inputs(self,symbol,interval='1'):
         """Read only when the runner is ready to evaluate this coin, not in prefetch."""
         if not self.supervisor.client:raise ValueError('Account is not connected')
-        return self.supervisor.client.candles(symbol,'1',limit=60)
+        limit=60
+        cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
+        if cfg.strategy==ORDER_BLOCK_STRATEGY:
+            interval='5';limit=1000
+            path=Path(self.path).with_suffix('.candles.sqlite')
+            if path.exists():
+                from .verification import strategy_fingerprint
+                try:
+                    with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+                        row=db.execute('SELECT stamp FROM order_block_checkpoints WHERE symbol=? AND strategy=?',(symbol,strategy_fingerprint(cfg))).fetchone()
+                        count=db.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND interval='5'",(symbol,)).fetchone()[0]
+                    if row and count>=200:limit=min(1000,max(60,int((self.supervisor.clock()-row[0])//300)+3))
+                except sqlite3.OperationalError:pass
+        return self.supervisor.client.candles(symbol,interval,limit=limit)
 
     def staged_history_limit(self,symbol,interval):
         """Bootstrap once, then refresh overlap plus any elapsed higher candles."""
@@ -76,7 +90,7 @@ class FeedAdapter:
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
-        if cfg.strategy=='sr_rsi_volume_gate':
+        if cfg.strategy in STAGED_STRATEGIES:
             gate=self.supervisor.load().get('entry_gates',{}).get(symbol,{})
             armed=gate.get('phase')=='armed'
             packet=dict(primary={},minute_on_demand=armed,minute_not_needed=not armed,refresh_primary=True)

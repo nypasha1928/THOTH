@@ -1,5 +1,5 @@
 // Appearance is device-local display state; never included in trading settings.
-const chartStyleDefaults={...rsiVisualDefaults,background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,volumeCollapsed:false,rsiCollapsed:false,showVolume:true,showRSI:true,showRSISignals:true,showRSIPriceSignals:true,showRSIPaneSignals:true,showRSIStatic:true,showRSIML:true,showRSIVWAP:false,showSRArrows:true,showSMAArrows:true,showVolumeDeltaArrows:true,paintSRCandles:false,srLongCandle:'#81d4fa',srShortCandle:'#ffb3ba',
+const chartStyleDefaults={...rsiVisualDefaults,background:'#111d19',showLastPrice:true,bull:'#26a69a',bear:'#ef5350',longSignal:'#4caf50',shortSignal:'#f23645',sma:'#2962ff',sma7:'#ffffff',sma50:'#81d4fa',signalSize:18,rightGap:24,volumeCollapsed:false,rsiCollapsed:false,showVolume:true,showRSI:true,showRSISignals:true,showRSIPriceSignals:true,showRSIPaneSignals:true,showRSIStatic:true,showRSIML:true,showRSIVWAP:false,showSRArrows:true,showSMAArrows:true,showVolumeDeltaArrows:true,showOrderBlockZones:true,obBullish:'#2157f3',obBearish:'#ff5d00',paintSRCandles:false,srLongCandle:'#81d4fa',srShortCandle:'#ffb3ba',
  long_major:{support:'#085d31',resistance:'#b70909',style:'solid',width:4,visible:true},
  long_minor:{support:'#3e7d5c',resistance:'#b14848',style:'dotted',width:2,visible:true},
  short_major:{support:'#83a091',resistance:'#986464',style:'dashed',width:3,visible:true},
@@ -10,8 +10,8 @@ const chartTouches=new Map();
 let chartPinch=null;
 let chartStyle=copyStyle(),chartDrag=null,suppressChartClick=false,chartPriceShift=0,chartPriceZoom=1,chartGeometry=null;
 try{const stored=JSON.parse(localStorage.getItem(chartStyleKey)||'null');if(stored&&typeof stored==='object'){
- for(const key of ['bull','bear','longSignal','shortSignal','sma','sma7','sma50','background','srLongCandle','srShortCandle'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
- for(const key of ['volumeCollapsed','rsiCollapsed','showVolume','showLastPrice','showRSI','showRSISignals','showRSIPriceSignals','showRSIPaneSignals','showRSIStatic','showRSIML','showRSIVWAP','showSRArrows','showSMAArrows','showVolumeDeltaArrows','paintSRCandles'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
+ for(const key of ['bull','bear','longSignal','shortSignal','sma','sma7','sma50','background','srLongCandle','srShortCandle','obBullish','obBearish'])if(/^#[0-9a-f]{6}$/i.test(stored[key]))chartStyle[key]=stored[key];
+ for(const key of ['volumeCollapsed','rsiCollapsed','showVolume','showLastPrice','showRSI','showRSISignals','showRSIPriceSignals','showRSIPaneSignals','showRSIStatic','showRSIML','showRSIVWAP','showSRArrows','showSMAArrows','showVolumeDeltaArrows','showOrderBlockZones','paintSRCandles'])if(typeof stored[key]==='boolean')chartStyle[key]=stored[key];
  restoreRSIVisual(stored,chartStyle);
  if(Number.isInteger(stored.rightGap)&&stored.rightGap>=0&&stored.rightGap<=100)chartStyle.rightGap=stored.rightGap;
  if(Number.isInteger(stored.signalSize)&&stored.signalSize>=10&&stored.signalSize<=32)chartStyle.signalSize=stored.signalSize;
@@ -36,6 +36,8 @@ function renderAppearance(){const target=$('appearanceFields');target.replaceChi
  for(const [key,label]of [['srLongCandle','S/R bullish signal candle color'],['srShortCandle','S/R bearish signal candle color']])srGroup.append(appearanceInput(label,'color',chartStyle[key],value=>chartStyle[key]=value));
  renderRSIAppearance(rsiGroup);
  const deltaGroup=indicatorDropdown(target,'Volume Delta signals');deltaGroup.append(appearanceInput('Show Volume Delta reference arrows','checkbox',chartStyle.showVolumeDeltaArrows,v=>{chartStyle.showVolumeDeltaArrows=v;if(v&&state)loadChart()}));
+ const obGroup=indicatorDropdown(target,'Order Block · 5m');obGroup.append(appearanceInput('Show Order Block boxes','checkbox',chartStyle.showOrderBlockZones,v=>{chartStyle.showOrderBlockZones=v;if(v&&state)loadChart()}));
+ for(const [key,label]of [['obBullish','Bullish block color'],['obBearish','Bearish block color']])obGroup.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
  const crossoverGroup=indicatorDropdown(target,'SMA crossover signals');crossoverGroup.append(appearanceInput('Show SMA crossover reference arrows','checkbox',chartStyle.showSMAArrows,v=>chartStyle.showSMAArrows=v));
  for(const [key,label]of [['longSignal','S/R / SMA bullish arrow'],['shortSignal','S/R / SMA bearish arrow']])target.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
  target.append(appearanceInput('Signal size','number',chartStyle.signalSize,v=>{if(Number.isInteger(v)&&v>=10&&v<=32)chartStyle.signalSize=v},{min:10,max:32}));
