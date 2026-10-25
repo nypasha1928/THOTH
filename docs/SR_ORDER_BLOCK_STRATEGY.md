@@ -39,7 +39,7 @@ Pause entries and close/reconcile existing positions before switching strategy. 
 
 ## Chart and validation
 
-On a 5m chart, Appearance → **Order Block · 5m** controls demand/supply boxes and their two colors. Boxes extend right, with translucent fills, borders and visible Strength labels; there are no Order Block arrows. Other chart timeframes show a notice to select5m. Display controls do not change trading permission. History, Analysis and Signal alerts identify this strategy and record the higher S/R source plus the precise Order Block event.
+On any supported chart timeframe, Appearance → **Order Block boxes** controls demand/supply boxes and their two colors. Boxes extend right, with translucent fills, borders and visible Strength labels; there are no Order Block arrows. Boxes and their SMA 200 are calculated on the displayed timeframe (1m/5m/1h/4h/Daily). Trading confirmation stays fixed at5m. Display controls do not change trading permission. History, Analysis and Signal alerts identify this strategy and record the higher S/R source plus the precise Order Block event.
 
 Validation covers source hash, exact hand-calculated zone bounds/offsets, mirrored bullish/bearish replay, checkpoint restoration, strict wick/head-only breaks, bounce/replacement mutation, event-specific SMA comparisons, rollback, baseline/restart dedupe, S/R-only permission without RSI calls, a real simulated 5m formation → protected order, per-coin lock/isolation, read-only API references, and desktop/mobile settings/chart controls. No real exchange trades or deployment were performed by the coding agent. This does not establish profitability.
 
