@@ -112,6 +112,25 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(len(data['by_source_timing']),1)
         self.assertEqual(len(data['source_options']),2)
 
+    def test_volume_delta_chart_does_not_fabricate_higher_timeframe_history(self):
+        from thoth.app import live
+        from thoth.models import TestnetSettings
+        live.configure(TestnetSettings(strategy='volume_delta_intrabar',timeframe='5'))
+        start=300*10000
+        rows=[dict(time=start-(59-i)*300,open=100,high=111,low=99,close=100 if i<59 else 110,volume=10) for i in range(60)]
+        lower=[dict(time=start,open=100,high=102,low=99,close=101,volume=10)]
+        with patch('thoth.app.candles',return_value=rows),patch('thoth.app.chart_history',return_value=lower),patch('time.time',return_value=start+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=5')
+        self.assertEqual(response.status_code,200,response.text)
+        data=response.json()
+        self.assertTrue(all(row['signal'] is None for row in data['analysis'][:-1]))
+        self.assertEqual(data['analysis'][-1]['signal'],'Long')
+        self.assertIn('no SMA exit',data['indicator_status'])
+        with patch('thoth.app.candles',return_value=rows),patch('thoth.app.chart_history',side_effect=ValueError),patch('time.time',return_value=start+20):
+            data=self.client.get('/api/chart/BTCUSDT?interval=5').json()
+        self.assertTrue(all(row['signal'] is None for row in data['analysis']))
+        self.assertIn('no signal fabricated',data['indicator_status'])
+
     def test_chart_contract_and_outage(self):
         rows = [{'time': i*60, 'open': 100, 'high': 101, 'low': 99, 'close': 100, 'volume': 5} for i in range(201)]
         with patch('thoth.app.candles', return_value=rows):

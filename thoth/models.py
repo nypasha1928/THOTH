@@ -40,11 +40,21 @@ class RSISettings(BaseModel):
         return self
 
 
+class VolumeDeltaSettings(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    sma_filter: bool=True
+    bull_type: str=Field(default='strong',pattern=r'^(strong|weak|all)$')
+    bear_type: str=Field(default='strong',pattern=r'^(strong|weak|all)$')
+    bullish: bool=True
+    bearish: bool=True
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
+    volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     automatic_paper: bool = False
     portfolio_loss_enabled: bool = False
     portfolio_loss_pct: float = Field(default=20, gt=0, le=100, allow_inf_nan=False)
@@ -93,6 +103,9 @@ class Settings(BaseModel):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
+        if self.strategy=='volume_delta_intrabar':
+            self.sma_exit_enabled=False
+            if not (self.volume_delta.bullish or self.volume_delta.bearish):raise ValueError('Enable at least one Volume Delta signal direction')
         if self.strategy=='sr_inverse_intrabar':
             if 'timeframe' not in self.model_fields_set:self.timeframe='240'
             if self.timeframe not in ('240','D'):raise ValueError('Inverse S/R entries require 4-hour or Daily timeframe')

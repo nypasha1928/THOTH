@@ -91,6 +91,7 @@ function draw(){
   if(tinted)shape('title',{},candle).textContent='S/R '+srSignal+' signal candle · display tint only';
   const markers=[];if(chartStyle.showSRArrows&&srSignal)markers.push([srSignal,'S/R']);
   const bar=byTime.get(r.time);if(['sma_cross','sma_7_50','sr_sma_7_50'].includes(referenceSignalStrategy)&&chartStyle.showSMAArrows){const signal=referenceSignalStrategy==='sr_sma_7_50'?bar?.sma_signal:bar?.signal;if(signal)markers.push([signal,referenceSignalStrategy==='sma_cross'?'SMA 7/200':'SMA 7/50'])}
+  if(referenceSignalStrategy==='volume_delta_intrabar'&&chartStyle.showVolumeDeltaArrows&&bar?.signal)markers.push([bar.signal,'Volume Delta']);
   if($('showSignals').checked)for(const [slot,[signal,source]]of markers.entries()){
    const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal,'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
    marker.textContent=source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
