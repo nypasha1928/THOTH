@@ -112,7 +112,7 @@ class IndicatorState:
             bullish=bullish and ready and fast>slow
             bearish=bearish and ready and fast<slow
         signal='Long' if bullish and not bearish else 'Short' if bearish and not bullish else None
-        if cfg.strategy=='sr_hourly_intrabar':signal=None  # OHLC replay cannot reconstruct sampled live crossings.
+        if cfg.strategy in ('sr_hourly_intrabar','sr_inverse_intrabar'):signal=None  # OHLC replay cannot reconstruct sampled live crossings.
         self.previous=levels;self.last_time=row['time'];self.count+=1
         keep=max(51,cfg.sma_length+1,2*cfg.pivot_long+1,2*cfg.pivot_short+1)
         if len(self.buffer)>keep:del self.buffer[:-keep]

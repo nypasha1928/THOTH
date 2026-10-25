@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
    page=browser.new_page(viewport={'width':1440,'height':1080})
    page.on('pageerror',lambda e:errors.append(str(e)))
-   page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    # Read-only risk displays use the server clock and never activate orders.
    payloads['live']['risk'].update(day='2026-10-20',baseline_ms=1792454402000,peak_ms=1792458000000,baseline=100,peak=150,loss_allowance=5,loss_used=2,remaining=3,remaining_pct=3,stop_equity=145,loss_pct=2,symbols={'XVGUSDT':dict(streak=3,pause_until=time.time()+125)})
    payloads['live']['events']=[dict(time=time.time()-40+i,message='Synthetic activity '+str(i)) for i in range(40)]
@@ -139,6 +139,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#dailyBudget')).not_to_contain_text('$3.00')
    page.evaluate("() => { lv.risk.baseline_required=false; renderRiskOverview(); }")
    expect(page.locator('#coinCooldowns')).to_contain_text('XVGUSDT')
+   page.evaluate("() => {lv.risk.symbols.FIXTUREUSDT={streak:2,pause_until:0};renderRiskOverview()}")
+   expect(page.locator('#coinLossStreaks')).to_contain_text('FIXTUREUSDT')
+   expect(page.locator('#coinCooldowns')).not_to_contain_text('FIXTUREUSDT')
+   assert page.locator('#coinLossStreaks').evaluate('(el)=>getComputedStyle(el).overflowY')=='auto'
+   assert not page.locator('.saved-symbol-details').evaluate('(el)=>el.open')
    first_timer=page.locator('#coinCooldowns').inner_text()
    expect(page.locator('#coinCooldowns')).not_to_have_text(first_timer,timeout=5000)
    expect(page.locator('#events li')).to_have_count(30)
@@ -146,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#events li').last).to_contain_text('Synthetic activity 10')
    expect(page.locator('#events')).to_have_css('overflow-y','auto')
    page.select_option('#symbol','ETHUSDT')
-   expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    expect(page.locator('#chartScope')).to_contain_text('Included in saved trading list')
    page.click('[data-page-link=security]');expect(page.locator('#accountSecurity')).to_be_visible()
    expect(page.locator('#settings')).not_to_be_visible()
@@ -156,12 +161,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#page-chart')).not_to_be_visible()
    page.click('#onlyChart');expect(page.locator('#selectedSymbols button')).to_have_count(1)
    expect(page.locator('#selectedSymbols')).to_contain_text('ETHUSDT')
-   expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    # Draft edits cannot trigger activation; no order route is reached.
    page.click('#start');expect(page.locator('#symbolSaveMessage')).to_contain_text('Save your strategy')
    assert not activation
    page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT')
-   page.click('[data-page-link=settings]');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).not_to_contain_text('SOLUSDT')
+   page.click('[data-page-link=settings]');page.click('#saveSymbols');expect(page.locator('#savedSymbolList')).not_to_contain_text('SOLUSDT')
    expect(page.locator('#symbol')).to_have_value('ETHUSDT')
    assert writes[-1][1]['symbols']==['ETHUSDT']
    if page.locator('#sma_7_50_filter_enabled').is_visible():
@@ -181,7 +186,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');page.click('[data-page-link=settings]')
    page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
    page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
-   expect(page.locator('#savedSymbols')).to_contain_text('Saved trading symbols (1): SOLUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT');expect(page.locator('#savedSymbols')).to_contain_text('Saved trading symbols (1)')
    page.click('[data-page-link=chart]');page.click('#older');expect(page.locator('#latest')).to_be_enabled();page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
    page.locator('#chart').click(position={'x':100,'y':160});expect(page.locator('#candleInfo')).to_contain_text(' O ')
    assert page.locator('#chart path').count()>30
@@ -194,7 +199,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#chartSearch');page.fill('#chartSearchInput','ETHUSDT')
    page.locator('#chartSearchResults button').filter(has_text='ETHUSDT').click()
    expect(page.locator('#symbol')).to_have_value('ETHUSDT')
-   expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    page.click('[data-page-link=settings]');page.get_by_role('button',name='View SOLUSDT chart',exact=True).click()
    expect(page.locator('#symbol')).to_have_value('SOLUSDT')
    assert len(writes)==write_count and writes[-1][1]['symbols']==saved_before
@@ -483,9 +488,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#appearanceToggle');page.click('#resetAppearance')
    assert page.evaluate('() => chartStyle.bull')=='#26a69a'
    page.click('#closeAppearance')
-   expect(page.locator('#savedSymbols')).to_contain_text('SOLUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    page.select_option('#symbol','ETHUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
-   page.click('[data-page-link=settings]');page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
+   page.click('[data-page-link=settings]');page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbolList')).to_contain_text('ETHUSDT')
    page.select_option('#strategyLogic','sma_cross');expect(page.locator('#strategyDescription')).to_contain_text('SMA 7')
    for control in ['sma_enabled','sma_7_50_filter_enabled','sma_length']:
     expect(page.locator('#'+control)).to_be_visible()
@@ -523,6 +528,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
    expect(page.locator('#tf')).to_have_value('1')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R intrabar → Exit 1m');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','sr_inverse_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('240')
+   expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')
+   expect(page.locator('#inverse_direction_confirmed')).to_be_visible()
+   page.check('#inverse_direction_confirmed')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_inverse_intrabar'")
+   expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   page.select_option('#strategyTf','D');page.click('#saveSymbols');page.wait_for_function("() => lv.config.timeframe==='D'")
    page.select_option('#strategyLogic','sr_rsi_daily')
    expect(page.locator('#strategyTf')).to_have_value('D');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
@@ -654,7 +667,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    payloads['live']['positions']=[]
    page.evaluate('() => {lv.positions=[];draw();}')
    page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
-   page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)
+   page.wait_for_function('() => !chartLoading');page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)
    page.click('#oldest');expect(page.locator('#older')).to_be_disabled()
    assert page.evaluate('() => chartRows.length')==2000
    expect(page.locator('#historyStatus')).to_contain_text('Historical replay')
@@ -776,7 +789,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#viewMode')).to_have_count(0)
    expect(page.locator('#paperPanel')).to_have_count(0)
    page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")
-   page.reload();expect(page.locator('#savedSymbols')).to_contain_text('ETHUSDT')
+   page.reload();expect(page.locator('#savedSymbolList')).to_contain_text('ETHUSDT')
    assert page.evaluate('() => chartStyle.bull')=='#26a69a'
    assert page.evaluate('() => chartStyle.long_major.width')==4
    assert not errors,errors

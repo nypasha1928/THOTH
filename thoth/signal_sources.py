@@ -22,11 +22,11 @@ def sources_from_decision(item):
 def source_label(sources):
     labels=[]
     for source in sorted(set(sources or [])):
-        if source.startswith('sr:'):
-            parts=source[3:].split('_')
+        if source.startswith(('sr:','inverse_sr:')):
+            parts=source.split(':',1)[1].split('_')
             if len(parts)==3:
                 term,side,grade=parts
-                labels.append('S/R '+{'long':'long-term','short':'short-term'}.get(term,term)+' '+grade+' '+side)
+                labels.append(('Inverse S/R ' if source.startswith('inverse_sr:') else 'S/R ')+{'long':'long-term','short':'short-term'}.get(term,term)+' '+grade+' '+side)
             else:labels.append(source)
         elif source.startswith('rsi:'):labels.append(RSI_LABELS.get(source[4:],source))
         elif source=='sma:7_50':labels.append('SMA 7/50 crossover')
