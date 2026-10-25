@@ -23,6 +23,27 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_order_block_5m_reference_is_read_only_and_strategy_filter_available(self):
+        from test_order_block import formation_rows
+        response=self.client.put('/api/live/settings',json={'strategy':'sr_order_block_gate'})
+        self.assertEqual(response.status_code,200,response.text)
+        before=self.client.get('/api/live').json()['config']
+        self.assertEqual(before['timeframe'],'5');self.assertFalse(before['sma_exit_enabled'])
+        rows=formation_rows()
+        with patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=rows[-1]['time']+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=5&include_order_block=true')
+            self.assertEqual(response.status_code,200,response.text)
+            body=response.json();self.assertEqual(body['chart_signal_strategy'],'sr_breakout')
+            self.assertIn({'kind':'bullish_formed','side':'Long'},body['order_block_analysis'][-1]['events'])
+            self.assertIn('supply break above',body['order_block_status'])
+            hidden=self.client.get('/api/chart/BTCUSDT?interval=5&include_order_block=false').json()
+            self.assertEqual(hidden['order_block_analysis'],[])
+            other=self.client.get('/api/chart/BTCUSDT?interval=1&include_order_block=true').json()
+            self.assertEqual(other['order_block_analysis'],[]);self.assertIn('select 5m',other['order_block_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config'],before)
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=sr_order_block_gate').status_code,200)
+        self.assertFalse(self.client.get('/api/live').json()['entries'])
+
     def test_removed_modes_and_controls_are_unavailable(self):
         self.assertEqual(self.client.get('/').status_code,200)
         routes={r.path for r in app.routes}

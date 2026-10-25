@@ -31,6 +31,9 @@ def source_label(sources):
                 term,side,grade=parts
                 labels.append(('Inverse S/R ' if source.startswith('inverse_sr:') else 'S/R ')+{'long':'long-term','short':'short-term'}.get(term,term)+' '+grade+' '+side)
             else:labels.append(source)
+        elif source.startswith('ob:'):
+            from .order_block import LABELS
+            labels.append(LABELS.get(source[3:],source))
         elif source.startswith('volume_delta:'):
             labels.append({'bullish_strong':'Volume Delta Strong Bullish (Up)','bullish_weak':'Volume Delta Weak Bullish (Up-)','bullish_all':'Volume Delta All Bullish','bearish_strong':'Volume Delta Strong Bearish (Down)','bearish_weak':'Volume Delta Weak Bearish (Down+)','bearish_all':'Volume Delta All Bearish'}.get(source.split(':',1)[1],source))
         elif source.startswith('rsi:'):labels.append(RSI_LABELS.get(source[4:],source))
