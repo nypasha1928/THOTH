@@ -22,7 +22,10 @@ def sources_from_decision(item):
 def source_label(sources):
     labels=[]
     for source in sorted(set(sources or [])):
-        if source.startswith(('sr:','inverse_sr:')):
+        if source.startswith('htf:'):
+            _,frame,nested=source.split(':',2)
+            labels.append({'240':'4-hour','D':'Daily'}.get(frame,frame)+' '+source_label([nested]))
+        elif source.startswith(('sr:','inverse_sr:')):
             parts=source.split(':',1)[1].split('_')
             if len(parts)==3:
                 term,side,grade=parts

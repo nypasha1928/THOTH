@@ -1,6 +1,6 @@
 # THOTH project handover
 
-Last updated: 2026-10-22 (America/New_York).
+Last updated: 2026-10-25 (America/New_York).
 
 ## Start here in a new chat
 
@@ -326,3 +326,18 @@ Validation:342 tests passed (/tmp/thoth-delta-chart-verified.log). New API regre
 ## Plain Volume Delta chart triangles
 
 User requested remove V letter/no visible text from Volume Delta markers, plans to change signal color. Removed V prefix only; markers now plain▲/▼, existing appearance color behavior and tooltip/source metadata retained. No signal/trading/math changes. Updated existing browser expectation; JS syntax and diff checks passed. Branch codex/plain-volume-delta-arrows.
+
+
+## Two-stage higher-timeframe permission → minute Volume Delta (current task)
+
+Branch `codex/htf-volume-confirmation`, based on main `abe42cf`. See [TWO_STAGE_VOLUME_DELTA.md](TWO_STAGE_VOLUME_DELTA.md) for settings, lifecycle and implementation limits.
+
+User's latest clarification SUPERSEDES the earlier directional matching answer: BOTH 4h and Daily S/R OR RSI are monitored intrabar; whichever fresh source arrives first gives per-coin permission ONLY, not an entry direction. After arming, a NEW 1m Volume Delta signal chooses Long OR Short regardless of higher-source direction. Simultaneous opposing higher sources still give directionless permission. SMA7/50 minute alignment filter mandatory. No SMA exit or inverse wait. Configured stops/TP/trailing/opposite-signal action/account safeguards remain. Higher signals do not demonstrate that sideways trading will stop.
+
+New separate profile `sr_rsi_volume_gate`. Gate state persisted under supervisor `entry_gates`. First higher trigger arms; later higher signals do not reset/change it. Positive settled P&L resets that coin's consecutive loss count to0, flat unchanged, negative increments. Default3 losses locks ONLY that coin for default60minutes (existing limit/minutes editable, scope forcedpercoin). Clear pending/reversal for lockedcoin. Cooldown expiry transitions to waiting for fresh higher signal, never automatically opens/unlocks. Both endpoints of unlock observation must be after cooldown; signals during pause/cooldown are not buffered/replayed. Fresh unlock resets count0, then waits for a subsequent minute condition. Stop and trailing management continue; an already-armed position can still close on an opposite minute signal while entries paused.
+
+Feed fetches both higher sources independently while waiting; always minute last. Once armed or during cooldown only minute needed. Higher sources reuse existing durable causal S/R + fixed RSI observations with separate240/D fingerprints/histories and session guards. No uploaded Pine/VolumeDelta calculation changed. A minute condition consumed at arming is not replayed, so it needs a NEW qualifying minute condition afterward. Existing30sec order expiry and paced queues unchanged. Rule edits/removing-readding symbols invalidate armed permissions but preserve locks. Restart preserves permission/locks but requires normal manual activation and fresh minute observation baseline.
+
+Settings/Analysis/History strategy names added; mandatory controls locked and described. Live positions has compact per-coin permission list with Armed/Waiting/Locked/WaitingFresh, source frame, loss count and countdown. Activity/SignalAlerts record gate changes; exact order sources include higher `htf:240:`/`htf:D:` source IDs plus minute VolumeDelta IDs, formatted in Alerts/History/Analysis. Chart timeframe stays view-only; arrows do not reconstruct stateful gates or prove orders.
+
+Validation:354 unittest tests passed (`/tmp/stage-final-tests.log`), 12 new gate/account/runner tests: either-side confirmation, same-observation no entry, opposing higher permissions, pause consumption, pause still permits managed opposite exits, mandatory model constraints, real settled third-loss lock, cross-coin isolation, third losing reversal cannot open replacement, cooldown/fresh unlock, durable state, source history, real higher RSI → real minute Short through feed and exchange simulator, healthy-source isolation when minute/other-source unavailable. Full desktop/mobile browser smoke passed (`/tmp/stage-browser.log`), including new Settings profile, enforced fields, gate armed/lock display, no activation requests. JS syntax, shell syntax, generated indicator and diff checks passed. No live deployment or real orders. Review branch is pushed only after checks; GitHub direct PR creation unavailable in this environment, so provide Create PR link accurately.

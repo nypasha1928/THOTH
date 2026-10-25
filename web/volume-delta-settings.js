@@ -8,5 +8,5 @@ function renderVolumeDeltaSettings(config){
  }
  $('fields').append(section);syncVolumeDeltaSettings();
 }
-function syncVolumeDeltaSettings(){const section=$('volumeDeltaSettings');if(section){const active=$('strategyLogic').value==='volume_delta_intrabar';section.hidden=!active;section.open=active}}
+function syncVolumeDeltaSettings(){const section=$('volumeDeltaSettings');if(section){const staged=$('strategyLogic').value==='sr_rsi_volume_gate';const active=staged||$('strategyLogic').value==='volume_delta_intrabar';if($('vd_sma_filter')){$('vd_sma_filter').disabled=staged;if(staged)$('vd_sma_filter').checked=true;}section.hidden=!active;section.open=active}}
 function collectVolumeDeltaSettings(){return {sma_filter:$('vd_sma_filter').checked,bullish:$('vd_bullish').checked,bearish:$('vd_bearish').checked,bull_type:$('vd_bull_type').value,bear_type:$('vd_bear_type').value}}

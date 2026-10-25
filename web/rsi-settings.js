@@ -24,12 +24,12 @@ function renderRSISettings(config){
   if(type==='checkbox')input.checked=config[id]??fallback;else input.value=config[id]??fallback;
   if(type==='number'){input.min=min;input.max=max;input.step=step||1}row.append(input);section.append(row);
  }
- section.open=['rsi_hourly_intrabar','sr_rsi_daily'].includes($('strategyLogic').value);syncDailyRSIControls();
+ section.open=['rsi_hourly_intrabar','sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);syncDailyRSIControls();
 }
 function collectRSISettings(){return Object.fromEntries(rsiControls.map(([id,,type])=>[id,type==='checkbox'?$('rsi_'+id).checked:type==='number'?Number($('rsi_'+id).value):$('rsi_'+id).value]))}
 
 function syncDailyRSIControls(){
- const daily=$('strategyLogic').value==='sr_rsi_daily';
+ const daily=['sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);
  for(const id of ['sma_enabled','sma_7_50_filter_enabled','rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter'])if($(id)){$(id).disabled=daily;if(daily)$(id).checked=false;}
  for(const [id,value]of [['rsi_calculation_mode','fixed'],['rsi_signal_rules','eight_crossings']])if($(id)){$(id).disabled=daily;if(daily)$(id).value=value;}
  for(const id of ['rsi_static_signals','rsi_ml_signals'])if($(id)){$(id).disabled=daily;if(daily)$(id).checked=true;}

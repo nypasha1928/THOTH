@@ -154,10 +154,10 @@ class Runner:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return observation
 
-    def volume_delta_observation(self,symbol,cfg,rows,now):
+    def volume_delta_observation(self,symbol,cfg,rows,now,lower=None):
         from .volume_delta import signal
         duration=interval_seconds(cfg.timeframe);start=int(now)//duration*duration
-        lower=self.engine.volume_delta_inputs(symbol,cfg.timeframe,start)
+        if lower is None:lower=self.engine.volume_delta_inputs(symbol,cfg.timeframe,start)
         settings=cfg.volume_delta
         result=signal(rows,lower,cfg.timeframe,now,sma_filter=settings.sma_filter,
             bull_type=settings.bull_type,bear_type=settings.bear_type,
@@ -180,6 +180,41 @@ class Runner:
         return dict(time=now,mark=rows[-1]['close'],signal=emitted,entry_sources=result['entry_sources'] if emitted else [],
             volume_delta_status=result['status'])
 
+    def staged_observation(self,symbol,cfg,packet,now):
+        from .signal_sources import sources_from_decision
+        primary=[];errors={}
+        for timeframe,rows in packet['primary'].items():
+            try:
+                if isinstance(rows,Exception):raise rows
+                source_cfg=cfg.model_copy(update={'strategy':DAILY_COMBINED,'timeframe':timeframe})
+                identity=strategy_fingerprint(source_cfg)
+                with sqlite3.connect(self.history_path) as db:
+                    saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
+                previous=json.loads(saved[0]) if saved else {}
+                window_start=min(previous.get(part,{}).get('observed_at',0) for part in ('sr','rsi'))
+                history=self.history(symbol,timeframe,rows)
+                result,count=self.analysis(symbol,source_cfg,history,now)
+                observation=self.daily_sr_rsi_observation(symbol,source_cfg,history,result,now)
+                # Either family supplies permission, including simultaneous opposing
+                # families: direction is irrelevant at this first stage.
+                diagnostic=observation.get('signal_diagnostic') or {}
+                for family in ('sr','rsi'):
+                    direction=diagnostic.get(family+'_signal')
+                    if direction not in ('Long','Short'):continue
+                    item={'signal':direction,'diagnostic':{**diagnostic,('rsi_signal' if family=='sr' else 'sr_signal'):None}}
+                    sources=['htf:'+timeframe+':'+source for source in sources_from_decision(item)]
+                    primary.append(dict(id=identity+':'+str(diagnostic['entry_bar'])+':'+family+':'+','.join(sources),
+                        signal=direction,time=now,timeframe=timeframe,sources=sources,window_start=window_start))
+            except Exception as exc:errors[timeframe]=str(exc)[:200]
+        volume={}
+        try:
+            if packet.get('minute_error'):raise packet['minute_error']
+            volume=self.volume_delta_observation(symbol,cfg,packet['minute'],now,lower=[])
+        except Exception as exc:errors['1']=str(exc)[:200]
+        return dict(time=now,mark=volume.get('mark'),signal=None,primary_events=primary,
+            volume_signal=volume.get('signal'),volume_sources=volume.get('entry_sources',[]),source_errors=errors,
+            volume_delta_status=volume.get('volume_delta_status','1m data unavailable'))
+
     def cycle(self, paced=True):
         scan_started=time.monotonic()
         state = self.engine.snapshot()
@@ -191,7 +226,7 @@ class Runner:
         symbols = cfg.symbols if state['status'] == 'running' else [p['symbol'] for p in state['positions']]
         self.scan_cycle+=1
         observations, statuses = {}, {}
-        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar') and
+        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_rsi_volume_gate') and
                    callable(getattr(self.engine,'begin_market_scan',None)) and
                    callable(getattr(self.engine,'market_observation',None)))
         if streaming:self.engine.begin_market_scan()
@@ -218,22 +253,22 @@ class Runner:
                 symbol = futures[future]
                 try:
                     rows=future.result()
-                    if cfg.strategy=='volume_delta_intrabar':
+                    if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
                         # Delta needs current 1m inputs: process ready symbols now,
                         # rather than age their samples behind the whole download.
                         now=time.time()
-                        observation=self.volume_delta_observation(symbol,cfg,rows,now)
+                        observation=self.staged_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_rsi_volume_gate' else self.volume_delta_observation(symbol,cfg,rows,now)
                         observations[symbol]=observation
-                        statuses[symbol]=dict(status='ok',bar=rows[-1]['time'],signal=observation['signal'],note=observation['volume_delta_status'])
+                        statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(now)//60*60,signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}))
                         if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
                     else:downloaded[symbol]=rows
                 except Exception as exc:
-                    if cfg.strategy=='volume_delta_intrabar':
+                    if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
                         observations.pop(symbol,None)
                         statuses[symbol]=dict(status='error',message=str(exc)[:240])
                     else:downloaded[symbol]=exc
         duration = interval_seconds(cfg.timeframe)
-        for symbol in (() if cfg.strategy=='volume_delta_intrabar' else symbols):
+        for symbol in (() if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate') else symbols):
             if self.stop_event.is_set(): return
             try:
                 rows = downloaded[symbol]
@@ -256,13 +291,13 @@ class Runner:
         # Missing held-position data blocks new entries. An unavailable unheld symbol
         # does not suppress otherwise valid signals on unrelated symbols.
         held={p['symbol'] for p in state['positions']}
-        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar'):
+        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_rsi_volume_gate'):
             for observation in observations.values(): observation['signal'] = None
         if not streaming:self.engine.market_cycle(cfg.model_dump(), observations)
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
-        self.health = {'status': 'degraded' if len(observations)!=len(symbols) else 'ok',
+        self.health = {'status': 'degraded' if len(observations)!=len(symbols) or any(s['status']!='ok' for s in statuses.values()) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
-                       'note': 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy=='sr_rsi_volume_gate' else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():
