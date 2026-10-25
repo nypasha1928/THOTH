@@ -17,7 +17,7 @@ class InverseSRTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'4-hour or Daily'):Settings(strategy='sr_inverse_intrabar',timeframe=interval,inverse_direction_confirmed=True)
         with self.assertRaisesRegex(ValueError,'level family'):Settings(strategy='sr_inverse_intrabar',inverse_direction_confirmed=True,major=False,minor=False)
 
-    def test_inverse_positions_and_actual_side_minute_exits_survive_restart(self):
+    def test_inverse_positions_and_inverted_minute_exits_survive_restart(self):
         for interval in ('240','D'):
             for raw,price,actual,side in [('Long',102,'Short','Sell'),('Short',98,'Long','Buy')]:
                 with self.subTest(interval=interval,raw=raw),tempfile.TemporaryDirectory() as d:
@@ -41,15 +41,21 @@ class InverseSRTests(unittest.TestCase):
                     self.assertEqual(service.state['owned']['BTCUSDT']['side'],side)
                     self.assertTrue(service.state['owned']['BTCUSDT']['protection_confirmed'])
                     service=create();service.activate(service.confirmation,recovery=True);now[0]+=6
+                    exit_mark=[101 if actual=='Short' else 99]
                     def minute_rows(symbol,timeframe,limit):
                         self.assertEqual(timeframe,'1');minute=int(now[0])//60*60
-                        return [dict(time=minute-(50-i)*60,close=100 if i<50 else 101 if actual=='Short' else 99) for i in range(51)]
-                    with patch.object(exchange,'candles',side_effect=minute_rows):service.monitor()
+                        return [dict(time=minute-(50-i)*60,close=100 if i<50 else exit_mark[0]) for i in range(51)]
+                    with patch.object(exchange,'candles',side_effect=minute_rows):
+                        service.monitor()
+                        self.assertIsNone(service.state['owned']['BTCUSDT']['close_link'])
+                        now[0]+=6;exit_mark[0]=99 if actual=='Short' else 101
+                        service.monitor()
                     owner=service.state['owned']['BTCUSDT']
                     self.assertIsNotNone(owner['close_link']);self.assertEqual(owner['exit_timeframe'],'1')
                     exchange.fill(owner['close_link']);service.monitor()
                     trade=service.history()['items'][0]
                     self.assertEqual((trade['strategy'],trade['side'],trade['entry_timeframe'],trade['exit_timeframe']),('sr_inverse_intrabar',actual,interval,'1'))
                     self.assertIn('Inverse S/R',trade['entry_source_label'])
+                    self.assertEqual(trade['reason'],'Inverse SMA 7 crossed '+('below' if actual=='Short' else 'above')+' SMA 50 (intrabar exit)')
                     restored=Runner(FeedAdapter(service));now[0]+=5
                     self.assertIsNone(restored.intrabar_observation('BTCUSDT',plain,[dict(time=start,close=price)],result,now[0])['signal'])
