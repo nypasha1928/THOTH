@@ -272,14 +272,13 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
         rsi_analysis=[bar for bar in rsi_analysis if bar['time']>=rows[0]['time']]
     order_block_analysis=[];order_block_status=''
     if include_order_block:
-        if interval!='5':order_block_status='Order Block trading uses 5-minute confirmation; select 5m to inspect its reference signals'
-        else:
-            from .order_block import reference
-            from .models import OrderBlockSettings
-            try:
-                order_block_analysis=reference(history,OrderBlockSettings(**cfg.get('order_block',{})),__import__('time').time(),interval='5')
-                order_block_status='Order Block 5m references; SMA 200: bullish formation below, bearish above; supply break above, demand break below; history starts at loaded window, not proof of live orders'
-            except ValueError as exc:order_block_status='Order Block references unavailable: '+str(exc)
+        from .order_block import reference
+        from .models import OrderBlockSettings
+        try:
+            order_block_analysis=reference(history,OrderBlockSettings(**cfg.get('order_block',{})),__import__('time').time(),interval=interval)
+            label={'1':'1m','5':'5m','60':'1h','240':'4h','D':'Daily'}[interval]
+            order_block_status='Order Block '+label+' chart references; SMA 200 uses the displayed timeframe; trading confirmation remains 5m for the S/R → Order Block strategy. History starts at loaded window, not proof of live orders'
+        except ValueError as exc:order_block_status='Order Block references unavailable: '+str(exc)
     averages = [b for b in sma(history, 200 if cfg['strategy']=='sma_cross' else cfg['sma_length']) if b['time'] >= rows[0]['time']]
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
             'analysis': analysis,'order_block_analysis':order_block_analysis,'order_block_status':order_block_status,'volume_delta_analysis':volume_delta_analysis,'volume_delta_status':volume_delta_status,'sr_analysis':sr_analysis,'chart_signal_strategy':display_strategy,'rsi_analysis':rsi_analysis,'rsi_status':('Fixed RSI Long/Short thresholds; levels do not adapt. Eight reference crossing types; no ML history window required. Arrows are not proof of an order.' if cfg.get('rsi',{}).get('calculation_mode')=='fixed' else 'Uploaded Pine array behavior: ML thresholds unavailable in the uploaded source; static RSI crossings are available. Chart arrows can include unfiltered crossings; trading uses the saved entry rules and filters.' if cfg.get('rsi',{}).get('calculation_mode')=='uploaded_pine' else 'Corrected ML RSI; eight reference crossing types. Arrows can include filtered-out crossings, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up')),

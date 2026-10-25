@@ -364,7 +364,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.get_by_label('Show Volume Delta reference arrows',exact=True).check();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
    delta_preview[0]=False;page.click('#refresh');expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
    page.get_by_text('Volume Delta signals',exact=True).click()
-   page.get_by_text('Order Block · 5m',exact=True).click();ob_preview[0]=True;page.click('#refresh')
+   page.get_by_text('Order Block boxes',exact=True).click();ob_preview[0]=True;page.click('#refresh')
    expect(page.locator('[data-order-block-zone="demand"]')).to_have_count(1)
    expect(page.locator('[data-order-block-zone="demand"]')).to_have_attribute('stroke','#2157f3')
    expect(page.locator('[data-order-block-strength="demand"]')).to_contain_text('Strength: 3')
@@ -375,7 +375,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-order-block-zone="demand"]')).to_have_attribute('stroke','#123abc')
    page.get_by_label('Show Order Block boxes',exact=True).uncheck();expect(page.locator('[data-order-block-zone]')).to_have_count(0)
    page.get_by_label('Show Order Block boxes',exact=True).check();expect(page.locator('[data-order-block-zone="demand"]')).to_have_count(1)
-   ob_preview[0]=False;page.click('#refresh');page.get_by_text('Order Block · 5m',exact=True).click()
+   ob_preview[0]=False;page.click('#refresh');page.get_by_text('Order Block boxes',exact=True).click()
    assert page.locator('#appearanceFields > details.indicator-dropdown[open]').count()==0
    page.locator('#appearanceFields > details.indicator-dropdown').evaluate_all('(items)=>items.forEach(el=>el.open=true)')
    candle=page.locator('[data-candle]').last
