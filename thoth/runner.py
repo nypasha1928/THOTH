@@ -5,7 +5,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from pathlib import Path
 
 from .indicator import evaluate
@@ -15,6 +15,25 @@ from .market import candles
 from .models import Settings
 from .intrabar_entry import observe_breakout,STRATEGY
 from .daily_sr_rsi import observe as observe_daily,STRATEGY as DAILY_COMBINED
+
+
+def bounded_downloads(pool,symbols,fetch,stop_event):
+    """Keep at most four higher-history packets in flight or awaiting analysis."""
+    symbols=iter(symbols);pending={}
+    def submit():
+        symbol=next(symbols,None)
+        if symbol is not None:pending[pool.submit(fetch,symbol)]=symbol
+    for _ in range(4):submit()
+    try:
+        while pending and not stop_event.is_set():
+            completed,_=wait(pending,return_when=FIRST_COMPLETED)
+            for future in completed:
+                symbol=pending.pop(future)
+                yield symbol,future
+                if stop_event.is_set():return
+                submit()
+    finally:
+        for future in pending:future.cancel()
 
 
 class Runner:
@@ -208,8 +227,13 @@ class Runner:
             except Exception as exc:errors[timeframe]=str(exc)[:200]
         volume={}
         try:
-            if packet.get('minute_error'):raise packet['minute_error']
-            volume=self.volume_delta_observation(symbol,cfg,packet['minute'],now,lower=[])
+            if packet.get('minute_on_demand'):
+                minute=self.engine.staged_minute_inputs(symbol)
+                now=time.time()  # After the network read and higher-history processing.
+            else:
+                if packet.get('minute_error'):raise packet['minute_error']
+                minute=packet['minute']
+            volume=self.volume_delta_observation(symbol,cfg,minute,now,lower=[])
         except Exception as exc:errors['1']=str(exc)[:200]
         return dict(time=now,mark=volume.get('mark'),signal=None,primary_events=primary,
             volume_signal=volume.get('signal'),volume_sources=volume.get('entry_sources',[]),source_errors=errors,
@@ -244,13 +268,16 @@ class Runner:
                     raise RuntimeError('Worker stopping')
             return self.fetch(symbol, cfg.timeframe)
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for symbol in symbols:
-                if self.stop_event.is_set(): return
-                futures[pool.submit(fetch_limited, symbol)] = symbol
+            if cfg.strategy=='sr_rsi_volume_gate':
+                completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event)
+            else:
+                for symbol in symbols:
+                    if self.stop_event.is_set(): return
+                    futures[pool.submit(fetch_limited, symbol)] = symbol
+                completed=((futures[future],future) for future in as_completed(futures))
             downloaded = {}
-            for future in as_completed(futures):
+            for symbol,future in completed:
                 if self.stop_event.is_set():return
-                symbol = futures[future]
                 try:
                     rows=future.result()
                     if cfg.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
@@ -259,7 +286,7 @@ class Runner:
                         now=time.time()
                         observation=self.staged_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_rsi_volume_gate' else self.volume_delta_observation(symbol,cfg,rows,now)
                         observations[symbol]=observation
-                        statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(now)//60*60,signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}))
+                        statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}))
                         if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
                     else:downloaded[symbol]=rows
                 except Exception as exc:

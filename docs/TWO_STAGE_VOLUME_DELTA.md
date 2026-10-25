@@ -24,3 +24,7 @@ Changing entry rules or removing/readding a symbol invalidates armed permission;
 Volume Delta mathematics remain the uploaded strategy's candle-volume proxy, not aggressor trade delta. A minute condition already consumed in the arming observation is not replayed to enter: a new eligible condition is required. Sampling, large watchlists, API rate limits, entry queue expiry and account safeguards can delay or prevent orders. Historical chart arrows do not reconstruct permission state or prove an order occurred.
 
 Validation uses local simulated exchanges, actual indicator calculations, restart/freshness tests and desktop/mobile browser fixtures. It does not establish profitability or TradingView feed/timing parity.
+
+### Minute data freshness fix
+
+Higher histories are now prefetched with a maximum of four outstanding packets. The runner completes each coin's higher calculations before requesting its 60 most recent minute candles and refreshing the observation clock. Minute candles are not stored in the prefetched packets, which previously allowed them to expire while queued on large watchlists. Current-minute validation remains strict. Initial higher-history bootstrap and the full watchlist sweep may still be slow; inspect `scan_seconds` in the worker report rather than assuming every coin is sampled every five seconds.

@@ -46,19 +46,22 @@ class FeedAdapter:
         self.supervisor.apply_signals({**cfg,'automatic_paper':False},
             {symbol:observation},monitor_account=False)
 
+    def staged_minute_inputs(self,symbol):
+        """Read only when the runner is ready to evaluate this coin, not in prefetch."""
+        if not self.supervisor.client:raise ValueError('Account is not connected')
+        return self.supervisor.client.candles(symbol,'1',limit=60)
+
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
         if cfg.strategy=='sr_rsi_volume_gate':
             gate=self.supervisor.load().get('entry_gates',{}).get(symbol,{})
-            packet=dict(primary={},minute=[],minute_error=None)
+            packet=dict(primary={},minute_on_demand=True)
             needs_primary=gate.get('phase')!='armed' and self.supervisor.clock()>=(gate.get('cooldown_until') or 0)
             if needs_primary:
                 for timeframe in ('240','D'):
                     try:packet['primary'][timeframe]=self.supervisor.client.candles(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
-            try:packet['minute']=self.supervisor.client.candles(symbol,'1',limit=60)
-            except Exception as exc:packet['minute_error']=exc
             return packet
         rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy=='volume_delta_intrabar' else self.supervisor.client.candles(symbol,interval)
         if cfg.strategy=='volume_delta_intrabar':

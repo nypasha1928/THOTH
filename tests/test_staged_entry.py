@@ -187,9 +187,29 @@ class StagedAccountTests(unittest.TestCase):
         adapter=FeedAdapter(self.service);calls=[]
         def fetch(symbol,tf,**kw):calls.append(tf);return []
         with patch.object(self.exchange,'candles',side_effect=fetch):
-            adapter.fetch('BTCUSDT','1');self.assertEqual(calls,['240','D','1']);calls.clear()
+            packet=adapter.fetch('BTCUSDT','1');self.assertEqual(calls,['240','D']);self.assertTrue(packet['minute_on_demand']);calls.clear()
+            adapter.staged_minute_inputs('BTCUSDT');self.assertEqual(calls,['1']);calls.clear()
             self.sample([primary(self.now[0]+5)])
-            adapter.fetch('BTCUSDT','1');self.assertEqual(calls,['1'])
+            adapter.fetch('BTCUSDT','1');self.assertEqual(calls,[])
+            adapter.staged_minute_inputs('BTCUSDT');self.assertEqual(calls,['1'])
+
+    def test_minute_is_fetched_after_slow_higher_analysis_with_new_timestamp(self):
+        adapter=FeedAdapter(self.service);runner=Runner(adapter);calls=[]
+        packet=dict(primary={'240':[]},minute_on_demand=True)
+        def higher(*args):
+            calls.append('higher');self.now[0]+=180
+            return dict(signal=None)
+        def fetch(symbol,tf,**kw):
+            calls.append('minute');self.assertEqual(tf,'1');self.assertEqual(kw['limit'],60)
+            start=int(self.now[0])//60*60
+            return [dict(time=start-(59-i)*60,open=100,close=100,high=101,low=99,volume=10) for i in range(60)]
+        before=self.now[0]
+        with patch.object(runner,'history',return_value=[]),patch.object(runner,'analysis',return_value=([],100)),patch.object(runner,'daily_sr_rsi_observation',side_effect=higher),patch.object(self.exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:self.now[0]):
+            observation=runner.staged_observation('BTCUSDT',self.cfg,packet,before)
+        self.assertEqual(calls,['higher','minute'])
+        self.assertEqual(observation['time'],before+180)
+        self.assertEqual(observation['source_errors'],{})
+        self.assertIn('proxy',observation['volume_delta_status'])
 
     def test_runner_keeps_healthy_source_permission_when_minute_or_other_source_fails(self):
         runner=Runner(FeedAdapter(self.service))
@@ -200,3 +220,21 @@ class StagedAccountTests(unittest.TestCase):
         self.assertEqual({e['signal'] for e in obs['primary_events']},{'Long','Short'})
         self.assertEqual(set(obs['source_errors']),{'D','1'})
         self.assertIsNone(obs['volume_signal'])
+
+
+class BoundedPacketTests(unittest.TestCase):
+    def test_large_watchlist_cannot_prefetch_entire_scan_ahead_of_analysis(self):
+        from concurrent.futures import Future
+        from threading import Event
+        from thoth.runner import bounded_downloads
+        submitted=[]
+        class Pool:
+            def submit(self,fetch,symbol):
+                submitted.append(symbol);future=Future();future.set_result(fetch(symbol));return future
+        results=bounded_downloads(Pool(),list(range(100)),lambda symbol:symbol,Event())
+        first=next(results)
+        self.assertEqual(len(submitted),4)
+        self.assertEqual(first[0],first[1].result())
+        # Caller performs higher analysis and fresh minute read before asking for more.
+        next(results);self.assertEqual(len(submitted),5)
+        results.close()
