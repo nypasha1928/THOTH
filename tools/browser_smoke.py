@@ -618,6 +618,28 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sma_7_50_intrabar'")
    assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['opposite_action']=='reverse'
    assert not writes[-1][1]['sma_exit_enabled']
+   expect(page.locator('#weekly_equity_trailing_enabled')).not_to_be_checked()
+   expect(page.locator('#daily_equity_trailing_enabled')).not_to_be_checked()
+   expect(page.locator('#three_day_equity_trailing_enabled')).not_to_be_checked()
+   page.check('#weekly_equity_trailing_enabled');page.fill('#weekly_equity_trailing_drop_dollars','2.50')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.weekly_equity_trailing_enabled")
+   assert writes[-1][1]['weekly_equity_trailing_drop_dollars']==2.5
+   period_now=time.time()
+   payloads['live']['equity_trailing']={'weekly':dict(period_start=period_now-600,period_end=period_now+3600,peak='105',current='104.5',drop='2.5',remaining='2.0',stop_equity='102.5',triggered=False)}
+   page.evaluate("async()=>{updateAccount(await api('live'));renderRiskOverview()}")
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('TRACKING')
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('$105.00')
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('$102.50')
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('remaining')
+   payloads['live']['equity_trailing']['weekly']['triggered']=True
+   page.evaluate("async()=>{updateAccount(await api('live'));renderRiskOverview()}")
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('PAUSED UNTIL PERIOD END')
+   page.uncheck('#weekly_equity_trailing_enabled');page.click('#saveSymbols')
+   page.wait_for_function("() => !lv.config.weekly_equity_trailing_enabled")
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('PAUSED UNTIL PERIOD END')
+   payloads['live']['equity_trailing']={}
+   page.evaluate("async()=>{updateAccount(await api('live'));renderRiskOverview()}")
+   expect(page.locator('#equityTrailingStatus')).to_be_hidden()
    page.select_option('#strategyLogic','sr_volume_intrabar')
    expect(page.locator('#strategyDescription')).to_contain_text('REQUIRED')
    expect(page.locator('#strategyTf')).to_be_disabled()

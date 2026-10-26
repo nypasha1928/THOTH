@@ -79,6 +79,13 @@ class Settings(BaseModel):
     pnl_trailing_enabled: bool = False
     pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)
+    equity_trailing_resume_automatic: bool = True
+    daily_equity_trailing_enabled: bool = False
+    daily_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    three_day_equity_trailing_enabled: bool = False
+    three_day_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    weekly_equity_trailing_enabled: bool = False
+    weekly_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     coin_pnl_trailing_enabled: bool = False
     coin_pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     coin_pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)

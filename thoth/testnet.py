@@ -24,6 +24,7 @@ from .diagnostics import failure_details, failure_summary
 from .models import TestnetSettings, Settings
 from .bybit_testnet import take_profit_price
 from .trailing import FIELDS as TRAILING_FIELDS,new_trailing,advance as advance_trailing
+from .equity_trailing import PERIODS as EQUITY_PERIODS,LABELS as EQUITY_LABELS,advance as advance_equity_trailing,active_locks as equity_locks,window as equity_window
 from .portfolio_trailing import new_state as new_pnl_trailing,advance as advance_pnl_trailing
 
 
@@ -96,6 +97,7 @@ class TestnetSupervisor:
         # Persistence retains exit obligations, never permission to open new orders.
         self.state['rate_limit_resume']=False
         self.state['entries']=False
+        self.state['equity_trailing_resume_intent']=False
         self.state['pending_signals']={}
         self.state['reversals']={}
         if self.state['management']:
@@ -120,6 +122,9 @@ class TestnetSupervisor:
         state.setdefault('daily_resume_intent',False)
         state.setdefault('flatten_reason',None)
         state.setdefault('pnl_trailing',new_pnl_trailing())
+        state.setdefault('equity_trailing',{})
+        state.setdefault('equity_cashflows',{})
+        state.setdefault('equity_trailing_resume_intent',False)
         return state
 
     def save(self,state=None):
@@ -132,7 +137,7 @@ class TestnetSupervisor:
     def snapshot(self):
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
-            'pnl_trailing':s['pnl_trailing'],'entry_gates':s.get('entry_gates',{}),
+            'pnl_trailing':s['pnl_trailing'],'equity_trailing':s['equity_trailing'],'entry_gates':s.get('entry_gates',{}),
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
@@ -194,6 +199,10 @@ class TestnetSupervisor:
             if any(self.state['config'].get(key)!=getattr(cfg,key) for key in coin_keys):
                 for owner in self.state['owned'].values():
                     if not owner.get('coin_pnl_trailing',{}).get('triggered'):owner['coin_pnl_trailing']=new_pnl_trailing()
+            for period in EQUITY_PERIODS:
+                key=period+'_equity_trailing_enabled'
+                if not self.state['equity_trailing'].get(period,{}).get('triggered') and bool(self.state['config'].get(key))!=getattr(cfg,key):
+                    self.state['equity_trailing'].pop(period,None)
             self.state['config']=cfg.model_dump()
             self.state['cursors']={}
             self.save()
@@ -233,10 +242,16 @@ class TestnetSupervisor:
         return float(equity)
 
     def transfers(self):
-        since=self.state['risk'].get('baseline_ms')
-        if since is None or self.state['risk']['day']!=day(self.clock()):return 0.0
-        rows=self.pages('/v5/account/transaction-log',dict(accountType='UNIFIED',currency='USDT',startTime=since,endTime=int(self.clock()*1000)),50)
-        total=dec(0);seen=set()
+        now=self.clock();end=int(now*1000)
+        periods=any(self.state['config'].get(p+'_equity_trailing_enabled',False) for p in EQUITY_PERIODS) or bool(equity_locks(self.state['equity_trailing'],now))
+        baseline=self.state['risk'].get('baseline_ms')
+        daily_current=baseline is not None and self.state['risk']['day']==day(now)
+        if not periods and not daily_current:return 0.0
+        since=baseline if daily_current else end
+        if periods:since=min(since,self.state.get('equity_cashflow_cursor_ms',end)-60000)
+        since=max(since,end-7*86400000)
+        rows=self.pages('/v5/account/transaction-log',dict(accountType='UNIFIED',currency='USDT',startTime=since,endTime=end),50)
+        total=dec(0);seen=set();ledger=dict(self.state['equity_cashflows'])
         for row in rows:
             identity=row.get('id')
             if identity is None:raise ValueError('Transaction identity unavailable')
@@ -244,9 +259,21 @@ class TestnetSupervisor:
             seen.add(identity)
             if row.get('currency')!='USDT':continue
             kind=row.get('type')
-            if kind in ('TRANSFER_IN','TRANSFER_OUT'):total+=dec(row['change'])
+            if kind in ('TRANSFER_IN','TRANSFER_OUT'):
+                change=dec(row['change'])
+                if not change.is_finite():raise ValueError('Invalid account cash flow')
+                if periods:
+                    stamp=int(row['transactionTime'])
+                    if not 0<=stamp<=end:raise ValueError('Invalid transfer timestamp')
+                    ledger[str(identity)]=dict(time=stamp,change=str(change))
+                else:total+=change
             elif kind not in ('TRADE','SETTLEMENT','DELIVERY','LIQUIDATION'):
                 raise ValueError('Unexpected account cash flow; account review required')
+        if periods:
+            ledger={key:value for key,value in ledger.items() if value['time']>=end-8*86400000}
+            if len(ledger)>10000:raise ValueError('Transfer ledger exceeds safety bound')
+            self.state.update(equity_cashflows=ledger,equity_cashflow_cursor_ms=end)
+            total=sum((dec(value['change']) for value in ledger.values() if daily_current and value['time']>=baseline),dec(0))
         return float(total)
 
     def _preflight(self):
@@ -308,6 +335,8 @@ class TestnetSupervisor:
             self.state=self.load()
             if confirmation.strip()!=self.confirmation:raise ValueError('Type '+self.confirmation+' to enable '+self.label+' trading')
             self.state['rate_limit_resume']=False
+            if not recovery and equity_locks(self.state['equity_trailing'],self.clock()):
+                raise ValueError('Equity trailing stop pause remains active until its UTC period ends')
             if not recovery and self.state['config']['loss_streak_scope']=='account' and self.state['risk'].get('pause_until') and self.clock()<self.state['risk']['pause_until']:
                 raise ValueError('Consecutive-loss pause cannot be bypassed')
             self.state.update(entries=False,status='paused',reason='Checking '+self.label+' account prerequisites')
@@ -348,7 +377,7 @@ class TestnetSupervisor:
 
     def pause(self):
         with self.lock:
-            self.state=self.load();self.state.update(entries=False,status='paused',reason='Entries paused; risk management remains active',pending_signals={},reversals={},daily_resume_intent=False,rate_limit_resume=False);self.save()
+            self.state=self.load();self.state.update(entries=False,status='paused',reason='Entries paused; risk management remains active',pending_signals={},reversals={},daily_resume_intent=False,rate_limit_resume=False,equity_trailing_resume_intent=False);self.save()
         return self.snapshot()
 
     def _lock(self,status,reason):
@@ -590,7 +619,7 @@ class TestnetSupervisor:
         if updated['triggered'] and not before['triggered']:
             # Persist the close-all obligation BEFORE cancellation/close requests.
             # Existing flatten reconciliation handles late entry fills and retries.
-            self.state['flatten_reason']='Open P&L trailing stop'
+            if not self.state['flatten_reason']:self.state['flatten_reason']='Open P&L trailing stop'
             self.state.update(pending_signals={},reversals={})
             self.event('Open P&L trailing drop reached at '+updated['current']+' USDT (peak '+updated['peak']+', close threshold '+updated['threshold']+'); closing all positions; entry permission retained')
             self.save()
@@ -598,6 +627,46 @@ class TestnetSupervisor:
         if observer is not None:
             try:observer.submit(active,cfg,updated,self.state['owned'],self.clock())
             except Exception:pass  # Observation must never affect execution or its fixed tracker.
+
+    def _manage_equity_trailing(self,equity,cfg):
+        states=self.state['equity_trailing'];now=self.clock();was_locked=bool(equity_locks(states,now))
+        for period in EQUITY_PERIODS:
+            before=states.get(period,{})
+            net=sum((dec(value['change']) for value in self.state['equity_cashflows'].values()
+                if value['time']>=(before.get('baseline_ms',int(now*1000)) if before.get('period_start')==equity_window(period,now)[0] else int(now*1000))),dec(0))
+            state=advance_equity_trailing(before,equity,net,getattr(cfg,period+'_equity_trailing_enabled'),
+                getattr(cfg,period+'_equity_trailing_drop_dollars'),period,now)
+            states[period]=state
+            if state.get('triggered') and not before.get('triggered'):
+                reason=EQUITY_LABELS[period]
+                if not was_locked:self.state['equity_trailing_resume_intent']=self.state['entries']
+                was_locked=True
+                if not self.state['flatten_reason']:self.state['flatten_reason']=reason
+                self.state.update(entries=False,pending_signals={},reversals={},daily_resume_intent=False,rate_limit_resume=False)
+                self.event(reason+' reached; closing all positions; entries paused until UTC period end '+str(state['period_end']))
+                self.save()  # Persist pause and close-all obligation before exchange writes.
+        self._enforce_equity_pause()
+
+    def _enforce_equity_pause(self,allow_resume=False,cfg=None):
+        locks=equity_locks(self.state['equity_trailing'],self.clock())
+        if locks:
+            self.state.update(entries=False,pending_signals={},reversals={},daily_resume_intent=False,rate_limit_resume=False)
+            if self.state['status'] in ('running','paused','equity_trailing_stop','cooldown'):
+                self.state.update(status='equity_trailing_stop',reason=' / '.join(EQUITY_LABELS[key] for key in locks)+'; entries paused until all triggered UTC periods end')
+        elif allow_resume and (self.state['status']=='equity_trailing_stop' or self.state['equity_trailing_resume_intent']):
+            if self.state['status']=='equity_trailing_stop' and self.state['flatten_reason']:
+                self.state['reason']='Equity trailing period ended; waiting for close-all settlement'
+                return
+            risk=self.state['risk']
+            eligible=(self.state['status']=='equity_trailing_stop' and not self.state['flatten_reason']
+                and not any(risk.get(key) for key in ('daily_stop','portfolio_stop','baseline_required'))
+                and not (cfg.loss_streak_scope=='account' and (risk.get('pause_until') or 0)>self.clock()))
+            resume=bool(eligible and cfg.equity_trailing_resume_automatic and self.state['equity_trailing_resume_intent'])
+            self.state['equity_trailing_resume_intent']=False
+            if self.state['status']=='equity_trailing_stop':
+                self.state.update(entries=resume,status='running' if resume else 'paused',
+                    reason='' if resume else 'Equity trailing period ended; manually enable entries after review')
+                self.event('Equity trailing pause expired; '+('previously enabled entries resumed; waiting for NEW signals' if resume else 'entries remain paused'))
 
     def monitor(self):
         with self.lock:
@@ -671,6 +740,7 @@ class TestnetSupervisor:
             if self.state['risk']['day']!=previous_day:
                 self.event('New UTC daily period '+self.state['risk']['day']+': starting equity '+format(equity,'.2f')+' USDT; fresh allowance '+format(self.state['risk']['loss_allowance'],'.2f')+' USDT; prior daily loss usage cleared')
             self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},coin_pnl_trailing=self.state['owned'].get(s,{}).get('coin_pnl_trailing',new_pnl_trailing()),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
+            self._manage_equity_trailing(equity,cfg)
             self._manage_pnl_trailing(active,cfg)
             if risk=='daily_stop':
                 if self.state['status']!='daily_stop':self.state['daily_resume_intent']=self.state['entries']
@@ -719,6 +789,7 @@ class TestnetSupervisor:
                     self.state.update(entries=resume,rate_limit_resume=False,monitor_error=None)
                     if self.state['status']=='rate_limited':self.state.update(status='running' if resume else 'paused',reason='' if resume else 'Account reads recovered; entries remain paused')
                     self.event('Bybit account monitoring recovered; '+('previously enabled entries resumed subject to risk checks' if resume else 'entries remain paused'))
+            self._enforce_equity_pause(allow_resume=True,cfg=cfg)
             self._reversals(cfg)
             self._drain(cfg)
             self.save()
@@ -727,6 +798,7 @@ class TestnetSupervisor:
         with self.lock:
             self.state=self.load()
             if not self.client or not self.state['management']:raise ValueError('Activate '+self.label+' risk management first')
+            self.state['equity_trailing_resume_intent']=False
             self._lock('paused','Manual close all; new entries disabled')
             self.state['flatten_reason']='Manual close all'
             self.save()
@@ -878,6 +950,8 @@ class TestnetSupervisor:
         return False
 
     def _entry(self,symbol,side,stamp,identity,cfg,context=None):
+        if equity_locks(self.state['equity_trailing'],self.clock()):
+            self._signal_decision(symbol,'skipped: equity trailing period pause active',{'time':stamp,'signal':side});return
         if self._sr_volume_window_used(symbol,cfg):
             self._signal_decision(symbol,'skipped: one entry per coin per 4-hour candle already used',{'time':stamp,'signal':side});return
         if cfg.strategy in STAGED_STRATEGIES:

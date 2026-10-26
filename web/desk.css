@@ -55,3 +55,5 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 
 #closeAllSignalAlerts{position:fixed;bottom:12px;left:12px;z-index:1001;background:var(--panel,#1b2822)}
 .floating-signal-alerts{bottom:60px}
+
+.equity-period-trailing{border:1px solid #82947a;border-radius:8px;padding:12px;margin-top:10px}.equity-period-paused{border-color:#ff8c82;background:#612b2b33;color:#ffaaa1}

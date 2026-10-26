@@ -12,7 +12,7 @@ let rsiRows=[],orderBlockRows=[],volumeDeltaRows=[],srAnalysis=[],referenceSigna
 let dirty=false,formDraft=null,chartRequest=0,chartLoading=false;
 const marketPrice=n=>Number(n).toLocaleString('en-US',{maximumFractionDigits:Math.abs(Number(n))<1?Math.min(12,Math.max(6,2-Math.floor(Math.log10(Math.abs(Number(n))||1)))):Math.abs(Number(n))<10?4:2});
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0));
-const fieldIds=['sr_volume_period','inverse_entry_delay_seconds','inverse_direction_confirmed','coin_pnl_trailing_enabled','coin_pnl_trailing_activation_dollars','coin_pnl_trailing_drop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','take_profit_enabled','take_profit_dollars','sma_7_50_filter_enabled','sma_exit_enabled','trailing_enabled','trailing_activation_pct','trailing_distance_pct','position_value','leverage','stop_dollars','daily_loss_pct','max_positions','consecutive_losses','pause_minutes','pivot_long','pivot_short','sma_length','major','minor','sma_enabled','portfolio_loss_enabled','portfolio_loss_pct','daily_resume_automatic'];
+const fieldIds=[...equityTrailingFieldIds,'sr_volume_period','inverse_entry_delay_seconds','inverse_direction_confirmed','coin_pnl_trailing_enabled','coin_pnl_trailing_activation_dollars','coin_pnl_trailing_drop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','take_profit_enabled','take_profit_dollars','sma_7_50_filter_enabled','sma_exit_enabled','trailing_enabled','trailing_activation_pct','trailing_distance_pct','position_value','leverage','stop_dollars','daily_loss_pct','max_positions','consecutive_losses','pause_minutes','pivot_long','pivot_short','sma_length','major','minor','sma_enabled','portfolio_loss_enabled','portfolio_loss_pct','daily_resume_automatic'];
 async function api(path,method='GET',body){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),45000);
  try{const response=await fetch('/api/'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal});
@@ -71,6 +71,7 @@ function renderSettings(){
  coinGroup.append(field('Trigger P&L per coin (USDT)','coin_pnl_trailing_activation_dollars',c.coin_pnl_trailing_activation_dollars,'number',{min:'.001',step:'.001'}));
  coinGroup.append(field('Trailing drop per coin (USDT)','coin_pnl_trailing_drop_dollars',c.coin_pnl_trailing_drop_dollars,'number',{min:'.001',step:'.001'}));
  const coinNote=document.createElement('p');coinNote.className='note';coinNote.textContent='Same fixed-dollar P&L rules as combined trailing, tracked independently for each coin. Trigger is profit in dollars; trailing drop is a fixed dollar drop from the highest profit since activation. Closes only that position and retains entry permission. These amounts apply to every managed position, including current ones when enabled. Combined trailing remains separate; whichever exit triggers first applies. Changing these settings resets untriggered per-coin peaks. Server sampled; realized profit after fees/slippage is not guaranteed.';coinGroup.append(coinNote);$('fields').prepend(coinGroup);
+ renderEquityTrailingSettings(c);
  $('strategyLogic').value=c.strategy;$('oppositeAction').value=c.opposite_action;renderStrategyDescription();
  $('lossStreakScope').value=c.loss_streak_scope;
  $('trailingBasis').value=c.trailing_distance_basis;$('trailingActivationBasis').value=c.trailing_activation_basis;renderTrailingDescription();
@@ -215,7 +216,7 @@ setInterval(refreshQuote,5000);
 function countdown(until){const seconds=Math.max(0,Math.ceil(until-(Date.now()+riskClockOffset)/1000)),hours=Math.floor(seconds/3600),minutes=Math.floor(seconds%3600/60),rest=seconds%60;return (hours?String(hours).padStart(2,'0')+':':'')+String(minutes).padStart(2,'0')+':'+String(rest).padStart(2,'0')}
 function riskTimestamp(ms){return Number.isFinite(ms)?new Date(ms).toISOString().replace('T',' ').replace(/\.\d{3}Z$/,' UTC'):'not recorded on older versions'}
 function renderRiskOverview(){
- if(!lv)return;const risk=lv.risk,now=(Date.now()+riskClockOffset)/1000;
+ if(!lv)return;renderEquityTrailingStatus();const risk=lv.risk,now=(Date.now()+riskClockOffset)/1000;
  renderEntryGates(now);
  $('dailyCountdown').textContent='Time until next UTC day: '+countdown((Math.floor(now/86400)+1)*86400)+' · resets at 00:00 UTC; restart follows your saved resume setting';
  if(risk.baseline_required){$('dailyBudget').classList.add('budget-exhausted');$('dailyBudget').textContent='New daily allowance pending baseline review — entries blocked';$('dailyBudgetDetails').textContent='Previous risk day: '+risk.day+' UTC. Yesterday’s remaining allowance is not today’s budget. Review the new baseline while flat.';}
