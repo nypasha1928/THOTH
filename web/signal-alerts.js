@@ -67,6 +67,9 @@ let floatingAlertNewest=null,floatingAlertBusy=false,floatingAlertWatchOffset=0;
 const dismissedSignalAlerts=new Set();
 function setupFloatingSignalAlerts(){
  const stack=document.createElement('aside');stack.id='floatingSignalAlerts';stack.className='floating-signal-alerts';stack.setAttribute('aria-label','New signal alerts');stack.setAttribute('aria-live','polite');document.body.append(stack);
+ const closeAll=document.createElement('button');closeAll.id='closeAllSignalAlerts';closeAll.type='button';closeAll.textContent='Close all alerts';closeAll.hidden=true;
+ closeAll.onclick=()=>{for(const box of [...stack.children]){dismissedSignalAlerts.add(box.dataset.alertId);box.remove()}closeAll.hidden=true};
+ stack.before(closeAll);new MutationObserver(()=>{closeAll.hidden=!stack.children.length}).observe(stack,{childList:true});
  setInterval(pollFloatingSignalAlerts,5000);pollFloatingSignalAlerts();
 }
 async function pollFloatingSignalAlerts(){

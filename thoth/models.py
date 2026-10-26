@@ -61,7 +61,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -100,6 +100,7 @@ class Settings(BaseModel):
     sma_7_50_filter_enabled: bool = False
     sma_enabled: bool = False
     sma_length: int = Field(default=200, ge=1, le=500)
+    sr_volume_period: int = Field(default=20,ge=2,le=500)
     inverse_direction_confirmed: bool = False
     inverse_entry_delay_seconds: int = Field(default=60,ge=0,le=3600)
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
@@ -113,6 +114,9 @@ class Settings(BaseModel):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
+        if self.strategy=='sr_volume_intrabar':
+            self.timeframe='240';self.sma_exit_enabled=False
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False
         if self.strategy=='sr_order_block_gate':
             self.sma_length=200
             self.timeframe='5';self.sma_exit_enabled=False;self.loss_streak_scope='per_coin'
@@ -146,7 +150,7 @@ class Settings(BaseModel):
             self.sma_exit_enabled=True
         if self.strategy=='rsi_hourly_intrabar' and not (self.rsi.static_signals or self.rsi.ml_signals):
             raise ValueError('Enable at least one RSI entry signal family')
-        if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate','sr_order_block_gate') and not (self.major or self.minor):
+        if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate','sr_order_block_gate','sr_volume_intrabar') and not (self.major or self.minor):
             raise ValueError('Enable at least one level family')
         return self
 

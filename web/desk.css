@@ -52,3 +52,6 @@ main,header{max-width:1440px}.grid{grid-template-columns:minmax(0,2.5fr) minmax(
 .signal-toast strong,.signal-toast a{color:#b6ed75}.signal-toast button{float:right;padding:2px 9px;margin-left:8px}.signal-toast p{margin:8px 0;font-size:13px}.signal-toast a{font-size:13px}
 
 .compact-scroll{max-height:150px;overflow-y:auto;overflow-wrap:anywhere;padding:8px}.saved-symbol-details summary{cursor:pointer}.saved-symbol-details .compact-scroll{line-height:1.7}
+
+#closeAllSignalAlerts{position:fixed;bottom:12px;left:12px;z-index:1001;background:var(--panel,#1b2822)}
+.floating-signal-alerts{bottom:60px}
