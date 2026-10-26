@@ -1,6 +1,15 @@
 # THOTH project handover
 
-Last updated: 2026-10-25 (America/New_York).
+Last updated: 2026-10-26 (America/New_York).
+
+## Direct S/R + Volume MA strategy / alerts / timestamp recovery (2026-10-26)
+
+- New separate `sr_volume_intrabar` profile, UI **S/R 4h/D · Volume MA · No SMA exit**. Monitors BOTH 4-hour and Daily S/R independently, using confirmed Major/Minor levels and current-price crossings. No candle-close wait; no second-stage permission or confirmation. Long resistance breakout / Short support break. Conflicting directions in the same sampled observation are skipped.
+- User confirmed REQUIRED volume rule: forming source-timeframe candle volume strictly greater than its volume SMA 20, including that forming candle. Own `sr_volume_period` default 20, editable. SMA price/7-50, RSI, VWAP and other entry filters do not apply. Filtered crossings are consumed; increasing volume later does not replay that crossing. First observations/restarts/gaps baseline rather than replay.
+- **User clarified: keep the selected opposite-signal action.** No SMA exit, but Reversal/Close-only still applies, alongside dollar stops, TP, trailing, daily/account/per-coin risk. Actual source timeframe and S/R provenance recorded in History/Analysis/Alerts. Chart timeframe is display only. Do not confuse this with the existing two-stage Volume Delta strategy.
+- Floating **Close all alerts** button dismisses all currently visible toast cards and records their IDs as dismissed in this page session, so later status updates do not recreate them. Saved Alerts history is retained; future new signals still appear. Button hidden when stack empty.
+- Bybit `10002` is a signed timestamp outside the receive window (clock skew or request delay), not a coin signal problem. Private GET can correct the client's signing clock from a finite server `time` in the HTTPS rejection and retry once with a newly signed timestamp. RTT must be <=10 seconds; invalid/missing server time or repeated timestamp rejection still fails closed. No write/transport retries added; receive window stays 5000 ms. No live monitoring bypass or automatic activation added. Persistent errors still require checking VPS NTP/network.
+- See `thoth/sr_volume.py`, runner/feed adapters, `tests/test_sr_volume.py`, `web/signal-alerts.js`. Uploaded Pine sources untouched. Validation: 386 unit/integration tests pass; desktop/mobile browser smoke passes including profile save, required filter/disabled SMA exit, bulk toast dismissal without deleting saved history. Generated indicator, JS syntax, deployment shell syntax and whitespace checks pass. No real orders or VPS deployment performed.
 
 ## Start here in a new chat
 

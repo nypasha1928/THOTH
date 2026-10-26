@@ -90,6 +90,12 @@ class FeedAdapter:
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
+        if cfg.strategy=='sr_volume_intrabar':
+            primary={}
+            for timeframe in ('240','D'):
+                try:primary[timeframe]=self.staged_primary_inputs(symbol,timeframe)
+                except Exception as exc:primary[timeframe]=exc
+            return dict(primary=primary)
         if cfg.strategy in STAGED_STRATEGIES:
             gate=self.supervisor.load().get('entry_gates',{}).get(symbol,{})
             armed=gate.get('phase')=='armed'

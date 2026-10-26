@@ -79,15 +79,21 @@ class TestnetClient:
 
     def __init__(self, key='', secret='', armed=False, transport=urlopen):
         self.key,self.secret,self.armed,self.transport=key,secret,armed,transport
+        self.clock_offset_ms=0.
 
     def request(self, method, path, params, private=False):
-        # Retry only explicit rate-limit rejections of reads, never writes or
-        # transport failures with an ambiguous order outcome.
+        # Bounded retries for explicit read rejections only: rate limits, or a
+        # timestamp rejection with a verified HTTPS server clock. Never retry
+        # writes or transport failures with an ambiguous order outcome.
         attempts=3 if method=='GET' else 1
         for attempt in range(attempts):
             try:return self._request_once(method,path,params,private)
             except BybitError as exc:
-                if exc.code!=10006 or attempt+1==attempts:raise
+                if attempt+1==attempts:raise
+                if exc.code==10002 and private and attempt==0 and hasattr(exc,'server_time_ms'):
+                    self.clock_offset_ms=exc.server_time_ms-exc.local_midpoint_ms
+                    continue
+                if exc.code!=10006:raise
 
     def _request_once(self, method, path, params, private=False):
         if not path.startswith('/v5/') or method not in ('GET','POST'):
@@ -98,13 +104,15 @@ class TestnetClient:
         headers={'Content-Type':'application/json'}
         if private:
             if not self.key or not self.secret:raise BybitError('Testnet credentials missing')
-            timestamp=str(int(time.time()*1000))
+            local_ms=time.time()*1000
+            timestamp=str(int(local_ms+self.clock_offset_ms))
             message=timestamp+self.key+'5000'+encoded
             headers.update({'X-BAPI-API-KEY':self.key,'X-BAPI-TIMESTAMP':timestamp,'X-BAPI-RECV-WINDOW':'5000',
                 'X-BAPI-SIGN':hmac.new(self.secret.encode(),message.encode(),hashlib.sha256).hexdigest()})
         url=self.BASE+path+('?' + encoded if method=='GET' and encoded else '')
         req=Request(url,data=encoded.encode() if method=='POST' else None,headers=headers,method=method)
         try:
+            sent_ms=local_ms if private else 0.
             with self.transport(req,timeout=10) as response:
                 body=json.load(response)
                 rate_headers=getattr(response,'headers',{})
@@ -119,6 +127,14 @@ class TestnetClient:
                 BYBIT_PACER.backoff(delay)
             if body.get('retCode')!=0:
                 error=BybitError(f"Bybit rejected request ({body.get('retCode')}): {body.get('retMsg')}",code=body.get('retCode'))
+                if error.code==10002 and private:
+                    import math
+                    try:
+                        server=float(body['time']);received_ms=time.time()*1000
+                        if math.isfinite(server) and server>0 and 0<=received_ms-sent_ms<=10000:
+                            error.server_time_ms=server
+                            error.local_midpoint_ms=(sent_ms+received_ms)/2
+                    except (KeyError,TypeError,ValueError):pass
                 if error.code==10006:
                     quota={}
                     for name,header in [('limit','X-Bapi-Limit'),('remaining','X-Bapi-Limit-Status'),('reset_ms','X-Bapi-Limit-Reset-Timestamp')]:
