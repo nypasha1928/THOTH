@@ -61,7 +61,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -79,6 +79,13 @@ class Settings(BaseModel):
     pnl_trailing_enabled: bool = False
     pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)
+    equity_trailing_resume_automatic: bool = True
+    daily_equity_trailing_enabled: bool = False
+    daily_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    three_day_equity_trailing_enabled: bool = False
+    three_day_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    weekly_equity_trailing_enabled: bool = False
+    weekly_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     coin_pnl_trailing_enabled: bool = False
     coin_pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     coin_pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)
@@ -114,6 +121,9 @@ class Settings(BaseModel):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
+        if self.strategy=='sma_7_50_intrabar':
+            self.timeframe='240';self.sma_exit_enabled=False;self.opposite_action='reverse'
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False
         if self.strategy=='sr_volume_intrabar':
             self.timeframe='240';self.sma_exit_enabled=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False

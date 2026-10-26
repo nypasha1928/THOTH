@@ -106,7 +106,7 @@ class FeedAdapter:
                     try:packet['primary'][timeframe]=self.staged_primary_inputs(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
-        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy=='volume_delta_intrabar' else self.supervisor.client.candles(symbol,interval)
+        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
         if cfg.strategy=='volume_delta_intrabar':
             from .volume_delta import lower_inputs
             lower=lower_inputs(self.supervisor.client.candles,symbol,interval,rows,self.supervisor.clock(),self.volume_delta_data.get(symbol,{}).get('rows',[]))

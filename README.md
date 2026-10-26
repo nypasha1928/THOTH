@@ -320,3 +320,15 @@ Maximum one entry per coin per UTC 4-hour candle, shared by 4h and Daily signals
 There is no SMA exit. Your selected opposite-signal action, protective dollar stop, optional TP/trailing and account/coin risk controls remain. Source timeframe is recorded with each entry. Chart timeframe and reference arrows do not change trading or prove that the volume filter passed. Pause entries and settle all managed positions before switching strategies; restart requires manual activation.
 
 **Close all alerts** dismisses floating cards, preserves saved signal history and permits future new alerts. Bybit signed-read error `10002` now allows one server-clock correction/retry; missing clock data, persistent errors and ambiguous transport failures still block entry as appropriate. Writes are never blindly retried.
+
+### SMA 7/50 · 4h intrabar · Reversal
+
+This separate strategy samples SMA 7 and SMA 50 using the forming 4-hour candle. A fresh crossover above opens Long; a crossover below opens Short. No candle-close wait, no SMA exit and no entry filters. Reversal is mandatory: close, confirm flat/settled, then open the opposite direction subject to account controls. Dollar stops, optional TP/trailing and risk controls remain. New crossings can reverse again in the same 4-hour candle; the separate S/R + volume strategy’s one-entry-per-4h cap does not apply. Startup/restart or stale observation establishes a baseline rather than replaying an old cross. Chart timeframe is display only; historical arrows are confirmed-candle references, not reconstructed intrabar executions.
+
+### Daily, 3-Day and Weekly account equity trailing
+
+Separate optional controls trail **total USDT account equity**, including realized gains/losses, open P&L, fees and funding. Set each enabled period’s fixed USDT drop from its observed peak. For example: equity rises from $100 to $150 with a $5 drop; the close-all threshold is $145. There is no profit activation gate. Deposits and withdrawals do not count as gains/losses. All three controls start OFF and do not replace the existing daily percentage limit or combined open P&L trailing.
+
+A trigger closes all managed positions and blocks entries until **every triggered period ends**, even if its checkbox is subsequently disabled. Daily windows reset at 00:00 UTC; Weekly on Monday 00:00 UTC; 3-Day uses continuous fixed 72-hour calendar blocks anchored to 1970-01-01 UTC. The dashboard shows exact UTC windows/countdowns, transfer-adjusted peak, equity threshold and remaining allowance. Tracking starts with the first verified sample after enabling; historical peaks are not reconstructed.
+
+The resume-at-period-end checkbox can restore previously enabled entries when other risk checks pass, using NEW signals only. Manual pause/close-all or restart cancels automatic resume. Stops remain managed during the pause. Peaks/trigger latches survive restart, closure and settings edits; a triggered latch cannot be bypassed by manually enabling entries before its end. These are sampled server controls; fills, fees or outages can carry equity beyond the displayed threshold.
