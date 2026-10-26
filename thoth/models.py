@@ -76,6 +76,7 @@ class Settings(BaseModel):
     take_profit_enabled: bool = False
     take_profit_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     sma_exit_enabled: bool = True
+    sma_ob_exit_enabled: bool = True
     pnl_trailing_enabled: bool = False
     pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)

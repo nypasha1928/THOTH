@@ -612,12 +612,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#strategyTf')).to_have_value('240')
    expect(page.locator('#oppositeAction')).to_be_disabled()
    expect(page.locator('#oppositeAction')).to_have_value('reverse')
+   expect(page.locator('#sma_ob_exit_enabled')).to_be_visible()
+   expect(page.locator('#sma_ob_exit_enabled')).to_be_checked()
+   expect(page.locator('#strategyDescription')).to_contain_text('Same-direction blocks and ALL block breaks do nothing')
    expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
    expect(page.locator('#sma_exit_enabled')).to_be_disabled()
    expect(page.locator('#rsiSettings')).to_be_hidden()
    page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sma_7_50_intrabar'")
    assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['opposite_action']=='reverse'
-   assert not writes[-1][1]['sma_exit_enabled']
+   assert not writes[-1][1]['sma_exit_enabled'] and writes[-1][1]['sma_ob_exit_enabled']
+   page.uncheck('#sma_ob_exit_enabled');page.click('#saveSymbols')
+   page.wait_for_function("() => !lv.config.sma_ob_exit_enabled")
+   page.check('#sma_ob_exit_enabled');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.sma_ob_exit_enabled")
    expect(page.locator('#weekly_equity_trailing_enabled')).not_to_be_checked()
    expect(page.locator('#daily_equity_trailing_enabled')).not_to_be_checked()
    expect(page.locator('#three_day_equity_trailing_enabled')).not_to_be_checked()

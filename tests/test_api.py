@@ -63,6 +63,25 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(before['timeframe'],'5')
         self.assertFalse(self.client.get('/api/live').json()['entries'])
 
+    def test_sma_strategy_order_block_chart_has_no_filters_and_only_formation_events(self):
+        from test_order_block import formation_rows
+        from thoth.timeframes import interval_seconds
+        self.assertEqual(self.client.put('/api/live/settings',json={'strategy':'sma_7_50_intrabar'}).status_code,200)
+        before=self.client.get('/api/live').json()['config']
+        template=formation_rows()
+        for row in template[:-3]:row.update(open=50,close=50,high=51,low=49)
+        for interval in ('1','5','60','240','D'):
+            duration=interval_seconds(interval);start=1793000000//duration*duration
+            rows=[{**row,'volume':0,'time':start-(len(template)-i-1)*duration} for i,row in enumerate(template)]
+            with patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=start+10):
+                response=self.client.get('/api/chart/BTCUSDT',params={'interval':interval,'include_order_block':'true'})
+            self.assertEqual(response.status_code,200,response.text)
+            data=response.json();events=data['order_block_analysis'][-1]['events']
+            self.assertIn({'kind':'bullish_formed','side':'Long'},events)
+            self.assertFalse(any(event['kind'] in ('supply_breakout','demand_breakdown') for event in events))
+            self.assertIn('Unfiltered Order Block',data['order_block_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config'],before)
+
     def test_sr_chart_arrows_ignore_trading_filters_on_all_intervals(self):
         from test_indicator import fixture
         from thoth.timeframes import interval_seconds
