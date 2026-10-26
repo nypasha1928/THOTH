@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from .bybit_testnet import AmbiguousOrder, BybitError, dec, stop_price
-from .diagnostics import failure_details
+from .diagnostics import protection_details
 
 
 class ExecutionJournal:
@@ -125,22 +125,34 @@ class ExecutionJournal:
                 return self.update(link,'closed',{'exchange_status':status,'filled_qty':str(qty)})
             if len(active)!=1 or active[0].get('side')!=payload['side'] or active[0].get('positionIdx')!=0 or dec(active[0]['size'])!=qty:
                 return self.update(link,'mismatch',{'reason':'Position differs from owned one-way fill; manual reconciliation required'})
-            stage='validate_protection'
+            stage='validate_protection';check='entry_price'
+            values=dict(filled_qty=qty,stop_dollars=record['stop_dollars'])
             try:
                 entry=dec(active[0]['avgPrice'])
+                values['entry']=entry
                 if not entry.is_finite() or entry<=0:raise ValueError()
+                check='filled_margin'
                 leverage=dec(active[0].get('leverage') or '0')
+                values['leverage']=leverage
+                if leverage>0:values['filled_margin']=entry*qty/leverage
                 if leverage>0 and dec(record['stop_dollars'])>=entry*qty/leverage:
                     raise ValueError('Partial fill margin is too small for requested dollar stop')
+                check='stop_price'
+                values['tick_size']=record['instrument']['priceFilter']['tickSize']
                 expected_stop=dec(stop_price('Long' if payload['side']=='Buy' else 'Short',entry,qty,record['stop_dollars'],record['instrument']['priceFilter']['tickSize']))
+                values['expected_stop']=expected_stop
+                check='liquidation_boundary'
                 liquidation=dec(active[0].get('liqPrice') or '0')
+                values['liquidation_price']=liquidation
                 if liquidation>0 and ((payload['side']=='Buy' and expected_stop<=liquidation) or (payload['side']=='Sell' and expected_stop>=liquidation)):
                     raise ValueError('Stop is beyond liquidation')
                 # Initial entries already attach a stop. Verify it before
                 # attempting an update; unchanged stops are not a failure.
+                check='existing_stop'
+                values['reported_stop']=active[0].get('stopLoss','0')
                 if dec(active[0].get('stopLoss','0'))==expected_stop:
                     return self.update(link,'protected',{'exchange_status':status,'filled_qty':str(qty),'protection_source':'existing_exchange_stop'})
-                stage='attach_protection'
+                stage='attach_protection';check='attach_stop'
                 try:
                     self.client.attach_stop(symbol,'Long' if payload['side']=='Buy' else 'Short',
                         entry,qty,record['stop_dollars'],record['instrument'])
@@ -148,13 +160,14 @@ class ExecutionJournal:
                     if exc.code!=34040:raise
                     # Not-modified acknowledgement is accepted only after the
                     # owned position's stop is verified by a separate read.
-                stage='verify_protection'
+                stage='verify_protection';check='verify_stop'
                 # Re-read after acknowledgement: verify the exchange actually reports a stop.
                 confirmed=self.client.request('GET','/v5/position/list',dict(category='linear',symbol=symbol),private=True)['list']
                 matching=[p for p in confirmed if p.get('positionIdx')==0 and p.get('side')==payload['side'] and dec(p.get('size','0'))==qty]
                 expected=dec(stop_price('Long' if payload['side']=='Buy' else 'Short',entry,qty,record['stop_dollars'],record['instrument']['priceFilter']['tickSize']))
+                if len(matching)==1:values['reported_stop']=matching[0].get('stopLoss','0')
                 if len(matching)!=1 or dec(matching[0].get('stopLoss','0'))!=expected:
                     raise ValueError('Expected stop not confirmed')
             except Exception as exc:
-                return self.update(link,'stop_error',{'reason':'Protective stop unconfirmed; block new submissions and investigate immediately','protection_error':failure_details(exc,stage)})
+                return self.update(link,'stop_error',{'reason':'Protective stop unconfirmed; block new submissions and investigate immediately','protection_error':protection_details(exc,stage,check,values)})
             return self.update(link,'protected',{'exchange_status':status,'filled_qty':str(qty)})

@@ -340,3 +340,9 @@ The resume-at-period-end checkbox can restore previously enabled entries when ot
 Both entry and this exit use the forming 4-hour candle, without waiting for close. Checks are sampled by the server. The Order Block exit closes only; it never queues a replacement position. Independent SMA crossovers still use Reversal, and protective stops, TP, trailing and account controls remain active. Pre-entry or unknown-origin formations establish a baseline rather than replaying old boxes. A live formation in a candle that began after position entry can close it immediately on recovery. Enabling the exit applies to existing positions in this strategy too.
 
 A per-coin Order Block data fault blocks that coin’s new entries and retries; it does not pause unrelated coins or disable existing exchange stops. Formation observations and close obligations are saved before submitting close requests. The chart shows unfiltered Order Block boxes on the viewed timeframe for this strategy; the live exit always uses 4h. Boxes remain reference displays, not order/fill evidence.
+
+### Specific protective-stop failures
+
+Protective stop diagnostics identify which local check failed and retain bounded numeric inputs: filled entry/quantity/leverage/margin, requested loss, expected stop, liquidation boundary, tick and reported stop. Activity gives a safe human reason; the authenticated account API’s execution records include the curated details, retained after settlement. Raw exchange responses and credentials are not logged.
+
+For example, $50 notional at 20× has roughly $2.50 initial margin. A $2 dollar stop may be safe on one contract and beyond liquidation on another because maintenance margin and fees vary. The bot retains its liquidation check and closes/blocks the affected coin when protection cannot be verified. A later “symbol blocked” alert is a skipped signal, not another opened trade. Settings are never automatically loosened to force an entry.

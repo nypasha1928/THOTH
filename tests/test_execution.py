@@ -90,3 +90,35 @@ class JournalTests(unittest.TestCase):
         result=self.journal.update('fixture-link','closed')
         self.assertEqual(result['result']['protection_error']['exchange_code'],10001)
         self.assertNotIn('secret response',str(result))
+
+    def test_2_dollar_stop_can_be_before_or_beyond_liquidation_on_50_dollar_20x_position(self):
+        from thoth.diagnostics import failure_summary
+        for side,liquidation,stop,phase in [('Buy','96.5','96','stop_error'),('Buy','95','96','protected'),('Sell','103.5','104','stop_error'),('Sell','105','104','protected')]:
+            with self.subTest(side=side,liquidation=liquidation):
+                link='liquidation-'+side+'-'+liquidation
+                self.client.submit.return_value={'state':'accepted_not_filled'}
+                self.journal.submit({**self.payload,'side':side,'orderLinkId':link},2,self.instrument)
+                self.client.reconcile.return_value={'orderStatus':'Filled','cumExecQty':'.5'}
+                self.client.request.return_value={'list':[dict(size='.5',positionIdx=0,side=side,avgPrice='100',leverage='20',liqPrice=liquidation,stopLoss=stop)]}
+                result=self.journal.poll(link);self.assertEqual(result['phase'],phase)
+                if phase=='stop_error':
+                    details=result['result']['protection_error']
+                    self.assertEqual(details['protection_reason'],'stop_at_or_beyond_liquidation')
+                    self.assertEqual(details['protection_values']['filled_margin'],'2.5')
+                    self.assertEqual(details['protection_values']['expected_stop'],stop)
+                    self.assertIn('at or beyond liquidation',failure_summary(details))
+                    self.journal.update(link,'closed')
+                    self.assertEqual(self.journal.get(link)['result']['protection_error'],details)
+                else:self.journal.update(link,'closed')
+        self.client.attach_stop.assert_not_called()
+
+    def test_partial_margin_and_tick_validation_have_specific_safe_reasons(self):
+        from thoth.diagnostics import protection_details
+        for message,reason in [('Partial fill margin is too small for requested dollar stop','stop_exceeds_filled_margin'),('Dollar stop is smaller than one price tick','stop_smaller_than_tick')]:
+            details=protection_details(ValueError(message),'validate_protection','stop_price',{'entry':'100','secret':'never show me'})
+            self.assertEqual(details['protection_reason'],reason)
+            self.assertEqual(details['protection_values'],{'entry':'100'})
+        details=protection_details(ValueError('private response key=SECRET'),'validate_protection','private check SECRET',{'entry':'SECRET','filled_qty':'NaN','leverage':'Infinity','secret':'SECRET'})
+        self.assertNotIn('SECRET',str(details))
+        self.assertNotIn('protection_values',details)
+        self.assertNotIn('protection_check',details)
