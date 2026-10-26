@@ -26,7 +26,7 @@ class SRVolumeTests(unittest.TestCase):
         self.assertEqual(cfg.sr_volume_period,20)
         with self.assertRaises(ValueError):Settings(strategy=STRATEGY,major=False,minor=False)
 
-    def test_actual_durable_crossings_both_frames_volume_gated_and_consumed(self):
+    def test_volume_qualifies_existing_current_bar_breakout_without_order_queue(self):
         with tempfile.TemporaryDirectory() as tmp:
             engine=type('Engine',(),{'path':str(Path(tmp)/'live.sqlite')})()
             runner=Runner(engine);cfg=Settings(strategy=STRATEGY)
@@ -41,8 +41,9 @@ class SRVolumeTests(unittest.TestCase):
                     runner.scan_cycle+=1;result=runner.sr_volume_observation('BTCUSDT',cfg,packet(),now[0]);now[0]+=5;return result
                 self.assertIsNone(step()['signal'])
                 price[0]=102
-                blocked=step();self.assertIsNone(blocked['signal']);self.assertIn('volume did not pass',blocked['signal_diagnostic']['reason'])
-                vol[0]=200;self.assertIsNone(step()['signal']) # No delayed replay of filtered crossing.
+                blocked=step();self.assertIsNone(blocked['signal']);self.assertNotIn('signal_diagnostic',blocked)
+                vol[0]=200;self.assertEqual(step()['signal'],'Long')
+                self.assertIsNone(step()['signal']) # One qualified entry per level/candle.
                 price[0]=98
                 short=step();self.assertEqual(short['signal'],'Short')
                 self.assertEqual(set(short['entry_sources']),{'htf:240:sr:short_support_minor','htf:D:sr:short_support_minor'})
@@ -53,6 +54,29 @@ class SRVolumeTests(unittest.TestCase):
                 self.assertEqual(long['entry_context']['primary_timeframe'],'240')
                 runner.observation_session='restarted';price[0]=98
                 self.assertIsNone(step()['signal'])
+
+    def test_unqualified_setup_cancels_on_pullback_rollover_gap_and_changed_level(self):
+        from thoth.sr_volume import observe
+        cfg=Settings(strategy=STRATEGY);base=1793000000//14400*14400+100
+        original={'long_resistance_major':dict(value=101,pivot_time=0)}
+        for invalidation in ('pullback','rollover','gap','level'):
+            tracker={};levels=dict(original);now=base
+            def sample(price,volume=100):
+                rows=[dict(time=int(now)//14400*14400-(19-i)*14400,close=price,volume=volume if i==19 else 100) for i in range(20)]
+                return observe(tracker,rows,levels,cfg,now,30)
+            sample(100);now+=5
+            self.assertIsNone(sample(102)['signal'])
+            if invalidation=='pullback':
+                now+=5;sample(100);now+=5
+                self.assertIsNone(sample(100,200)['signal'])
+            elif invalidation=='rollover':
+                now=int(now)//14400*14400+14400+1
+                self.assertIsNone(sample(102,200)['signal'])
+            elif invalidation=='gap':
+                now+=60;self.assertIsNone(sample(102,200)['signal'])
+            else:
+                levels={'long_resistance_major':dict(value=100.5,pivot_time=1)}
+                now+=5;self.assertIsNone(sample(102,200)['signal'])
 
     def test_protected_entry_no_sma_exit_opposite_action_retained(self):
         with tempfile.TemporaryDirectory() as tmp:
