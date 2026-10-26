@@ -19,6 +19,10 @@ User corrected the initial implementation: do not permanently discard S/R just b
 
 - Volume MA 20 line now uses light blue `#81d4fa`, matching the SMA 50 light blue. Display-only change; volume calculations and trading filters are unchanged. JavaScript syntax and whitespace checks passed.
 
+## Direct strategy per-coin 4-hour entry cap (2026-10-26)
+
+`sr_volume_intrabar` now allows at most one submitted entry per coin in each Bybit/UTC 4-hour candle (00/04/08/12/16/20 UTC), shared across 4h/Daily, directions and S/R source families. This is candle-aligned, not a rolling 4-hour timer. Reserve persistently before submit; ambiguous outcomes retain reservation, definitive rejected submits release it. Existing current-window ownership/history and journal metadata enforce the cap across upgrade/restart and closure. Other coins/profiles unaffected. Exits including opposite-signal close remain active; a reversal replacement is blocked if that coin's window is already used. A new window permits a NEW qualified signal, never replays queued old signals. Validation: 388 unit/integration tests pass, including per-coin/shared-timeframe restriction, persisted restart state, pre-upgrade ownership/history and next-window eligibility; JavaScript syntax and whitespace checks pass. No real trades run by Codex.
+
 ## Start here in a new chat
 
 Read this file, inspect git status and origin/main, then read the linked implementation notes. This document records decisions, not permission to enable trading or disclose credentials. The user wants sustained implementation, reviewable pull requests, and simple deployment guidance. Explain defects before fixing them. Do not claim a branch-comparison URL is an already-created PR.

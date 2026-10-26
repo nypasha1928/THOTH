@@ -95,6 +95,32 @@ class SRVolumeTests(unittest.TestCase):
                 self.assertEqual(service.state['reversals']['BTCUSDT']['side'],'Short')
                 self.assertTrue(any(o['reduceOnly'] for o in exchange.orders.values()))
 
+    def test_four_hour_cap_persists_after_close_and_restart_shared_daily_4h(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[1793000000.];exchange=Exchange(lambda:now[0]);path=Path(tmp)/'live.sqlite'
+            def service():return TestnetSupervisor(path,enabled=True,password_configured=True,client_factory=lambda *a,**k:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
+            account=service();cfg=TestnetSettings(strategy=STRATEGY,dedicated_account=True,daily_loss_pct=90,symbols=['BTCUSDT','ETHUSDT'])
+            account.configure(cfg);account.activate(account.confirmation)
+            account._entry('BTCUSDT','Long',now[0],'fixture-first',cfg,dict(primary_timeframe='D'))
+            self.assertEqual(len(exchange.orders),1)
+            account._entry('BTCUSDT','Short',now[0]+1,'fixture-second',cfg,dict(primary_timeframe='240'))
+            self.assertEqual(len(exchange.orders),1)
+            self.assertTrue(account._sr_volume_window_used('BTCUSDT',cfg))
+            self.assertFalse(account._sr_volume_window_used('ETHUSDT',cfg))
+            reopened=service();self.assertTrue(reopened._sr_volume_window_used('BTCUSDT',cfg))
+            # Previously deployed trades without new reservation metadata also count.
+            reopened.state['sr_volume_entry_windows']={}
+            with patch.object(reopened,'journal',None):
+                reopened.state['owned']['BTCUSDT']=dict(strategy=STRATEGY,opened_ms=int(now[0]*1000))
+                self.assertTrue(reopened._sr_volume_window_used('BTCUSDT',cfg))
+                reopened.state['owned'].clear()
+                trade=dict(strategy=STRATEGY,opened_at=now[0],closed_at=now[0]+1)
+                with reopened.db() as db:db.execute('INSERT INTO trade_history VALUES(?,?,?,?)',('fixture','BTCUSDT',now[0]+1,json.dumps(trade)))
+                self.assertTrue(reopened._sr_volume_window_used('BTCUSDT',cfg))
+            now[0]=(int(now[0])//14400+1)*14400+1
+            self.assertFalse(reopened._sr_volume_window_used('BTCUSDT',cfg))
+            self.assertFalse(reopened._sr_volume_window_used('BTCUSDT',cfg.model_copy(update={'strategy':'sr_breakout'})))
+
 class ClockCorrectionTests(unittest.TestCase):
     def test_private_read_corrects_signed_clock_and_retries_once(self):
         calls=[]

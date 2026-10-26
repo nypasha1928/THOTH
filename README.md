@@ -315,6 +315,8 @@ S/R chart arrows have their own **S/R arrows** control and appear independently 
 
 Choose **S/R 4h/D · Volume MA · No SMA exit** to monitor both timeframes independently and enter on a sampled intrabar resistance/support crossing. The forming candle must have volume strictly greater than its own volume SMA (default 20, including the forming candle). Major/Minor levels remain selectable; no other entry filters apply. Volume is checked first. An observed current-candle breakout can qualify later when volume passes, provided price remains beyond the same level; no order is queued beforehand. Startup/gap observations establish a baseline rather than replay old crossings. Opposing simultaneous higher-timeframe signals are skipped.
 
+Maximum one entry per coin per UTC 4-hour candle, shared by 4h and Daily signals; closes and restarts do not reset the limit.
+
 There is no SMA exit. Your selected opposite-signal action, protective dollar stop, optional TP/trailing and account/coin risk controls remain. Source timeframe is recorded with each entry. Chart timeframe and reference arrows do not change trading or prove that the volume filter passed. Pause entries and settle all managed positions before switching strategies; restart requires manual activation.
 
 **Close all alerts** dismisses floating cards, preserves saved signal history and permits future new alerts. Bybit signed-read error `10002` now allows one server-clock correction/retry; missing clock data, persistent errors and ambiguous transport failures still block entry as appropriate. Writes are never blindly retried.
