@@ -287,7 +287,7 @@ class Runner:
         return observation
 
     def sr_volume_observation(self,symbol,cfg,packet,now):
-        from .sr_volume import volume_pass
+        from .sr_volume import observe as observe_volume
         candidates=[];errors={};reports={};sources=[];frames=[]
         for timeframe in ('240','D'):
             try:
@@ -301,17 +301,25 @@ class Runner:
                 source_cfg=cfg.model_copy(update={'timeframe':timeframe})
                 history=self.history(symbol,timeframe,rows)
                 result,count=self.analysis(symbol,source_cfg,history,source_now,latest_only=True)
-                observation=self.sr_only_permission_observation(symbol,source_cfg,history,result,source_now)
-                report=volume_pass(history,cfg.sr_volume_period);reports[timeframe]=report
+                if not result or result[-1]['time']!=int(source_now)//duration*duration-duration:
+                    raise ValueError('Latest confirmed S/R levels unavailable')
+                identity=strategy_fingerprint(source_cfg)
+                with sqlite3.connect(self.history_path) as db:
+                    saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
+                    tracker=json.loads(saved[0]) if saved else {}
+                    continuous=tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle)
+                    budget=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
+                    observation=observe_volume(tracker,history,result[-1]['levels'],source_cfg,source_now,budget if continuous else 0)
+                    tracker.update(session=self.observation_session,scan_cycle=self.scan_cycle)
+                    db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
+                reports[timeframe]=observation['volume_check']
+                if observation['volume_conflict']:reports[timeframe]['conflict']=True
                 if observation['signal']:
-                    if report['passed']:
-                        candidates.append(observation['signal']);frames.append(timeframe)
-                        sources.extend('htf:'+timeframe+':sr:'+key for key in observation['signal_diagnostic']['sr_levels']
-                            if ('resistance' in key)==(observation['signal']=='Long'))
-                    else:report['blocked_signal']=observation['signal']
+                    candidates.append(observation['signal']);frames.append(timeframe)
+                    sources.extend('htf:'+timeframe+':'+source for source in observation['entry_sources'])
             except Exception as exc:errors[timeframe]=str(exc)[:200]
         sides=set(candidates);signal=next(iter(sides)) if len(sides)==1 else None
-        reason='conflicting 4h/Daily S/R signals' if len(sides)>1 else 'volume did not pass MA at S/R crossing' if any(r.get('blocked_signal') for r in reports.values()) else None
+        reason='conflicting volume-qualified S/R signals' if len(sides)>1 or any(report.get('conflict') for report in reports.values()) else None
         output=dict(time=time.time(),mark=None,signal=signal,entry_sources=sources if signal else [],source_errors=errors,
             volume_delta_status='Direct 4h/Daily S/R · forming volume must exceed MA '+str(cfg.sr_volume_period),volume_checks=reports,
             entry_context=dict(primary_timeframe=frames[0]) if signal else None)
