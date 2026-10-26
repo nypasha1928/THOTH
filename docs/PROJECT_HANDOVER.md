@@ -11,6 +11,10 @@ Last updated: 2026-10-26 (America/New_York).
 - Bybit `10002` is a signed timestamp outside the receive window (clock skew or request delay), not a coin signal problem. Private GET can correct the client's signing clock from a finite server `time` in the HTTPS rejection and retry once with a newly signed timestamp. RTT must be <=10 seconds; invalid/missing server time or repeated timestamp rejection still fails closed. No write/transport retries added; receive window stays 5000 ms. No live monitoring bypass or automatic activation added. Persistent errors still require checking VPS NTP/network.
 - See `thoth/sr_volume.py`, runner/feed adapters, `tests/test_sr_volume.py`, `web/signal-alerts.js`. Uploaded Pine sources untouched. Validation: 386 unit/integration tests pass; desktop/mobile browser smoke passes including profile save, required filter/disabled SMA exit, bulk toast dismissal without deleting saved history. Generated indicator, JS syntax, deployment shell syntax and whitespace checks pass. No real orders or VPS deployment performed.
 
+## Volume MA chart color (2026-10-26)
+
+- Volume MA 20 line now uses light blue `#81d4fa`, matching the SMA 50 light blue. Display-only change; volume calculations and trading filters are unchanged. JavaScript syntax and whitespace checks passed.
+
 ## Start here in a new chat
 
 Read this file, inspect git status and origin/main, then read the linked implementation notes. This document records decisions, not permission to enable trading or disclose credentials. The user wants sustained implementation, reviewable pull requests, and simple deployment guidance. Explain defects before fixing them. Do not claim a branch-comparison URL is an already-created PR.

@@ -57,7 +57,7 @@ function draw(){
   shape('path',{d:`M${L} ${B+13} H${R}`,stroke:'#344b3d'});
   shape('text',{x:L,y:volumeTop+8,fill:axisText,'font-size':10,'data-volume-heading':'true'}).textContent='Volume · MA 20'+(validVolumes.length?'':' · unavailable');
   for(const [i,r]of rows.entries()){if(!Number.isFinite(r.volume)||r.volume<0)continue;shape('rect',{x:x(i)-Math.max(.7,step*.3),y:vy(r.volume),width:Math.max(1.4,step*.6),height:volumeBottom-vy(r.volume),fill:r.close>=r.open?chartStyle.bull:chartStyle.bear,opacity:.7,'data-volume-bar':r.time})}
-  let d='',connected=false;rows.forEach((r,i)=>{const value=volumeMA.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${vy(value)}`;connected=true});shape('path',{d,fill:'none',stroke:'#f2b84b','stroke-width':1.5,'data-volume-ma':'20'});
+  let d='',connected=false;rows.forEach((r,i)=>{const value=volumeMA.get(r.time);if(!Number.isFinite(value)){connected=false;return}d+=`${connected?' L':' M'}${x(i)} ${vy(value)}`;connected=true});shape('path',{d,fill:'none',stroke:'#81d4fa','stroke-width':1.5,'data-volume-ma':'20'});
   shape('text',{x:R+8,y:volumeTop+22,fill:axisText,'font-size':10}).textContent=marketPrice(maxVolume);
  }
  if(chartStyle.showVolume&&chartStyle.volumeCollapsed)shape('text',{x:L,y:volumeBottom-4,fill:axisText,'font-size':10,'data-volume-minimized':'true'}).textContent='Volume · minimized';
