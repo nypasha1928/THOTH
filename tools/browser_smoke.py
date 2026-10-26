@@ -321,7 +321,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Display-only overlays use pre-viewport warmup and independent volume scale.
    expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#ffffff')
    expect(page.locator('[data-volume-bar]')).to_have_count(70)
-   expect(page.locator('[data-volume-ma]')).to_have_attribute('stroke','#f2b84b')
+   expect(page.locator('[data-volume-ma]')).to_have_attribute('stroke','#81d4fa')
    expect(page.locator('[data-extreme="Now"] rect').first).to_have_attribute('fill','#ffdf00')
    expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
    average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
@@ -607,6 +607,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_order_block_gate');expect(page.locator('#rsiSettings')).not_to_be_visible()
    page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:0,primary_timeframe:'240'}};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('5m Order Block may enter Long or Short')
+   page.select_option('#strategyLogic','sma_7_50_intrabar')
+   expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyTf')).to_have_value('240')
+   expect(page.locator('#oppositeAction')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_have_value('reverse')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#rsiSettings')).to_be_hidden()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sma_7_50_intrabar'")
+   assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['opposite_action']=='reverse'
+   assert not writes[-1][1]['sma_exit_enabled']
    page.select_option('#strategyLogic','sr_volume_intrabar')
    expect(page.locator('#strategyDescription')).to_contain_text('REQUIRED')
    expect(page.locator('#strategyTf')).to_be_disabled()
