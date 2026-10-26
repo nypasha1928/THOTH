@@ -321,7 +321,7 @@ There is no SMA exit. Your selected opposite-signal action, protective dollar st
 
 **Close all alerts** dismisses floating cards, preserves saved signal history and permits future new alerts. Bybit signed-read error `10002` now allows one server-clock correction/retry; missing clock data, persistent errors and ambiguous transport failures still block entry as appropriate. Writes are never blindly retried.
 
-### SMA 7/50 · 4h intrabar · Reversal
+### SMA 7/50 · 4h Reversal · Order Block Exit
 
 This separate strategy samples SMA 7 and SMA 50 using the forming 4-hour candle. A fresh crossover above opens Long; a crossover below opens Short. No candle-close wait, no separate SMA exit and no entry filters. An optional opposite 4h Order Block formation exit is available below. Reversal is mandatory: close, confirm flat/settled, then open the opposite direction subject to account controls. Dollar stops, optional TP/trailing and risk controls remain. New crossings can reverse again in the same 4-hour candle; the separate S/R + volume strategy’s one-entry-per-4h cap does not apply. Startup/restart or stale observation establishes a baseline rather than replaying an old cross. Chart timeframe is display only; historical arrows are confirmed-candle references, not reconstructed intrabar executions.
 
@@ -335,7 +335,7 @@ The resume-at-period-end checkbox can restore previously enabled entries when ot
 
 ### Opposite Order Block formation exit for the 4h SMA strategy
 
-**SMA 7/50 · 4h intrabar · Reversal** now has a selectable **4h Order Block intrabar exit**, enabled by default for this strategy. A newly observed Bearish Order Block formation closes a Long; a newly observed Bullish formation closes a Short. Same-direction formations and all supply/demand breaks are ignored. The exit uses **no SMA 200, SMA 7/50, volume, VWAP or other optional filters**. Uploaded pattern/ATR/zone calculations remain intact; the original filtered S/R → Order Block strategy is unchanged.
+**SMA 7/50 · 4h Reversal · Order Block Exit** now has a selectable **4h Order Block intrabar exit**, enabled by default for this strategy. A newly observed Bearish Order Block formation closes a Long; a newly observed Bullish formation closes a Short. Same-direction formations and all supply/demand breaks are ignored. The exit uses **no SMA 200, SMA 7/50, volume, VWAP or other optional filters**. Uploaded pattern/ATR/zone calculations remain intact; the original filtered S/R → Order Block strategy is unchanged.
 
 Both entry and this exit use the forming 4-hour candle, without waiting for close. Checks are sampled by the server. The Order Block exit closes only; it never queues a replacement position. Independent SMA crossovers still use Reversal, and protective stops, TP, trailing and account controls remain active. Pre-entry or unknown-origin formations establish a baseline rather than replaying old boxes. A live formation in a candle that began after position entry can close it immediately on recovery. Enabling the exit applies to existing positions in this strategy too.
 

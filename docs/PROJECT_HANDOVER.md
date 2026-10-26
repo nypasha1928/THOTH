@@ -50,6 +50,10 @@ User corrected the initial implementation: do not permanently discard S/R just b
 - Supervisor checks only managed SMA-profile positions, starts with 1000 bars then 60/gap-sized updates. Data faults recorded in `order_block_exit_blocks`, isolate that coin’s entries, retain exchange stops and other coins. Ready/recovery activity and per-coin entry recovery check avoid a permanent stale-data block after closing. Disabling the exit or switching strategy clears its inactive data blocks.
 - Validation: 410 unit/integration tests pass; full desktop/mobile browser smoke passes, including exit checkbox save/off/on and preserved SMA Reversal. Tests cover raw formation on wrong SMA side and with <200 bars/zero volume, Long/Short exits, same-direction ignore, break ignore, rollback/duplicate/startup/gap/restart behavior, protected fixture position -> reduce-only close -> reconciled History without replacement, selectable disable, isolated data faults/recovery, chart references all five intervals.
 
+## Strategy display name correction (2026-10-26)
+
+- User requested the Order Block exit appear in the strategy name. `sma_7_50_intrabar` now displays **SMA 7/50 · 4h Reversal · Order Block Exit** in Settings, History/Alerts/activation and Analysis. Display label only; strategy identifier, saved configuration and execution behavior are unchanged. Exit remains selectable, so the checkbox controls whether the named exit is enabled. JavaScript syntax and whitespace checks pass.
+
 ## Start here in a new chat
 
 Read this file, inspect git status and origin/main, then read the linked implementation notes. This document records decisions, not permission to enable trading or disclose credentials. The user wants sustained implementation, reviewable pull requests, and simple deployment guidance. Explain defects before fixing them. Do not claim a branch-comparison URL is an already-created PR.
