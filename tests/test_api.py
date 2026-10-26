@@ -63,6 +63,40 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(before['timeframe'],'5')
         self.assertFalse(self.client.get('/api/live').json()['entries'])
 
+    def test_sr_chart_arrows_ignore_trading_filters_on_all_intervals(self):
+        from test_indicator import fixture
+        from thoth.timeframes import interval_seconds
+        cfg={'strategy':'sma_7_50','major':False,'minor':False,'sma_enabled':True,'sma_7_50_filter_enabled':True,'sma_length':500}
+        self.assertEqual(self.client.put('/api/live/settings',json=cfg).status_code,200)
+        before=self.client.get('/api/live').json()['config']
+        for interval in ('1','5','60','240','D'):
+            rows=fixture(500);duration=interval_seconds(interval)
+            for i,row in enumerate(rows):row['time']=i*duration
+            with self.subTest(interval=interval),patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=500*duration):
+                response=self.client.get('/api/chart/BTCUSDT',params={'interval':interval})
+                self.assertEqual(response.status_code,200,response.text)
+                data=response.json();signals=[bar for bar in data['sr_analysis'] if bar['signal']]
+                self.assertTrue(signals)
+                families={source.rsplit('_',1)[-1] for bar in signals for source in bar['entry_sources']}
+                self.assertEqual(families,{'major','minor'})
+                self.assertIn('without trading entry filters',data['sr_reference_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config'],before)
+        self.assertFalse(self.client.get('/api/live').json()['entries'])
+
+    def test_forming_sr_arrow_uses_confirmed_levels_and_is_display_only(self):
+        levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_minor':dict(value=99,pivot_time=0)}
+        closed=dict(time=0,close=100,levels=levels,sma=None,signal=None)
+        before=self.client.get('/api/live').json()['config']
+        for price,side in ((102,'Long'),(98,'Short'),(100,None)):
+            rows=[dict(time=0,open=100,close=100,high=101,low=99,volume=10),dict(time=60,open=100,close=price,high=103,low=97,volume=10)]
+            with self.subTest(price=price),patch('thoth.app.candles',return_value=rows),patch('thoth.app.evaluate',return_value=[closed]),patch('time.time',return_value=80):
+                data=self.client.get('/api/chart/BTCUSDT?interval=1').json()
+                preview=data['sr_analysis'][-1]
+                self.assertTrue(preview['provisional']);self.assertEqual(preview['signal'],side)
+                self.assertEqual(preview['levels'],levels)
+                self.assertEqual(data['analysis'],[closed])
+        self.assertEqual(self.client.get('/api/live').json()['config'],before)
+
     def test_removed_modes_and_controls_are_unavailable(self):
         self.assertEqual(self.client.get('/').status_code,200)
         routes={r.path for r in app.routes}

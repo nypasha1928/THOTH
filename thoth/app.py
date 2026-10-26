@@ -233,7 +233,8 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
     # Display replay is independent of execution. Hourly intrabar entries cannot
     # be reconstructed from OHLC; show labelled S/R reference arrows instead.
     display_strategy='sr_breakout' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate','sr_order_block_gate') else cfg['strategy']
-    chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, 'strategy':display_strategy,'timeframe': interval}).model_copy(update={'timeframe':interval})
+    display_overrides=dict(major=True,minor=True,sma_enabled=False,sma_7_50_filter_enabled=False) if display_strategy=='sr_breakout' else {}
+    chart_cfg = Settings(**{**{k:v for k,v in cfg.items() if k in Settings.model_fields}, **display_overrides,'strategy':display_strategy,'timeframe': interval}).model_copy(update={'timeframe':interval})
     analysis = [b for b in (history_runner.analysis(symbol,chart_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,chart_cfg)) if b['time'] >= rows[0]['time']]
     volume_delta_status='';volume_delta_analysis=[]
     if include_volume_delta or cfg['strategy']=='volume_delta_intrabar':
@@ -252,10 +253,23 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
             volume_delta_status='Volume Delta · '+current['status']+'; delta '+str(current['delta'])+'; '+(current['signal']+' condition' if current['signal'] else 'no qualifying bullish/bearish signal after selected filters')+('; '+str(len(historical))+' closed reference bars covered by real 1m data' if interval!='1' else '; historical 1m reference conditions available')
         except (ValueError,KeyError,URLError,TimeoutError):volume_delta_status='Current Volume Delta data unavailable; no signal fabricated'
     if cfg['strategy']=='volume_delta_intrabar':analysis=volume_delta_analysis
-    sr_analysis=analysis
-    if display_strategy!='sr_breakout':
-        sr_cfg=chart_cfg.model_copy(update={'strategy':'sr_breakout'})
-        sr_analysis=[bar for bar in (history_runner.analysis(symbol,sr_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,sr_cfg)) if bar['time']>=rows[0]['time']]
+    sr_cfg=chart_cfg.model_copy(update={'strategy':'sr_breakout','major':True,'minor':True,'sma_enabled':False,'sma_7_50_filter_enabled':False})
+    sr_analysis=list(analysis) if sr_cfg==chart_cfg else [bar for bar in (history_runner.analysis(symbol,sr_cfg,history,__import__('time').time())[0] if history_runner else evaluate(history,sr_cfg)) if bar['time']>=rows[0]['time']]
+    # Provisional display only: compare forming close to the last closed close
+    # against confirmed levels. Do not confirm pivots using an unfinished candle.
+    now=__import__('time').time();duration=INTERVALS[interval];start=int(now)//duration*duration
+    if history and sr_analysis and history[-1]['time']==start and sr_analysis[-1]['time']==start-duration:
+        previous=next((row for row in reversed(history) if row['time']==start-duration),None)
+        if previous:
+            latest=history[-1];levels=sr_analysis[-1]['levels'];crossed=[]
+            for key,level in levels.items():
+                value=level['value']
+                if 'resistance' in key and previous['close']<=value<latest['close']:crossed.append((key,'Long'))
+                if 'support' in key and previous['close']>=value>latest['close']:crossed.append((key,'Short'))
+            sides={side for _,side in crossed};signal=next(iter(sides)) if len(sides)==1 else None
+            sr_analysis.append(dict(time=start,close=latest['close'],levels=levels,sma=sr_analysis[-1].get('sma'),signal=signal,
+                conflict=len(sides)>1,provisional=True,entry_sources=['sr:'+key for key,side in crossed if side==signal]))
+    sr_reference_status='S/R chart arrows: all Major/Minor families, without trading entry filters; closed arrows confirmed, forming preview can change. Chart references do not prove a live order.'
     rsi_analysis=[]
     if include_rsi:
         rsi_cfg=Settings(**{k:v for k,v in cfg.items() if k in Settings.model_fields}).model_copy(update={'strategy':'rsi_hourly_intrabar','timeframe':interval})
@@ -281,7 +295,7 @@ def chart(symbol: str, interval: str = '1', environment: str = 'live', lookback:
         except ValueError as exc:order_block_status='Order Block references unavailable: '+str(exc)
     averages = [b for b in sma(history, 200 if cfg['strategy']=='sma_cross' else cfg['sma_length']) if b['time'] >= rows[0]['time']]
     return {'source': 'Bybit LIVE market data', 'candles': rows, 'sma': averages,
-            'analysis': analysis,'order_block_analysis':order_block_analysis,'order_block_status':order_block_status,'volume_delta_analysis':volume_delta_analysis,'volume_delta_status':volume_delta_status,'sr_analysis':sr_analysis,'chart_signal_strategy':display_strategy,'rsi_analysis':rsi_analysis,'rsi_status':('Fixed RSI Long/Short thresholds; levels do not adapt. Eight reference crossing types; no ML history window required. Arrows are not proof of an order.' if cfg.get('rsi',{}).get('calculation_mode')=='fixed' else 'Uploaded Pine array behavior: ML thresholds unavailable in the uploaded source; static RSI crossings are available. Chart arrows can include unfiltered crossings; trading uses the saved entry rules and filters.' if cfg.get('rsi',{}).get('calculation_mode')=='uploaded_pine' else 'Corrected ML RSI; eight reference crossing types. Arrows can include filtered-out crossings, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up')),
+            'analysis': analysis,'sr_reference_status':sr_reference_status,'order_block_analysis':order_block_analysis,'order_block_status':order_block_status,'volume_delta_analysis':volume_delta_analysis,'volume_delta_status':volume_delta_status,'sr_analysis':sr_analysis,'chart_signal_strategy':display_strategy,'rsi_analysis':rsi_analysis,'rsi_status':('Fixed RSI Long/Short thresholds; levels do not adapt. Eight reference crossing types; no ML history window required. Arrows are not proof of an order.' if cfg.get('rsi',{}).get('calculation_mode')=='fixed' else 'Uploaded Pine array behavior: ML thresholds unavailable in the uploaded source; static RSI crossings are available. Chart arrows can include unfiltered crossings; trading uses the saved entry rules and filters.' if cfg.get('rsi',{}).get('calculation_mode')=='uploaded_pine' else 'Corrected ML RSI; eight reference crossing types. Arrows can include filtered-out crossings, not live trade evidence. '+('ML window ready' if rsi_analysis and rsi_analysis[-1]['ml_ready'] else 'Partial ML window / warming up')),
             'indicator_status': 'S/R-only 4h/D permission, then 5m Order Block confirmation in either direction; SMA 200: formation inverted; supply break above / demand break below. Historical references are not proof of orders.' if cfg['strategy']=='sr_order_block_gate' else 'Two-stage strategy: 4h/Daily permission, then 1m Volume Delta entry in either direction. Historical chart arrows do not reconstruct gate state. E/X marks recorded trades.' if cfg['strategy']=='sr_rsi_volume_gate' else ('Volume Delta 1-minute candle-volume proxy; no VWAP divergence entries; no SMA exit. Historical delta references require complete actual 1-minute data. '+volume_delta_status) if cfg['strategy']=='volume_delta_intrabar' else 'Inverse strategy: underlying S/R arrows show the original direction; actual entries take the opposite side. Minute exits are inverted too: actual Short exits below, actual Long exits above (SMA 7/50).' if cfg['strategy']=='sr_inverse_intrabar' else 'S/R reference arrows: confirmed candle-close breakouts on the displayed timeframe; not historical live intrabar triggers. E/X marks recorded trades' if cfg['strategy'] in ('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate','sr_order_block_gate') else 'Confirmed SMA 7/50 crossover; independent comparison pending' if cfg['strategy']=='sma_7_50' else 'Independent S/R or SMA 7/50 entries; conflicting signals skipped' if cfg['strategy']=='sr_sma_7_50' else 'Confirmed SMA 7/200 crossover; independent comparison pending' if cfg['strategy']=='sma_cross' else 'Experimental S/R port; TradingView parity verification pending',
             'history_notice':history_notice,'last_candle_closed': False,'requested_bars':lookback,'available_bars':len(rows),'history_exhausted':len(rows)<lookback,'historical_replay':lookback>1000}
 

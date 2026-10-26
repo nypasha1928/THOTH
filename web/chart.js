@@ -104,9 +104,9 @@ function draw(){
   const markers=[];if(chartStyle.showSRArrows&&srSignal)markers.push([srSignal,'S/R']);
   const bar=byTime.get(r.time);if(['sma_cross','sma_7_50','sr_sma_7_50'].includes(referenceSignalStrategy)&&chartStyle.showSMAArrows){const signal=referenceSignalStrategy==='sr_sma_7_50'?bar?.sma_signal:bar?.signal;if(signal)markers.push([signal,referenceSignalStrategy==='sma_cross'?'SMA 7/200':'SMA 7/50'])}
   if(chartStyle.showVolumeDeltaArrows&&volumeDeltaByTime.get(r.time)?.signal)markers.push([volumeDeltaByTime.get(r.time).signal,'Volume Delta']);
-  if($('showSignals').checked)for(const [slot,[signal,source,color]]of markers.entries()){
+  for(const [slot,[signal,source,color]]of markers.filter(([,source])=>source==='S/R'||$('showSignals').checked).entries()){
    const marker=shape('text',{x:x(i),y:y(signal==='Long'?r.low:r.high)+(signal==='Long'?chartStyle.signalSize+slot*12:-9-slot*12),fill:color||(signal==='Long'?chartStyle.longSignal:chartStyle.shortSignal),'text-anchor':'middle','font-size':chartStyle.signalSize,'data-signal':signal,'data-signal-source':source,'data-signal-time':r.time},plot);
-   marker.textContent=source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');shape('title',{},marker).textContent=source+' reference signal';
+   marker.textContent=source.startsWith('SMA ')?(signal==='Long'?'S▲':'S▼'):(signal==='Long'?'▲':'▼');if(source==='S/R')marker.setAttribute('data-sr-provisional',String(Boolean(srBar?.provisional)));shape('title',{},marker).textContent=source+' reference signal'+(source==='S/R'&&srBar?.provisional?' · Forming candle preview; can change':'');
   }
  });
  function line(value,color,label,dash=''){const yy=y(value);if(yy<T||yy>B)return;shape('path',{d:`M${L} ${yy} H${R}`,stroke:color,'stroke-dasharray':dash,'data-price-line':label},plot);shape('text',{x:L+5,y:yy-5,fill:color,'font-size':11},plot).textContent=label+' '+price(value)}
