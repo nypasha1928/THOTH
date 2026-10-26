@@ -834,6 +834,8 @@ class TestnetSupervisor:
                         if p:self._close(symbol,p,reason)
                     except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
+                if self._sr_volume_window_used(symbol,current):
+                    self._signal_decision(symbol,'skipped: one entry per coin per 4-hour candle already used',observation);continue
                 if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                     self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=observation.get('entry_context'))
                     self._signal_decision(symbol,'queued: '+observation['signal']+'; awaiting entry checks',observation)
@@ -858,7 +860,26 @@ class TestnetSupervisor:
         self.event(symbol+': fresh SMA exit data verified; coin entry block cleared')
         self.save();return True
 
+    def _sr_volume_window_used(self,symbol,cfg):
+        if cfg.strategy!='sr_volume_intrabar':return False
+        start=int(self.clock())//14400*14400
+        if self.state.get('sr_volume_entry_windows',{}).get(symbol)==start:return True
+        owner=self.state['owned'].get(symbol,{})
+        if owner.get('strategy')==cfg.strategy and int(owner.get('opened_ms',0))/1000>=start:return True
+        # Include already-settled entries from before this protection was deployed.
+        with self.db() as db:
+            for payload, in db.execute('SELECT payload FROM trade_history WHERE symbol=? AND closed_at>=?',(symbol,start)):
+                trade=json.loads(payload)
+                if trade.get('strategy')==cfg.strategy and float(trade.get('opened_at') or 0)>=start:return True
+        if self.journal:
+            for record in self.journal.records():
+                if record['payload']['symbol']!=symbol or record['payload'].get('reduceOnly') or record['phase']=='rejected':continue
+                if (record.get('instrument') or {}).get('thoth_sr_volume_window')==start:return True
+        return False
+
     def _entry(self,symbol,side,stamp,identity,cfg,context=None):
+        if self._sr_volume_window_used(symbol,cfg):
+            self._signal_decision(symbol,'skipped: one entry per coin per 4-hour candle already used',{'time':stamp,'signal':side});return
         if cfg.strategy in STAGED_STRATEGIES:
             gate=self.state.get('entry_gates',{}).get(symbol,{})
             if gate.get('phase')!='armed' or not context or context.get('arm_id')!=gate.get('arm_id'):
@@ -901,8 +922,14 @@ class TestnetSupervisor:
             if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
                 entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
             metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':(context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'none' if cfg.strategy in ('sr_volume_intrabar','volume_delta_intrabar',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            if cfg.strategy=='sr_volume_intrabar':
+                window=int(self.clock())//14400*14400
+                metadata['thoth_sr_volume_window']=window
+                self.state.setdefault('sr_volume_entry_windows',{})[symbol]=window
+                self.save()  # Reserve durably before any submission; an ambiguous outcome keeps the limit.
             record=self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='rejected':
+                if cfg.strategy=='sr_volume_intrabar':self.state.get('sr_volume_entry_windows',{}).pop(symbol,None)
                 code=record.get('result',{}).get('exchange_code')
                 self.event(symbol+': entry rejected by Bybit'+(' (code '+str(code)+')' if code is not None else '')+'; skipped this coin, other coins continue')
                 self.save();return
