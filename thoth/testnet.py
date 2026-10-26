@@ -10,6 +10,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from urllib.request import urlopen
 from .verification import source_fingerprint,strategy_fingerprint,execution_fingerprint
@@ -48,6 +49,8 @@ class TestnetSupervisor:
         self.thread=None
         self.feed=None
         self.instrument_cache={}
+        self.ob_exit_session=uuid.uuid4().hex
+        self.ob_exit_source=source_fingerprint()
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS supervisor(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
             if not db.execute('SELECT 1 FROM supervisor').fetchone():
@@ -112,6 +115,7 @@ class TestnetSupervisor:
         state.setdefault('entry_gates',{})
         state.setdefault('blocked_symbols',{})
         state.setdefault('sma_exit_blocks',{})
+        state.setdefault('order_block_exit_blocks',{})
         state.setdefault('rate_limit_resume',False)
         # First installation of selectable entry filters starts unfiltered.
         # Later explicitly saved selections survive reloads and restarts.
@@ -138,7 +142,7 @@ class TestnetSupervisor:
         s=self.load()
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
             'pnl_trailing':s['pnl_trailing'],'equity_trailing':s['equity_trailing'],'entry_gates':s.get('entry_gates',{}),
-            'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
+            'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'order_block_exit_blocks':s.get('order_block_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','baseline_ms','peak','peak_ms','last_sample','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
@@ -181,6 +185,9 @@ class TestnetSupervisor:
                     raise ValueError('Close managed positions and reconcile pending orders before changing strategy or timeframe')
             if self.state['owned'] and cfg.margin_mode!=self.state['config']['margin_mode']:
                 raise ValueError('Cannot change margin mode while positions are open')
+            if cfg.strategy!='sma_7_50_intrabar' or not cfg.sma_ob_exit_enabled:
+                self.state['order_block_exit_blocks']={}
+                for owner in self.state['owned'].values():owner.pop('order_block_exit_error',None)
             if not cfg.sma_exit_enabled:
                 self.state['sma_exit_blocks']={}
                 for owner in self.state['owned'].values():owner.pop('sma_exit_error',None)
@@ -563,6 +570,49 @@ class TestnetSupervisor:
             state.update(verified=False,error=details,retry_after=self.clock()+10)
             self.save()
 
+    def _order_block_exit_rows(self,symbol,tracker):
+        last=tracker.get('closed_state',{}).get('last_time')
+        limit=1000 if last is None or tracker.get('source')!=self.ob_exit_source else min(1000,max(60,int((self.clock()-last)//14400)+3))
+        return self.client.candles(symbol,'240',limit=limit)
+
+    def _manage_order_block_exit(self,symbol,owner,p,cfg):
+        if owner.get('strategy')!='sma_7_50_intrabar' or not cfg.sma_ob_exit_enabled or owner['close_link'] or owner.get('signal_exit'):return
+        tracker=owner.setdefault('order_block_exit',{})
+        if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
+        from .order_block_exit import observe
+        rows=self._order_block_exit_rows(symbol,tracker);now=self.clock()
+        reason=observe(tracker,rows,p['side'],now,session=self.ob_exit_session,source=self.ob_exit_source,
+            max_gap=min(300,max(30,len(self.state['owned'])/4+20)),opened_ms=owner.get('opened_ms'))
+        tracker.update(checked_at=now)
+        if tracker.get('waiting_for_candle') is not None:
+            self.save();return
+        tracker.pop('retry_after',None)
+        recovered=owner.pop('order_block_exit_error',None)
+        block=self.state['order_block_exit_blocks'].pop(symbol,None)
+        if recovered or block:self.event(symbol+': 4h Order Block exit observations recovered; coin entry block cleared')
+        if tracker['ready'] and not tracker.get('announced'):
+            tracker['announced']=True
+            self.event(symbol+': unfiltered 4h Order Block exit ready; waiting for '+('Bearish' if p['side']=='Buy' else 'Bullish')+' formation; block breaks ignored')
+        if reason:owner['signal_exit']=reason
+        self.save()  # Persist both observation consumption and exit obligation before close requests.
+
+    def _order_block_entry_ready(self,symbol,cfg):
+        if cfg.strategy!='sma_7_50_intrabar' or not cfg.sma_ob_exit_enabled:return True
+        block=self.state['order_block_exit_blocks'].get(symbol)
+        if not block:return True
+        if self.clock()<block['retry_after']:return False
+        try:
+            from .order_block_exit import observe
+            tracker={};rows=self._order_block_exit_rows(symbol,tracker)
+            observe(tracker,rows,'Buy',self.clock(),session=self.ob_exit_session,source=self.ob_exit_source)
+            if not tracker['ready']:return False
+        except Exception as exc:
+            block.update(details=failure_details(exc,'order_block_exit'),retry_after=self.clock()+30)
+            self.save();return False
+        del self.state['order_block_exit_blocks'][symbol]
+        self.event(symbol+': fresh unfiltered 4h Order Block exit data verified; coin entry block cleared')
+        self.save();return True
+
     def _manage_sma_exit(self,symbol,owner,p,cfg):
         if owner.get('strategy') in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar',*STAGED_STRATEGIES):return
         if (not cfg.sma_exit_enabled and owner.get('strategy') not in HOURLY_MINUTE_STRATEGIES) or owner['close_link']:return
@@ -716,6 +766,19 @@ class TestnetSupervisor:
             for symbol,owner in list(self.state['owned'].items()):
                 p=active.get(symbol)
                 if p:
+                    try:self._manage_order_block_exit(symbol,owner,p,cfg)
+                    except Exception as exc:
+                        details=failure_details(exc,'order_block_exit')
+                        owner['order_block_exit_error']=details
+                        retry_after=self.clock()+30
+                        owner.setdefault('order_block_exit',{})['retry_after']=retry_after
+                        prior=self.state['order_block_exit_blocks'].get(symbol,{}).get('details')
+                        self.state['order_block_exit_blocks'][symbol]=dict(details=details,retry_after=retry_after)
+                        if prior!=details:self.event(symbol+': Order Block exit monitoring unavailable; only this coin’s new entries blocked · '+failure_summary(details))
+                        self.save()
+            for symbol,owner in list(self.state['owned'].items()):
+                p=active.get(symbol)
+                if p:
                     try:self._manage_sma_exit(symbol,owner,p,cfg)
                     except Exception as exc:
                         # Still manage every other exit and account risk if candle reads fail.
@@ -840,6 +903,8 @@ class TestnetSupervisor:
         reasons=[]
         if symbol_paused(self.state['risk'],symbol,TestnetSettings(**self.state['config']),self.clock()):
             reasons.append('per-coin consecutive-loss cooldown')
+        if symbol in self.state['order_block_exit_blocks']:
+            reasons.append('Order Block exit monitoring unavailable for this coin')
         if symbol in self.state['blocked_symbols']:
             reasons.append('symbol blocked: '+self.state['blocked_symbols'][symbol])
         if self.state['status']!='running':
@@ -962,6 +1027,8 @@ class TestnetSupervisor:
         if symbol in self.state['blocked_symbols']:return
         if self.state['flatten_reason'] or self.state['status']!='running' or not self.state['entries']:return
         if len(self.state['owned'])>=cfg.max_positions:return
+        if not self._order_block_entry_ready(symbol,cfg):
+            self._signal_decision(symbol,'skipped: Order Block exit monitoring unavailable for this coin',{'time':stamp,'signal':side});return
         if not self._sma_entry_ready(symbol,cfg):
             self._signal_decision(symbol,'skipped: SMA exit monitoring unavailable for this coin',{'time':stamp,'signal':side});return
         if any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records()):return

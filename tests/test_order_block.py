@@ -41,6 +41,20 @@ class OrderBlockTests(unittest.TestCase):
             self.assertEqual(actual['time'],198*300)
             self.assertEqual(select(result,OrderBlockSettings())['signal'],'Long' if kind=='bullish_formed' else 'Short')
 
+    def test_unfiltered_formation_mode_removes_embedded_sma200_without_changing_default(self):
+        rows=formation_rows()
+        for row in rows[:-3]:row.update(open=50,close=50,high=51,low=49)
+        for source,kind in ((rows,'bullish_formed'),([mirror(r) for r in rows],'bearish_formed')):
+            filtered=OrderBlockState();raw=OrderBlockState(formation_filter=False)
+            for row in source:
+                original=filtered.step(row);unfiltered=raw.step(row)
+            self.assertNotIn(kind,original['events'])
+            self.assertIn(kind,unfiltered['events'])
+            raw=OrderBlockState(formation_filter=False)
+            for row in source[-30:]:unfiltered=raw.step(row)
+            self.assertIsNone(unfiltered['sma200'])
+            self.assertTrue(unfiltered['ready']);self.assertIn(kind,unfiltered['events'])
+
     def test_sma200_rule_by_event_type_above_below_and_equal(self):
         kinds=['bullish_formed','bearish_formed','supply_breakout','demand_breakdown']
         for close,expected in ((99,['bullish_formed','demand_breakdown']),(101,['bearish_formed','supply_breakout']),(100,[])):

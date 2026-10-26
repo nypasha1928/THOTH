@@ -14,7 +14,8 @@ LABELS={'bullish_formed':'Bullish Order Block formed','bearish_formed':'Bearish 
 SIDES={'bullish_formed':'Long','bearish_formed':'Short','supply_breakout':'Long','demand_breakdown':'Short'}
 
 class OrderBlockState:
-    def __init__(self,state=None,interval='5'):
+    def __init__(self,state=None,interval='5',*,formation_filter=True):
+        self.formation_filter=formation_filter
         self.duration=interval_seconds(interval)
         self.interval=interval
         self.s=deepcopy(state) if state else dict(frames=[],closes=[],atr=None,tr=[],buy=[],sell=[],last_time=None,count=0)
@@ -52,8 +53,8 @@ class OrderBlockState:
         reversal=(not p.get('soaring',False) and not p2.get('soaring',False)) if white else (not p.get('tumbling',False) and not p2.get('tumbling',False)) if black else (not p.get('soaring',False) and (p.get('bearish',False) or p2.get('bearish',False))) if break_high else (not p.get('tumbling',False) and (p.get('bullish',False) or p2.get('bullish',False))) if break_low else False
         continuation=(p2.get('bullish',False) and close>p2['high'] and not p.get('bearish',False)) if break_high else (p2.get('bearish',False) and close<p2['low'] and not p.get('bullish',False)) if break_low else False
         engulfing=(bull_engulf or bear_engulf) and (p.get('higher',False) or p.get('lower',False))
-        up=c['soaring'] and (reversal or continuation or engulfing) and sma is not None and close<sma
-        down=c['tumbling'] and (reversal or continuation or engulfing) and sma is not None and close>sma
+        up=c['soaring'] and (reversal or continuation or engulfing) and (not self.formation_filter or (sma is not None and close<sma))
+        down=c['tumbling'] and (reversal or continuation or engulfing) and (not self.formation_filter or (sma is not None and close>sma))
         events=[]
         # Head-only, strict wick breaks and FIFO removal order match Pine's while.
         broken_supply=[];broken_demand=[]
@@ -82,16 +83,16 @@ class OrderBlockState:
             zones.insert(0,dict(high=top,low=bottom,time=a['time'],bounced=False))
             events.append('bullish_formed' if up else 'bearish_formed')
         s['frames']=(frames+[current])[-4:];s['last_time']=row['time'];s['count']+=1
-        return dict(time=row['time'],close=close,sma200=sma,ready=sma is not None,events=events,
+        return dict(time=row['time'],close=close,sma200=sma,ready=sma is not None if self.formation_filter else s['count']>=14,events=events,
             broken_supply=broken_supply,broken_demand=broken_demand,
             zones=dict(demand=deepcopy(s['buy'][:23]),supply=deepcopy(s['sell'][:23])))
 
 
-def select(result,settings):
+def select(result,settings,*,formation_filter=True):
     events=[]
     for kind in result['events']:
         if not getattr(settings,kind):continue
-        if kind.endswith('_formed') or settings.filter_breaks:
+        if (kind.endswith('_formed') and formation_filter) or (not kind.endswith('_formed') and settings.filter_breaks):
             average=result['sma200'];price=result['close']
             below=kind in ('bullish_formed','demand_breakdown')
             if average is None or not (price<average if below else price>average):continue
@@ -101,11 +102,11 @@ def select(result,settings):
         'conflict':len(sides)>1,'entry_sources':['ob:'+e['kind'] for e in events]}
 
 
-def reference(rows,settings,now,interval='5'):
+def reference(rows,settings,now,interval='5',*,formation_filter=True):
     """Read-only causal replay on selected-timeframe data, including a rollback-safe forming bar."""
-    state=OrderBlockState(interval=interval);output=[]
+    state=OrderBlockState(interval=interval,formation_filter=formation_filter);output=[]
     for row in rows:
         if row['time']>now:break
-        preview=state if row['time']+state.duration<=now else OrderBlockState(state.checkpoint(),interval=interval)
-        output.append(select(preview.step(row),settings))
+        preview=state if row['time']+state.duration<=now else OrderBlockState(state.checkpoint(),interval=interval,formation_filter=formation_filter)
+        output.append(select(preview.step(row),settings,formation_filter=formation_filter))
     return output
