@@ -604,14 +604,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
    expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
    expect(page.locator('#strategyDescription')).to_contain_text('DO NOT wait for close')
-   expect(page.locator('#strategyDescription')).to_contain_text('NO FILTERS')
+   expect(page.locator('#strategyDescription')).to_contain_text('volume MA 20')
    page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_intrabar'")
    assert writes[-1][1]['timeframe']=='240' and not writes[-1][1]['order_block']['filter_breaks']
    assert all(writes[-1][1]['order_block'][kind] for kind in ['bullish_formed','bearish_formed','supply_breakout','demand_breakdown'])
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_intrabar')
    expect(page.locator('#rsiSettings')).not_to_be_visible();expect(page.locator('#strategyTf')).to_have_value('240')
-   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block · 4h · No Filters');page.keyboard.press('Escape')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block · 4h · Volume MA');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','sr_order_block_gate')
    expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#sma_length')).to_have_value('200');expect(page.locator('#sma_length')).to_be_disabled()

@@ -1049,6 +1049,14 @@ class TestnetSupervisor:
         active=self.positions()
         if symbol in active or set(self.state['owned'])-set(active):return
         try:
+            if cfg.strategy=='order_block_intrabar':
+                from .order_block import entry_volume
+                start=int(self.clock())//14400*14400
+                if not context or context.get('order_block_bar')!=start:
+                    raise ValueError('Order Block signal is not from the current 4h candle')
+                volume_rows=self.client.candles(symbol,'240',limit=20)
+                if int(self.clock())//14400*14400!=start or not volume_rows or volume_rows[-1]['time']!=start or not entry_volume(volume_rows)['passed']:
+                    raise ValueError('4h Volume must exceed MA 20 before Order Block entry')
             instrument=self.instrument_cache.get(symbol)
             if not instrument:instrument=self.client.instrument(symbol);self.instrument_cache[symbol]=instrument
             leverage=instrument['leverageFilter']
