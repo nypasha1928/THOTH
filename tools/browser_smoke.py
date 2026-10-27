@@ -95,6 +95,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
     if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
     result=analyze(records,params.get('time_basis',['entry'])[0],params.get('source',[None])[0])
+   elif path=='phone-alerts':result=dict(public_key='',devices=[],recent_pauses=[])
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:
     result=payloads[path]

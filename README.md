@@ -2,6 +2,14 @@
 
 Self-hosted mobile trading desk for Bybit USDT perpetual support/resistance breakouts. The app runs **live trading only**. Orders use real funds; account checks and explicit activation are required. The S/R strategy comparison remains unverified and passing software tests do not establish profitability.
 
+## Pause alerts on phone and Windows
+
+Open **Security → Phone pause alerts**. Enable notifications separately on each device, allow the browser permission, then send a test and check that it arrives. Android supports Chrome; iPhone/iPad requires iOS 16.4+ and opening THOTH from its installed Home Screen icon. Windows browsers can show desktop notifications too.
+
+Alerts include the reason account-wide new entries paused and the New York time. Per-coin cooldowns do not send account-pause alerts. The **Recent account pauses** list works even without notification permission; **Copy pause report** copies it for troubleshooting. The newest 50 records are displayed and the latest 1,000 retained across restarts/resuming entries. Records start with this update; old pauses are not reconstructed.
+
+Delivery runs separately from trading with retry and expired-subscription cleanup. A queued test or push-provider acceptance does not confirm phone receipt. Browser/OS settings and connectivity affect delivery; a completely offline server cannot send notifications. No additional trading permission is granted. Pause notification messages may appear on the device lock screen. Push subscriptions and the signing key stay in the private persistent data directory; keep that directory across deployments. The existing account safety checks and manual activation after restart remain unchanged.
+
 ## Development
 
 Python 3.12+, one application process per data directory:

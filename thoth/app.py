@@ -23,6 +23,7 @@ from .market import candles, sma, quote, chart_history
 from .models import Settings, TestnetSettings, TestnetActivation
 from .timeframes import INTERVALS
 from .trailing_observation import TrailingObservation,ObservationSettings
+from .push_notifications import PushNotifications
 
 ROOT = Path(__file__).resolve().parent.parent
 live_feed = None
@@ -32,6 +33,7 @@ live_connection = Connection(ProductionClient,environment='live')
 @asynccontextmanager
 async def lifespan(app):
     global live_feed
+    phone_alerts.start()
     trailing_observation.start()
     live.trailing_observer=trailing_observation
     live.start()
@@ -44,6 +46,7 @@ async def lifespan(app):
         live_feed.stop()
         live.stop()
         trailing_observation.stop()
+        phone_alerts.stop()
 
 
 app = FastAPI(title='THOTH live trading desk', version='0.4.0', lifespan=lifespan)
@@ -53,6 +56,8 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=['localhost', '127.0.0.1
 DATA = Path(os.environ.get('THOTH_DB',str(ROOT/'data'/'live.sqlite'))).parent
 live = ProductionSupervisor(DATA/'live.sqlite',enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD),allow_unverified=os.environ.get('THOTH_ALLOW_UNVERIFIED_LIVE')=='1')
 trailing_observation=TrailingObservation(DATA/'trailing-observation.sqlite',DATA/'live.sqlite')
+phone_alerts=PushNotifications(DATA/'phone-alerts.sqlite',DATA/'live.sqlite',
+    'https://'+PUBLIC_HOST if PUBLIC_HOST else 'mailto:operator@localhost')
 
 
 @app.middleware('http')
@@ -90,6 +95,28 @@ async def invalid(request, exc):
 @app.get('/healthz')
 def health():
     return {'status':'ok','version':'0.4.0'}
+
+
+@app.get('/api/phone-alerts')
+def phone_alert_status():
+    return phone_alerts.status()
+
+
+@app.post('/api/phone-alerts/enable')
+def phone_alert_enable(value: dict):
+    return {'id':phone_alerts.register(value)}
+
+
+@app.post('/api/phone-alerts/disable')
+def phone_alert_disable(value: dict):
+    phone_alerts.remove(value)
+    return {'disabled':True}
+
+
+@app.post('/api/phone-alerts/test')
+def phone_alert_test(value: dict):
+    phone_alerts.test(value)
+    return {'queued':True}
 
 
 @app.get('/api/readiness')
