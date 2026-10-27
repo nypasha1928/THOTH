@@ -10,6 +10,12 @@ Alerts include the reason account-wide new entries paused and the New York time.
 
 Delivery runs separately from trading with retry and expired-subscription cleanup. A queued test or push-provider acceptance does not confirm phone receipt. Browser/OS settings and connectivity affect delivery; a completely offline server cannot send notifications. No additional trading permission is granted. Pause notification messages may appear on the device lock screen. Push subscriptions and the signing key stay in the private persistent data directory; keep that directory across deployments. The existing account safety checks and manual activation after restart remain unchanged.
 
+## Order Block · 4h · No Filters
+
+The `order_block_intrabar` entry profile trades the forming 4-hour candle: Bullish Order Block formation or Breakout Above Supply opens Long; Bearish formation or Breakdown Below Demand opens Short. It does not wait for candle close. The uploaded block/zone formulas remain, with SMA 200, SMA 7/50, RSI, VWAP, volume and strength entry filters off. There is no S/R permission stage or separate SMA/Order Block exit. Your selected opposite-signal action and existing position/account protections still apply.
+
+Each event family is consumed once per 4-hour candle. A fresh opposite event may act later in the same candle; newly simultaneous opposing events are skipped. Startup/recovery baselines consume already-present events rather than replaying old boxes. Intrabar detection is sampled, not guaranteed tick-by-tick. Chart boxes use the viewed timeframe; execution remains 4h. Pause entries and close/reconcile existing positions before switching profiles. Daily loss, Daily/3-Day/Weekly equity trailing, combined/per-coin trailing, protective stops, TP and other risk settings are retained.
+
 ## Development
 
 Python 3.12+, one application process per data directory:

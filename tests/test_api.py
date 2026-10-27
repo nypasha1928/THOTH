@@ -23,6 +23,24 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_unfiltered_order_block_strategy_chart_boxes_and_analysis_on_all_views(self):
+        from test_order_block_intrabar import rows
+        response=self.client.put('/api/live/settings',json={'strategy':'order_block_intrabar','timeframe':'1','sma_enabled':True,'order_block':{'filter_breaks':True}})
+        self.assertEqual(response.status_code,200,response.text)
+        saved=self.client.get('/api/live').json()['config']
+        self.assertEqual(saved['timeframe'],'240');self.assertFalse(saved['sma_enabled'] or saved['sma_exit_enabled'] or saved['order_block']['filter_breaks'])
+        for interval,duration in [('1',60),('5',300),('60',3600),('240',14400),('D',86400)]:
+            history=rows();start=history[-1]['time']//duration*duration
+            history=[{**row,'time':start-(len(history)-i-1)*duration} for i,row in enumerate(history)]
+            with patch('thoth.app.candles',return_value=history),patch('time.time',return_value=start+20):
+                response=self.client.get('/api/chart/BTCUSDT?interval='+interval+'&include_order_block=true')
+            self.assertEqual(response.status_code,200,response.text)
+            body=response.json();self.assertIn('NO FILTERS',body['order_block_status'])
+            self.assertIn({'kind':'bullish_formed','side':'Long'},body['order_block_analysis'][-1]['events'])
+            self.assertTrue(body['order_block_analysis'][-1]['zones']['demand'])
+        self.assertEqual(self.client.get('/api/live').json()['config'],saved)
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_intrabar').status_code,200)
+
     def test_order_block_5m_reference_is_read_only_and_strategy_filter_available(self):
         from test_order_block import formation_rows
         response=self.client.put('/api/live/settings',json={'strategy':'sr_order_block_gate'})
