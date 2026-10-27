@@ -593,6 +593,25 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#entryGateList')).to_contain_text('ARMED · 1m Volume Delta may enter Long or Short')
    page.evaluate("() => {lv.entry_gates.ETHUSDT={phase:'cooldown',losses:3,cooldown_until:Date.now()/1000+3600};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('LOCKED · cooldown')
+   protected_fields=['daily_loss_pct','stop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','coin_pnl_trailing_enabled','daily_equity_trailing_enabled','three_day_equity_trailing_enabled','weekly_equity_trailing_enabled','consecutive_losses','pause_minutes']
+   before_ob_risk={key:payloads['live']['config'][key] for key in protected_fields}
+   page.select_option('#strategyLogic','order_block_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('240');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_be_enabled()
+   expect(page.locator('#orderBlockSettings')).not_to_be_visible();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#volumeDeltaSettings')).not_to_be_visible()
+   expect(page.locator('#sma_enabled')).not_to_be_checked();expect(page.locator('#sma_enabled')).to_be_disabled()
+   expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('DO NOT wait for close')
+   expect(page.locator('#strategyDescription')).to_contain_text('NO FILTERS')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_intrabar'")
+   assert writes[-1][1]['timeframe']=='240' and not writes[-1][1]['order_block']['filter_breaks']
+   assert all(writes[-1][1]['order_block'][kind] for kind in ['bullish_formed','bearish_formed','supply_breakout','demand_breakdown'])
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_intrabar')
+   expect(page.locator('#rsiSettings')).not_to_be_visible();expect(page.locator('#strategyTf')).to_have_value('240')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block · 4h · No Filters');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','sr_order_block_gate')
    expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#sma_length')).to_have_value('200');expect(page.locator('#sma_length')).to_be_disabled()
