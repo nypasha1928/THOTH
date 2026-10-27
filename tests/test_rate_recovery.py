@@ -81,6 +81,18 @@ class RateRecoveryTests(unittest.TestCase):
         self.assertFalse(self.service.state['entries'])
         self.assertEqual(self.service.state['status'],'safety_lock')
 
+    def test_monitor_failure_archive_survives_activity_churn_and_restart(self):
+        self.enter()
+        self.service._monitor_failure(KeyError('SECRET_RESPONSE'))
+        for i in range(110):self.service.event('ordinary signal '+str(i))
+        self.service.save()
+        recovered=self.create()
+        archive=recovered.snapshot()['monitor_failures']
+        self.assertEqual(len(archive),1)
+        self.assertEqual(archive[0]['details']['exception_class'],'KeyError')
+        self.assertNotIn('SECRET_RESPONSE',str(archive))
+        self.assertFalse(recovered.state['entries'])
+
     def test_repeated_rate_rejections_preserve_intent_but_another_fault_cancels_it(self):
         self.enter();original=self.limited()
         self.limited()

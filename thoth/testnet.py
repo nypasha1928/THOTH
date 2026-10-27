@@ -143,6 +143,7 @@ class TestnetSupervisor:
         return {k:s[k] for k in ('config','management','entries','status','reason','equity','positions','events','last_monitor','closures','feed_health')} | {
             'pnl_trailing':s['pnl_trailing'],'equity_trailing':s['equity_trailing'],'entry_gates':s.get('entry_gates',{}),
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'order_block_exit_blocks':s.get('order_block_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
+            'monitor_failures':s.get('monitor_failures',[]),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','baseline_ms','peak','peak_ms','last_sample','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
@@ -503,6 +504,7 @@ class TestnetSupervisor:
     def _monitor_failure(self,exc):
         details=failure_details(exc,'account_monitor')
         self.state['monitor_error']=details
+        self.state['monitor_failures']=(self.state.get('monitor_failures',[])+[dict(time=self.clock(),details=details)])[-100:]
         if isinstance(exc,BybitError) and exc.code==10006 and getattr(exc,'thoth_method',None)=='GET' and self.state['status'] in ('running','cooldown','paused','rate_limited'):
             if self.state['status']!='rate_limited':self.state['rate_limit_resume']=bool(self.state['entries'])
             self._lock('rate_limited','Bybit account read rate-limited; entries waiting for verified recovery · '+failure_summary(details))

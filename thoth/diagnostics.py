@@ -19,11 +19,29 @@ def failure_details(exc,stage):
     if reason in ('forming_candle_or_history_unavailable','candle_gap','invalid_price'):result['data_reason']=reason
     endpoint=getattr(exc,'thoth_endpoint',None)
     if endpoint in ENDPOINTS:result['endpoint']=endpoint
+    if stage=='account_monitor':
+        # Keep code locations, never traceback source lines, locals or exception text.
+        from pathlib import Path
+        root=Path(__file__).resolve().parent
+        known={KeyError,TypeError,AttributeError,IndexError,RuntimeError,ZeroDivisionError,ValueError,OverflowError}
+        if type(exc) in known:result['exception_class']=type(exc).__name__
+        sites=[];tb=exc.__traceback__
+        while tb:
+            code=tb.tb_frame.f_code;path=Path(code.co_filename).resolve()
+            if path.parent==root and path.suffix=='.py' and code.co_name.isidentifier():
+                sites.append(dict(file=path.name,function=code.co_name,line=tb.tb_lineno))
+            tb=tb.tb_next
+        if sites:result['code_locations']=sites[-5:]
     return result
 
 
 def failure_summary(details):
     parts=[str(details[k]) for k in ('stage','error_type','endpoint','exchange_code','http_status','data_reason') if k in details]
+    if details.get('stage')=='account_monitor':
+        if details.get('exception_class'):parts.append(details['exception_class'])
+        sites=details.get('code_locations',[])
+        if sites:
+            site=sites[-1];parts.append(site['file']+':'+str(site['line'])+' '+site['function'])
     reason=PROTECTION_LABELS.get(details.get('protection_reason'))
     if reason:parts.append(reason)
     elif details.get('protection_check') in PROTECTION_CHECKS:parts.append('check: '+details['protection_check'].replace('_',' '))
