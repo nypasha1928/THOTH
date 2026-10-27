@@ -16,6 +16,14 @@ The `order_block_intrabar` entry profile trades the forming 4-hour candle: Bulli
 
 Each event family is consumed once per 4-hour candle. A fresh opposite event may act later in the same candle; newly simultaneous opposing events are skipped. Startup/recovery baselines consume already-present events rather than replaying old boxes. Intrabar detection is sampled, not guaranteed tick-by-tick. Raw chart boxes use the viewed timeframe and do not establish volume qualification; execution remains 4h. Pause entries and close/reconcile existing positions before switching profiles. Daily loss, Daily/3-Day/Weekly equity trailing, combined/per-coin trailing, protective stops, TP and other risk settings are retained.
 
+## Order Block + S/R · 4h · Volume MA
+
+The separate `order_block_sr_intrabar` profile combines the four Order Block signals above with BOTH Major and Minor S/R breakouts on 4-hour candles. Either branch independently opens Long/Short without waiting for candle close or waiting for the other branch. BOTH require forming 4h Volume > MA 20 before queuing and again before submission. The Order Block-only profile remains available.
+
+S/R uses confirmed pivot levels and the existing volume-first intrabar qualification: a still-valid breakout may qualify later in the same candle when volume passes, without occupying the order queue early. Matching simultaneous signals share one entry with all source labels; opposing simultaneous signals skip. Each branch retains independent recovery/dedup tracking; old signals are not replayed. Both share one 4h history download, and chart timeframe remains view-only. Selected opposite action, stops/TP/trailing, Daily/3-Day/Weekly controls, loss limits and cooldowns remain.
+
+Overall position loss protection remains separate from Daily account loss. Its percentage uses the selected initial-margin basis; with “losing positions only,” the denominator changes as positions enter or leave the losing set, and winners do not offset losses. New overall-stop pauses save the observed open losses, margin basis, percentage and configured limit in the status/Activity/phone pause report. The configured protection threshold is not increased by this update; old trigger figures are not reconstructed.
+
 ## Development
 
 Python 3.12+, one application process per data directory:

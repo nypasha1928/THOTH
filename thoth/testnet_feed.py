@@ -58,8 +58,8 @@ class FeedAdapter:
         if not self.supervisor.client:raise ValueError('Account is not connected')
         limit=60
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
-        if cfg.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar'):
-            interval='240' if cfg.strategy=='order_block_intrabar' else '5';limit=1000
+        if cfg.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar','order_block_sr_intrabar'):
+            interval='5' if cfg.strategy==ORDER_BLOCK_STRATEGY else '240';limit=1000
             path=Path(self.path).with_suffix('.candles.sqlite')
             if path.exists():
                 from .verification import strategy_fingerprint
@@ -67,7 +67,7 @@ class FeedAdapter:
                     with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
                         row=db.execute('SELECT stamp FROM order_block_checkpoints WHERE symbol=? AND strategy=?',(symbol,strategy_fingerprint(cfg))).fetchone()
                         count=db.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND interval=?",(symbol,interval)).fetchone()[0]
-                    if row and count>=(14 if cfg.strategy=='order_block_intrabar' else 200):
+                    if row and count>=(200 if cfg.strategy==ORDER_BLOCK_STRATEGY else max(14,2*cfg.pivot_long+1) if cfg.strategy=='order_block_sr_intrabar' else 14):
                         from .timeframes import interval_seconds
                         limit=min(1000,max(60,int((self.supervisor.clock()-row[0])//interval_seconds(interval))+3))
                 except sqlite3.OperationalError:pass
@@ -92,7 +92,7 @@ class FeedAdapter:
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
-        if cfg.strategy=='order_block_intrabar':return self.staged_minute_inputs(symbol,'240')
+        if cfg.strategy in ('order_block_intrabar','order_block_sr_intrabar'):return self.staged_minute_inputs(symbol,'240')
         if cfg.strategy=='sr_volume_intrabar':
             primary={}
             for timeframe in ('240','D'):

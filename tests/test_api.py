@@ -23,6 +23,22 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_combined_order_block_sr_profile_save_analysis_and_chart_are_independent(self):
+        from test_order_block_sr import ob_rows,NOW
+        response=self.client.put('/api/live/settings',json={'strategy':'order_block_sr_intrabar','timeframe':'D','major':False,'minor':False,'daily_loss_pct':35,'portfolio_loss_enabled':True,'portfolio_loss_pct':25})
+        self.assertEqual(response.status_code,200,response.text)
+        saved=self.client.get('/api/live').json()['config']
+        self.assertEqual(saved['timeframe'],'240');self.assertTrue(saved['major'] and saved['minor'])
+        self.assertFalse(saved['sma_enabled'] or saved['sma_exit_enabled'])
+        self.assertEqual(saved['daily_loss_pct'],35);self.assertEqual(saved['portfolio_loss_pct'],25)
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_intrabar').status_code,200)
+        with patch('thoth.app.candles',return_value=ob_rows()),patch('time.time',return_value=NOW):
+            response=self.client.get('/api/chart/BTCUSDT?interval=240&include_order_block=true')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertIn('Order Block OR Major/Minor S/R',response.json()['indicator_status'])
+        self.assertIn('Volume > MA 20',response.json()['order_block_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config'],saved)
+
     def test_unfiltered_order_block_strategy_chart_boxes_and_analysis_on_all_views(self):
         from test_order_block_intrabar import rows
         response=self.client.put('/api/live/settings',json={'strategy':'order_block_intrabar','timeframe':'1','sma_enabled':True,'order_block':{'filter_breaks':True}})
