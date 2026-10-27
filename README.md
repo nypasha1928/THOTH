@@ -24,6 +24,16 @@ S/R uses confirmed pivot levels and the existing volume-first intrabar qualifica
 
 Overall position loss protection remains separate from Daily account loss. Its percentage uses the selected initial-margin basis; with “losing positions only,” the denominator changes as positions enter or leave the losing set, and winners do not offset losses. New overall-stop pauses save the observed open losses, margin basis, percentage and configured limit in the status/Activity/phone pause report. The configured protection threshold is not increased by this update; old trigger figures are not reconstructed.
 
+## Entry delay investigation
+
+Open **Analysis → Entry delay investigation**, click **Refresh entry timings**, then **Copy timing report** to share the recorded page. Optional coin filter and older-page loading are available. This is a manual, read-only report; it never changes strategy settings or submits orders. Older trades without these records are omitted rather than given invented zero timings.
+
+For new Order Block-only and combined Order Block + S/R entries it records the first sampled raw source observation/price, volume-qualified sample/price, time between checks, previous scan duration, download/processing, queue, volume recheck, instrument lookup/cache use, ticker, leverage request, submission and acknowledgement timestamps. Final average fill price and quantity come from existing position/order reconciliation. Price movement since qualification is signed in the trade direction; it is not guaranteed avoidable loss or pure execution slippage.
+
+**Fill observed is not the exact exchange execution time.** It can be a partial fill and can lag the actual fill. Order creation and the first order update are separately labelled; they are not substituted for fill timestamps. Raw event/volume crossing times between samples remain unknown. The observed raw-to-qualified span includes sampling intervals as well as volume waiting. Negative cross-clock durations are unavailable and marked for clock review. Other strategies can have submission/check timings without a raw-source timeline.
+
+No extra exchange lookups are added. Existing responses supply fill observations, the journal retains the timing after closure, and small bounded source trackers retain first observations during each candle. This update investigates latency; it does not itself optimize the scan or alter volume gates, expiry, position sizing, entry/exit rules or account risk controls.
+
 ## Development
 
 Python 3.12+, one application process per data directory:

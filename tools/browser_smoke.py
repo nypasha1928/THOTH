@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
-  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
    if path.startswith('chart/'):
@@ -84,6 +84,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
    elif path=='live/trailing-comparison/settings' and method=='PUT':
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
+   elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
    elif path=='live/history':
     result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
     if history_many:
@@ -926,6 +927,13 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#historyRows')).to_contain_text('Source not recorded')
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   entry_delay_items.append(dict(symbol='WLDUSDT',side='Buy',phase='closed',sources=['ob:bullish_formed'],details={'qualified_at':1793143000},timing={},measurements={'observation_gap_seconds':192.6,'volume_wait_seconds':120,'qualified_to_submit_seconds':5,'submit_to_fill_observed_seconds':7,'entry_move_pct':.2},realized_pnl=-.4))
+   page.click('#refreshEntryDelay');expect(page.locator('#entryDelayRows')).to_contain_text('WLDUSDT / Long')
+   expect(page.locator('#entryDelayRows')).to_contain_text('192.60s');expect(page.locator('#entryDelayRows')).to_contain_text('120.00s')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.entryDelayCopied=text}})")
+   page.click('#copyEntryDelay');expect(page.locator('#entryDelayStatus')).to_contain_text('Timing report copied')
+   assert 'WLDUSDT' in page.evaluate('window.entryDelayCopied')
+   entry_delay_items.clear()
    expect(page.locator('#sourceAnalysis')).to_contain_text('S/R short-term minor support')
    expect(page.locator('#sourceTimingAnalysis')).to_contain_text('S/R short-term minor support')
    page.select_option('#analysisSource','sr:short_support_minor');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')

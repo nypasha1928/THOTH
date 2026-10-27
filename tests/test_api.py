@@ -23,6 +23,23 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_entry_timing_endpoint_is_read_only_and_omits_unrecorded_history(self):
+        from unittest.mock import Mock
+        from thoth.execution import ExecutionJournal
+        from thoth.bybit_testnet import TestnetClient
+        before=self.client.get('/api/live').json()
+        client=Mock(BASE=TestnetClient.BASE,armed=True);client.submit.return_value={'state':'accepted_not_filled'}
+        journal=ExecutionJournal(Path(self.tmp.name)/'live.execution.sqlite',client,clock=lambda:100)
+        payload=dict(symbol='BTCUSDT',side='Buy',orderLinkId='old',reduceOnly=False)
+        journal.submit(payload,1,{'priceFilter':{'tickSize':'.1'}});journal.update('old','closed',{})
+        journal.submit({**payload,'orderLinkId':'new'},1,{'priceFilter':{'tickSize':'.1'},'thoth_entry_diagnostics':{'qualified_at':99,'qualified_price':100}})
+        result=self.client.get('/api/live/entry-diagnostics').json()
+        self.assertEqual(result['total'],1);self.assertEqual(result['items'][0]['symbol'],'BTCUSDT')
+        self.assertEqual(result['items'][0]['measurements']['qualified_to_submit_seconds'],1)
+        self.assertEqual(self.client.get('/api/live/entry-diagnostics?symbol=ETHUSDT').json()['total'],0)
+        self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
+        self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
+
     def test_combined_order_block_sr_profile_save_analysis_and_chart_are_independent(self):
         from test_order_block_sr import ob_rows,NOW
         response=self.client.put('/api/live/settings',json={'strategy':'order_block_sr_intrabar','timeframe':'D','major':False,'minor':False,'daily_loss_pct':35,'portfolio_loss_enabled':True,'portfolio_loss_pct':25})

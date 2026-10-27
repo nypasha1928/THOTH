@@ -11,6 +11,7 @@ class AuthTests(unittest.TestCase):
         with patch.object(auth,'PASSWORD','test-only-long-password'):
             client=TestClient(app,follow_redirects=False)
             self.assertEqual(client.get('/api/live').status_code,401)
+            self.assertEqual(client.get('/api/live/entry-diagnostics').status_code,401)
             self.assertEqual(client.get('/').status_code,307)
             self.assertEqual(client.post('/api/login',json={'password':'wrong'}).status_code,401)
             response=client.post('/api/login',json={'password':'test-only-long-password'})

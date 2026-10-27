@@ -12,5 +12,8 @@ def combine(order_block,sr,now,mark,errors=None):
     result=dict(time=now,mark=mark,signal=signal,entry_sources=sources,source_errors=errors or {},
         volume_checks={'240':volume},entry_context=dict(order_block_bar=int(now)//14400*14400) if signal else None,
         volume_delta_status='4h Order Block OR Major/Minor S/R; mandatory Volume > MA 20; '+('conflicting signals skipped' if conflict else volume.get('reason','volume check unavailable')))
+    if signal:
+        from .entry_diagnostics import merged_qualification
+        result['entry_diagnostics']=merged_qualification([value for value in reports if value.get('signal')==signal],now,mark)
     if conflict:result['signal_diagnostic']=dict(reason='conflicting volume-qualified Order Block / S/R signals',signal=None)
     return result

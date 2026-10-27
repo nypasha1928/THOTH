@@ -97,6 +97,12 @@ def health():
     return {'status':'ok','version':'0.4.0'}
 
 
+@app.get('/api/live/entry-diagnostics')
+def entry_diagnostics(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0),symbol: str | None=Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$')):
+    from .entry_diagnostics import read
+    return read(live.path,limit,offset,symbol)
+
+
 @app.get('/api/phone-alerts')
 def phone_alert_status():
     return phone_alerts.status()

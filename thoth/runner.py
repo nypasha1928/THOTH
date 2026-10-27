@@ -256,6 +256,9 @@ class Runner:
             cycle=self.confirmation_symbol_cycles.get(symbol,0) if self.confirmation_only else self.scan_cycle
             budget=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
             fresh=(not unfiltered or checkpoint is not None) and preview['ready'] and tracker.get('ready') and tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (cycle-1,cycle) and 0<now-tracker.get('observed_at',0)<=budget
+            previous_observed=tracker.get('observed_at')
+            from .entry_diagnostics import observe_sources,qualification
+            seen=observe_sources(tracker,['ob:'+event['kind'] for event in preview['events']],now,history[-1]['close'],start)
             fired=set(tracker.get('fired',[])) if tracker.get('bar')==start else set()
             new=[event for event in preview['events'] if event['kind'] not in fired and (not unfiltered or volume['passed'])]
             # An event already present at startup/after a data gap is a baseline,
@@ -274,6 +277,7 @@ class Runner:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return dict(time=now,mark=history[-1]['close'],signal=emitted,entry_sources=['ob:'+event['kind'] for event in new if event['side']==emitted],
             volume_delta_status=('4h Order Block intrabar; Volume > MA 20 required; '+volume['reason'] if preview['ready'] else 'Order Block ATR/history warming up') if unfiltered else '5m Order Block: formation inverted vs SMA 200; supply break above / demand break below' if preview['ready'] else 'Order Block SMA 200 warming up',
+            entry_diagnostics=qualification(['ob:'+event['kind'] for event in new if event['side']==emitted],seen,now,history[-1]['close'],previous_observed) if emitted else None,
             entry_context=dict(order_block_bar=start) if unfiltered and emitted else None,
             volume_checks={'240':volume} if unfiltered else {},order_block_events=new,order_block_conflict=conflict)
 
@@ -497,11 +501,15 @@ class Runner:
         symbols = cfg.symbols if state['status'] == 'running' else [p['symbol'] for p in state['positions']]
         self.scan_cycle+=1
         observations, statuses = {}, {}
+        sample_timings={}
         streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','order_block_sr_intrabar',*STAGED_STRATEGIES) and
                    callable(getattr(self.engine,'begin_market_scan',None)) and
                    callable(getattr(self.engine,'market_observation',None)))
         if streaming:self.engine.begin_market_scan()
         def record(symbol,observation):
+            if observation.get('signal') and observation.get('entry_diagnostics'):
+                details={**observation['entry_diagnostics'],**sample_timings.get(symbol,{}),'processed_at':time.time(),'previous_scan_seconds':self.previous_scan_seconds}
+                observation['entry_context']={**(observation.get('entry_context') or {}),'entry_diagnostics':details}
             observations[symbol]=observation
             statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,
                 signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}),volume_checks=observation.get('volume_checks',{}))
@@ -520,7 +528,9 @@ class Runner:
                     next_request[0] = slot + 0.125
                 if self.stop_event.wait(max(0, slot-time.monotonic())):
                     raise RuntimeError('Worker stopping')
-            return self.fetch(symbol, cfg.timeframe)
+            started=time.time()
+            try:return self.fetch(symbol, cfg.timeframe)
+            finally:sample_timings[symbol]=dict(sample_requested_at=started,sample_received_at=time.time())
         with ThreadPoolExecutor(max_workers=4) as pool:
             if cfg.strategy in (*STAGED_STRATEGIES,'sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','order_block_sr_intrabar'):
                 completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event)
