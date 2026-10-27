@@ -146,7 +146,7 @@ class TestnetSupervisor:
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','baseline_ms','peak','peak_ms','last_sample','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
-            'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason','')} for r in self.journal.records()] if self.journal else []}
+            'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason',''),'protection_error':r['result'].get('protection_error')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
         allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources')
