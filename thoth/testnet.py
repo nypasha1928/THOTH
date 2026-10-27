@@ -53,6 +53,7 @@ class TestnetSupervisor:
         self.ob_exit_source=source_fingerprint()
         with self.db() as db:
             db.execute('CREATE TABLE IF NOT EXISTS supervisor(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS entry_pauses(id INTEGER PRIMARY KEY AUTOINCREMENT,time REAL NOT NULL,payload TEXT NOT NULL)')
             if not db.execute('SELECT 1 FROM supervisor').fetchone():
                 self.save(dict(config=TestnetSettings().model_dump(),rsi_filters_off_v1=True,rsi_original_mode_v1=True,rsi_fixed_thresholds_v1=True,account_binding=None,
                     management=False,entries=False,status='disabled',reason=self.label+' has not been activated',
@@ -132,7 +133,17 @@ class TestnetSupervisor:
         return state
 
     def save(self,state=None):
-        with self.db() as db:db.execute('INSERT OR REPLACE INTO supervisor VALUES(1,?)',(json.dumps(state or self.state,allow_nan=False),))
+        current=state or self.state
+        with self.db() as db:
+            previous=db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()
+            if self.environment=='live' and previous and json.loads(previous[0]).get('entries') and not current['entries']:
+                # Persist notification intent atomically with the pause. No network on this path.
+                reason=('Server restarted; new entries require manual activation' if current['status']=='recovery_required'
+                    else current.get('reason') or current.get('flatten_reason') or current['status'])
+                db.execute('INSERT INTO entry_pauses(time,payload) VALUES(?,?)',
+                    (self.clock(),json.dumps(dict(title='THOTH: new entries paused',body=str(reason)[:400],paused_at=self.clock()))))
+                db.execute('DELETE FROM entry_pauses WHERE id <= (SELECT COALESCE(MAX(id),0)-1000 FROM entry_pauses)')
+            db.execute('INSERT OR REPLACE INTO supervisor VALUES(1,?)',(json.dumps(current,allow_nan=False),))
 
     def event(self,message):
         if self.environment=='live':message=message.replace('Testnet','LIVE').replace('testnet','live')
