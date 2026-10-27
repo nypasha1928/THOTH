@@ -24,7 +24,7 @@ function renderRSISettings(config){
   if(type==='checkbox')input.checked=config[id]??fallback;else input.value=config[id]??fallback;
   if(type==='number'){input.min=min;input.max=max;input.step=step||1}row.append(input);section.append(row);
  }
- section.hidden=['sr_order_block_gate','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar'].includes($('strategyLogic').value);section.open=['rsi_hourly_intrabar','sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);syncDailyRSIControls();
+ section.hidden=['sr_order_block_gate','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','order_block_sr_intrabar'].includes($('strategyLogic').value);section.open=['rsi_hourly_intrabar','sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);syncDailyRSIControls();
 }
 function collectRSISettings(){return Object.fromEntries(rsiControls.map(([id,,type])=>[id,type==='checkbox'?$('rsi_'+id).checked:type==='number'?Number($('rsi_'+id).value):$('rsi_'+id).value]))}
 

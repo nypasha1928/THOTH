@@ -630,6 +630,24 @@ class TestnetPortfolioStop(unittest.TestCase):
         self.assertEqual(result['status'],'running')
 
 
+    def test_portfolio_diagnostic_preserves_actual_trigger_math_and_basis(self):
+        self.cfg=TestnetSettings(dedicated_account=True,portfolio_loss_enabled=True,portfolio_loss_pct=25,portfolio_loss_basis='losing_margin',daily_loss_pct=90)
+        self.service.configure(self.cfg);self.enter()
+        self.exchange.prices['BTCUSDT']=98.6
+        self.service.monitor()
+        state=self.service.snapshot();detail=state['last_portfolio_stop']
+        self.assertEqual(state['status'],'portfolio_stop')
+        self.assertAlmostEqual(detail['losses'],.7);self.assertAlmostEqual(detail['margin'],2.5)
+        self.assertAlmostEqual(detail['threshold_dollars'],.625);self.assertAlmostEqual(detail['loss_pct'],28)
+        self.assertEqual(detail['limit_pct'],25);self.assertEqual(detail['basis'],'losing_margin')
+        self.assertIn('$0.7000 losses / $2.5000 margin of losing positions',state['reason'])
+        self.assertIn('limit 25.00%',state['reason'])
+        self.fill_closes();self.service.monitor()
+        self.assertEqual(self.service.snapshot()['last_portfolio_stop'],detail)
+        self.assertFalse(self.service.snapshot()['entries'])
+
+
+
 class TestnetFillRaces(unittest.TestCase):
     setUp=TestnetIntegration.setUp
     tearDown=TestnetIntegration.tearDown

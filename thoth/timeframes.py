@@ -8,4 +8,4 @@ def interval_seconds(interval):
 
 HOURLY_MINUTE_STRATEGIES=('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar')
 
-INTRABAR_STRATEGIES=HOURLY_MINUTE_STRATEGIES+('order_block_intrabar','sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','sr_rsi_volume_gate','sr_order_block_gate')
+INTRABAR_STRATEGIES=HOURLY_MINUTE_STRATEGIES+('order_block_intrabar','order_block_sr_intrabar','sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','sr_rsi_volume_gate','sr_order_block_gate')
