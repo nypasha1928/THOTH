@@ -97,6 +97,12 @@ def health():
     return {'status':'ok','version':'0.4.0'}
 
 
+@app.get('/api/live/fast-movers')
+def fast_movers(limit: int=Query(50,ge=1,le=300)):
+    from .entry_diagnostics import fast_movers as read_fast_movers
+    return read_fast_movers(live.path,live.clock(),limit)
+
+
 @app.get('/api/live/entry-diagnostics')
 def entry_diagnostics(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0),symbol: str | None=Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$')):
     from .entry_diagnostics import read

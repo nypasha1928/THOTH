@@ -93,3 +93,28 @@ class EntryDiagnosticTests(unittest.TestCase):
         result=sample(102,40,NOW+20)
         self.assertEqual(result['signal'],'Long')
         self.assertEqual(result['entry_diagnostics']['sources']['sr:long_resistance_major']['first_seen_at'],NOW+15)
+
+    def test_fast_movers_use_percentage_speed_exclude_stale_and_restart_baselines(self):
+        from thoth.entry_diagnostics import record_speed,fast_movers
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'live.sqlite';TestnetSupervisor(path)
+            with sqlite3.connect(path) as db:
+                state=json.loads(db.execute('SELECT payload FROM supervisor').fetchone()[0]);state['config'].update(strategy='order_block_intrabar',symbols=['BTCUSDT','ETHUSDT','SOLUSDT'])
+                db.execute('UPDATE supervisor SET payload=?',(json.dumps(state),))
+            history=path.with_suffix('.candles.sqlite')
+            with sqlite3.connect(history) as db:
+                db.execute('CREATE TABLE price_observations(symbol TEXT,strategy TEXT,payload TEXT,PRIMARY KEY(symbol,strategy))')
+                for symbol,price in [('BTCUSDT',10000),('ETHUSDT',1),('SOLUSDT',100)]:record_speed(db,symbol,'order_block_intrabar',1000,price,'session')
+                record_speed(db,'BTCUSDT','order_block_intrabar',1060,10100,'session') # +1%/min
+                record_speed(db,'ETHUSDT','order_block_intrabar',1060,.98,'session') # -2%/min; smaller dollar move but faster.
+            result=fast_movers(path,1070)
+            self.assertEqual([item['symbol'] for item in result['items']],['ETHUSDT','BTCUSDT'])
+            self.assertAlmostEqual(result['items'][0]['speed_pct_per_minute'],2)
+            self.assertEqual(result['items'][0]['gap_seconds'],60);self.assertEqual(result['items'][0]['age_seconds'],10)
+            self.assertEqual(fast_movers(path,1070,limit=1)['total_ranked'],2)
+            self.assertEqual(fast_movers(path,1400)['items'],[])
+            with sqlite3.connect(history) as db:record_speed(db,'ETHUSDT','order_block_intrabar',1080,1,'restart')
+            self.assertEqual([item['symbol'] for item in fast_movers(path,1081)['items']],['BTCUSDT'])
+            with sqlite3.connect(path) as db:
+                state['config']['symbols']=['SOLUSDT'];db.execute('UPDATE supervisor SET payload=?',(json.dumps(state),))
+            self.assertEqual(fast_movers(path,1081)['items'],[])

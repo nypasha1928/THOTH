@@ -56,6 +56,7 @@ class Runner:
         self.source_fingerprint=source_fingerprint()
         self.history_path = str(Path(engine.path).with_suffix('.candles.sqlite'))
         with sqlite3.connect(self.history_path) as db:
+            db.execute('CREATE TABLE IF NOT EXISTS price_observations(symbol TEXT,strategy TEXT,payload TEXT,PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS intrabar_observations(symbol TEXT, strategy TEXT, payload TEXT, PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS order_block_checkpoints(symbol TEXT,strategy TEXT,source TEXT,stamp INTEGER,payload TEXT,PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS candles(symbol TEXT, interval TEXT, time INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,time))')
@@ -256,6 +257,10 @@ class Runner:
             cycle=self.confirmation_symbol_cycles.get(symbol,0) if self.confirmation_only else self.scan_cycle
             budget=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
             fresh=(not unfiltered or checkpoint is not None) and preview['ready'] and tracker.get('ready') and tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (cycle-1,cycle) and 0<now-tracker.get('observed_at',0)<=budget
+            if unfiltered:
+                from .entry_diagnostics import record_speed
+                try:record_speed(db,symbol,cfg.strategy,now,history[-1]['close'],self.observation_session,budget)
+                except Exception:pass
             previous_observed=tracker.get('observed_at')
             from .entry_diagnostics import observe_sources,qualification
             seen=observe_sources(tracker,['ob:'+event['kind'] for event in preview['events']],now,history[-1]['close'],start)

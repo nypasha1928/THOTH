@@ -92,3 +92,39 @@ def read(path,limit=50,offset=0,symbol=None):
             sources=instrument.get('thoth_entry_sources',[]),source_label=source_label(instrument.get('thoth_entry_sources',[])),details=details,timing=timing,
             measurements=measure(details,timing,payload['side'],stop),close_reason=trades.get(link,{}).get('reason'),realized_pnl=trades.get(link,{}).get('pnl')))
     return dict(items=items,total=total,limit=limit,offset=offset)
+
+
+def record_speed(db,symbol,strategy,now,price,session,max_gap=300):
+    """Use the existing observation transaction; never download more market data."""
+    price=number(price)
+    if price is None or price<=0:return
+    row=db.execute('SELECT payload FROM price_observations WHERE symbol=? AND strategy=?',(symbol,strategy)).fetchone()
+    old=json.loads(row[0]) if row else {}
+    gap=now-old.get('observed_at',now)
+    item=dict(symbol=symbol,strategy=strategy,observed_at=now,price=price,session=session,
+        change_pct=None,speed_pct_per_minute=None,gap_seconds=None)
+    if old.get('session')==session and 0<gap<=max_gap and number(old.get('price')) and old['price']>0:
+        change=(price-old['price'])/old['price']*100
+        item.update(change_pct=number(change),speed_pct_per_minute=number(abs(change)*60/gap),gap_seconds=gap)
+    db.execute('INSERT OR REPLACE INTO price_observations VALUES(?,?,?)',(symbol,strategy,json.dumps(item,allow_nan=False)))
+
+
+def fast_movers(path,now,limit=50):
+    path=Path(path);history=path.with_suffix('.candles.sqlite')
+    with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True) as db:
+        state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
+    cfg=state['config'];items=[];tracked=0;stale=0
+    if history.exists():
+        with sqlite3.connect('file:'+str(history)+'?mode=ro',uri=True) as db:
+            exists=db.execute("SELECT 1 FROM sqlite_master WHERE name='price_observations'").fetchone()
+            rows=db.execute('SELECT payload FROM price_observations WHERE strategy=?',(cfg['strategy'],)).fetchall() if exists else []
+        selected=set(cfg['symbols'])
+        for row, in rows:
+            item=json.loads(row)
+            if item['symbol'] not in selected:continue
+            tracked+=1;age=now-item['observed_at']
+            if not 0<=age<=300:stale+=1;continue
+            if number(item.get('speed_pct_per_minute')) is None:continue
+            item.pop('session',None);item['age_seconds']=age;items.append(item)
+    items.sort(key=lambda item:item['speed_pct_per_minute'],reverse=True)
+    return dict(items=items[:limit],total_ranked=len(items),tracked=tracked,stale_excluded=stale,strategy=cfg['strategy'],server_time=now)

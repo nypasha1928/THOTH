@@ -28,6 +28,7 @@ class ApiTests(unittest.TestCase):
         from thoth.execution import ExecutionJournal
         from thoth.bybit_testnet import TestnetClient
         before=self.client.get('/api/live').json()
+        self.assertEqual(self.client.get('/api/live/fast-movers').json()['items'],[])
         client=Mock(BASE=TestnetClient.BASE,armed=True);client.submit.return_value={'state':'accepted_not_filled'}
         journal=ExecutionJournal(Path(self.tmp.name)/'live.execution.sqlite',client,clock=lambda:100)
         payload=dict(symbol='BTCUSDT',side='Buy',orderLinkId='old',reduceOnly=False)

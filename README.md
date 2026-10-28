@@ -34,6 +34,12 @@ For new Order Block-only and combined Order Block + S/R entries it records the f
 
 No extra exchange lookups are added. Existing responses supply fill observations, the journal retains the timing after closure, and small bounded source trackers retain first observations during each candle. This update investigates latency; it does not itself optimize the scan or alter volume gates, expiry, position sizing, entry/exit rules or account risk controls.
 
+### Fast movers from existing price samples
+
+The same Analysis section includes **Fast movers · sampled price speed** for Order Block-only and combined OB+S/R profiles. It ranks saved trading symbols by absolute net percentage change per minute between their two latest successful observations. Price direction, sampling interval and sample age are shown; the copied timing report also includes the latest loaded ranking.
+
+This reuses existing 4h candle close-price observations and their existing SQLite transaction, with no new exchange calls. It needs two continuous observations after restart, excludes samples older than five minutes and ignores intervals longer than the entry observation budget. It measures current sampled net speed, not complete volatility: a spike and pullback between checks can cancel out. It is not a liquidity/safety rating or an automatic coin filter. Rank availability is not evidence that a trade signal or volume gate passed.
+
 ## Development
 
 Python 3.12+, one application process per data directory:
