@@ -458,8 +458,8 @@ class ApiTests(unittest.TestCase):
 
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
-        self.assertEqual(len(entries), 260)
-        self.assertEqual(sum(item['selectable'] for item in entries), 250)
+        self.assertEqual(len(entries), 275)
+        self.assertEqual(sum(item['selectable'] for item in entries), 265)
 
 
 class LiveApiTests(unittest.TestCase):

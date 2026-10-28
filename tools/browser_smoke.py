@@ -633,11 +633,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Separate TradFi list is draft-only; original Main selection survives saving/reload.
    main_symbols=page.evaluate('formDraft.symbols.slice()')
    page.select_option('#activeSymbolList','tradfi')
-   expect(page.locator('#selectedSymbols button')).to_have_count(27)
+   expect(page.locator('#selectedSymbols button')).to_have_count(46)
    assert page.evaluate('lv.config.active_symbol_list')=='main'
    page.fill('#search','UMC');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','');page.click('#selectAllCoins')
-   expect(page.locator('#selectedSymbols button')).to_have_count(27)
+   expect(page.locator('#selectedSymbols button')).to_have_count(46)
    page.select_option('#strategyLogic','order_block_sr_1h')
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#strategyDescription')).to_contain_text('BOTH branches require forming 1h Volume > MA 20')
@@ -646,7 +646,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['active_symbol_list']=='tradfi' and writes[-1][1]['timeframe']=='60'
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#activeSymbolList')).to_have_value('tradfi')
-   expect(page.locator('#selectedSymbols button')).to_have_count(27)
+   expect(page.locator('#selectedSymbols button')).to_have_count(46)
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h');page.keyboard.press('Escape')
    page.select_option('#activeSymbolList','main')
    assert page.evaluate('formDraft.symbols')==main_symbols

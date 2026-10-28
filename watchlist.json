@@ -778,7 +778,8 @@
     "original": "BYBIT:QQQUSDT.P",
     "symbol": "QQQUSDT",
     "selectable": true,
-    "status": "Instrument validation pending"
+    "status": "Instrument validation pending",
+    "asset_group": "tradfi"
   },
   {
     "original": "BYBIT:WLDUSDT.P",
@@ -934,7 +935,8 @@
     "original": "BYBIT:TSLAUSDT.P",
     "symbol": "TSLAUSDT",
     "selectable": true,
-    "status": "Instrument validation pending"
+    "status": "Instrument validation pending",
+    "asset_group": "tradfi"
   },
   {
     "original": "BYBIT:AVAXUSDT.P",
@@ -946,7 +948,8 @@
     "original": "BYBIT:MUUSDT.P",
     "symbol": "MUUSDT",
     "selectable": true,
-    "status": "Instrument validation pending"
+    "status": "Instrument validation pending",
+    "asset_group": "tradfi"
   },
   {
     "original": "BYBIT:ANKRUSDT.P",
@@ -1144,7 +1147,8 @@
     "original": "BYBIT:SNDKUSDT.P",
     "symbol": "SNDKUSDT",
     "selectable": true,
-    "status": "Instrument validation pending"
+    "status": "Instrument validation pending",
+    "asset_group": "tradfi"
   },
   {
     "original": "BYBIT:USUSDT.P",
@@ -1582,6 +1586,111 @@
   {
     "original": "BYBIT:STMUSDT.P",
     "symbol": "STMUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:XAUUSDT.P",
+    "symbol": "XAUUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:CLUSDT.P",
+    "symbol": "CLUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:KORUUSDT.P",
+    "symbol": "KORUUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:SKHYNIXUSDT.P",
+    "symbol": "SKHYNIXUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:SKHYUSDT.P",
+    "symbol": "SKHYUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:SOXSUSDT.P",
+    "symbol": "SOXSUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:SNXXUSDT.P",
+    "symbol": "SNXXUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:OKTAUSDT.P",
+    "symbol": "OKTAUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:XAGUSDT.P",
+    "symbol": "XAGUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:SPCXUSDT.P",
+    "symbol": "SPCXUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:MSTRUSDT.P",
+    "symbol": "MSTRUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:DRAMUSDT.P",
+    "symbol": "DRAMUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:UNITREEUSDT.P",
+    "symbol": "UNITREEUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:SAMSUNGUSDT.P",
+    "symbol": "SAMSUNGUSDT",
+    "selectable": true,
+    "status": "TradFi instrument validation pending",
+    "asset_group": "tradfi"
+  },
+  {
+    "original": "BYBIT:BZUSDT.P",
+    "symbol": "BZUSDT",
     "selectable": true,
     "status": "TradFi instrument validation pending",
     "asset_group": "tradfi"
