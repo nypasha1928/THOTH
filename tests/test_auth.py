@@ -14,6 +14,7 @@ class AuthTests(unittest.TestCase):
             self.assertEqual(client.get('/api/live/entry-diagnostics').status_code,401)
             self.assertEqual(client.get('/api/live/fast-movers').status_code,401)
             self.assertEqual(client.get('/api/live/watchlist-review').status_code,401)
+            self.assertEqual(client.get('/api/live/market-leaders').status_code,401)
             self.assertEqual(client.get('/').status_code,307)
             self.assertEqual(client.post('/api/login',json={'password':'wrong'}).status_code,401)
             response=client.post('/api/login',json={'password':'test-only-long-password'})

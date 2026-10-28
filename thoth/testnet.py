@@ -128,6 +128,8 @@ class TestnetSupervisor:
             state['config']['active_symbol_list']='main'
         state['config']={**TestnetSettings().model_dump(),**state['config']}
         from .tradfi import clean_selections,EXCLUDED_SYMBOLS
+        from .tradfi import default_symbol_lists
+        state['config']['saved_symbol_lists']={**default_symbol_lists(),**state['config']['saved_symbol_lists']}
         clean_selections(state['config'])
         for name in ('pending_signals','reversals','entry_gates'):
             for symbol in EXCLUDED_SYMBOLS:state.get(name,{}).pop(symbol,None)

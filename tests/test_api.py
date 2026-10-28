@@ -23,6 +23,20 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_market_leaders_are_readonly_and_independently_persisted(self):
+        before=self.client.get('/api/live').json()
+        response=self.client.get('/api/live/market-leaders');self.assertEqual(response.status_code,200)
+        data=response.json();self.assertEqual(len(data['main_leaders']),50);self.assertEqual(len(data['tradfi_leaders']),50)
+        self.assertIn('not a verified',data['basis'])
+        self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
+        cfg={**before['config'],'active_symbol_list':'tradfi_leaders','symbols':data['tradfi_leaders']}
+        response=self.client.put('/api/live/settings',json=cfg);self.assertEqual(response.status_code,200,response.text)
+        saved=response.json()['config'];self.assertEqual(saved['saved_symbol_lists']['main'],before['config']['saved_symbol_lists']['main'])
+        self.assertEqual(saved['saved_symbol_lists']['tradfi'],before['config']['saved_symbol_lists']['tradfi'])
+        self.assertEqual(saved['saved_symbol_lists']['tradfi_leaders'],data['tradfi_leaders'])
+        self.assertEqual(saved['leverage'],before['config']['leverage'])
+        self.assertEqual(response.json()['entries'],before['entries'])
+
     def test_watchlist_review_is_readonly_and_validates_scope(self):
         before=self.client.get('/api/live').json()
         for scope in ('current','all'):

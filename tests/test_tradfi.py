@@ -56,6 +56,20 @@ class TradFiTests(unittest.TestCase):
         cfg=TestnetSettings(strategy='order_block_sr_1h',active_symbol_list='tradfi',symbols=list(TRADFI_SYMBOLS))
         self.assertEqual(len(cfg.symbols),294);self.assertEqual(cfg.timeframe,'60')
 
+    def test_curated_leader_lists_are_distinct_and_cover_tradfi_categories(self):
+        import json
+        from thoth.market_leaders import report
+        data=report();catalogue=json.loads((Path(__file__).resolve().parents[1]/'watchlist.json').read_text())
+        known={r['symbol'] for r in catalogue if r['selectable']}
+        for group in ('main_leaders','tradfi_leaders'):
+            self.assertEqual(len(data[group]),50);self.assertEqual(len(set(data[group])),50)
+            self.assertTrue(set(data[group])<=known)
+            self.assertFalse({'EIDOUSDT','EQTUSDT','STMUSDT'}&set(data[group]))
+        self.assertEqual({key:len(value) for key,value in data['tradfi_groups'].items()},{'stocks':35,'etfs':8,'commodities':4,'forex':3})
+        cfg=Settings(active_symbol_list='tradfi_leaders',symbols=data['tradfi_leaders'])
+        self.assertEqual(cfg.saved_symbol_lists['tradfi_leaders'],data['tradfi_leaders'])
+        self.assertEqual(len(cfg.saved_symbol_lists['tradfi']),294)
+
     def test_old_installation_migrates_custom_main_symbols_without_replacement(self):
         import json
         with tempfile.TemporaryDirectory() as tmp:

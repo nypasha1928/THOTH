@@ -34,7 +34,8 @@ VRTXSTOCKUSDT KUAISHOUUSDT CVNAUSDT MAGSUSDT
 
 
 def default_symbol_lists():
-    return {'main':[], 'tradfi':list(TRADFI_SYMBOLS)}
+    from .market_leaders import MAIN_LEADERS,TRADFI_LEADERS
+    return {'main':[], 'tradfi':list(TRADFI_SYMBOLS),'main_leaders':list(MAIN_LEADERS),'tradfi_leaders':list(TRADFI_LEADERS)}
 
 EXCLUDED_SYMBOLS=frozenset({'EIDOUSDT','EQTUSDT','STMUSDT'})
 

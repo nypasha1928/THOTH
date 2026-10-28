@@ -114,15 +114,16 @@ class Settings(BaseModel):
     inverse_entry_delay_seconds: int = Field(default=60,ge=0,le=3600)
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
 
-    active_symbol_list: str = Field(default='main',pattern=r'^(main|tradfi)$')
+    active_symbol_list: str = Field(default='main',pattern=r'^(main|tradfi|main_leaders|tradfi_leaders)$')
     saved_symbol_lists: dict[str,list[str]] = Field(default_factory=default_symbol_lists)
 
     @model_validator(mode='after')
     def valid_symbols(self):
         import re
+        self.saved_symbol_lists={**default_symbol_lists(),**self.saved_symbol_lists}
         self.symbols=[s for s in self.symbols if s not in EXCLUDED_SYMBOLS]
         self.saved_symbol_lists={name:[s for s in values if s not in EXCLUDED_SYMBOLS] for name,values in self.saved_symbol_lists.items()}
-        if set(self.saved_symbol_lists)-{'main','tradfi'}:
+        if set(self.saved_symbol_lists)-{'main','tradfi','main_leaders','tradfi_leaders'}:
             raise ValueError('Unknown saved symbol list')
         for name,values in self.saved_symbol_lists.items():
             if len(values)>300 or len(set(values))!=len(values) or any(not re.fullmatch(r'[A-Z0-9]{1,30}USDT',s) for s in values):
