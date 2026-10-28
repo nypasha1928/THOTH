@@ -84,6 +84,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
    elif path=='live/trailing-comparison/settings' and method=='PUT':
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
+   elif path=='live/watchlist-review':result=dict(items=[dict(symbol='WLDUSDT',trades=5,wins=3,losses=2,realized_pnl=.5,signal_events=8,skipped_events=2,rejected_orders=1,rejection_events=1,entry_check_failures=1,median_check_gap_seconds=192.6,median_qualified_to_submit_seconds=4,latest_speed=None,review_note='Review recorded rejection/check failure',rejection_codes={'110126':1})],selected=1,traded=1,closed_trades=5,realized_pnl=.5,scope=parse_qs(url.split('?',1)[1] if '?' in url else '').get('scope',['current'])[0],strategy='order_block_sr_intrabar',limitations='Retained records only; no automatic changes.')
    elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
    elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
    elif path=='live/history':
@@ -929,6 +930,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    entry_delay_items.append(dict(symbol='WLDUSDT',side='Buy',phase='closed',sources=['ob:bullish_formed'],details={'qualified_at':1793143000},timing={},measurements={'observation_gap_seconds':192.6,'volume_wait_seconds':120,'qualified_to_submit_seconds':5,'submit_to_fill_observed_seconds':7,'entry_move_pct':.2},realized_pnl=-.4))
+   expect(page.locator('#watchlistRows')).to_contain_text('WLDUSDT');expect(page.locator('#watchlistRows')).to_contain_text('192.6s')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.watchlistCopied=text}})")
+   page.click('#watchlistCopy');expect(page.locator('#watchlistStatus')).to_contain_text('copied')
+   assert '110126' in page.evaluate('window.watchlistCopied')
+   page.select_option('#watchlistScope','all');expect(page.locator('#watchlistStatus')).to_contain_text('All retained strategies')
    page.click('#refreshEntryDelay');expect(page.locator('#entryDelayRows')).to_contain_text('WLDUSDT / Long')
    expect(page.locator('#entryDelayRows')).to_contain_text('192.60s');expect(page.locator('#entryDelayRows')).to_contain_text('120.00s')
    page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.entryDelayCopied=text}})")
