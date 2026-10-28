@@ -570,3 +570,5 @@ Finalvalidation supersedes451countabove:452unit/API tests /tmp/entry-delay-relea
 ## Copy all closed trades (2026-10-27)
 
 History now has **Copy all trades**, independent of the visible page and symbol filter. Authenticated read-only `/api/live/history/export` returns all retained closed trades in one SQL query, including older pages. The tab-separated report includes full New York opening/closing timestamps, symbol, side, entry/quantity, realized P&L, reason, strategy and source, plus trade/unique-coin counts. Clipboard failure offers a selected readonly textarea. Errors never copy partial results. Rejected orders and previously pruned records are explicitly excluded; no trading/risk changes.
+
+History copy timestamp fix: serialize DOM timestamp nodes through textContent; earlier exports printed [object HTMLTimeElement]. Counts and P&L were unaffected.

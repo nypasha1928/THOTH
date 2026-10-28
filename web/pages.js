@@ -57,7 +57,7 @@ async function copyAllHistory(){
  try{
   const data=await api('live/history/export');
   if(!data.items.length){status.textContent='No saved closed trades to copy.';return}
-  const clean=value=>String(value??'—').replace(/[\t\r\n]+/g,' ');
+  const clean=value=>String(value instanceof Node?value.textContent:value??'—').replace(/[\t\r\n]+/g,' ');
   const lines=['THOTH · All retained closed trades · All coins and strategies',
    'Exported: '+new Date().toISOString(),
    'Trades: '+data.items.length+' · Unique traded coins: '+new Set(data.items.map(t=>t.symbol)).size,
