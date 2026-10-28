@@ -324,7 +324,7 @@ class TestnetSupervisor:
         if account.get('marginMode')!=expected:raise ValueError('Bybit margin mode differs from the selected setting; change it in Bybit first')
         if account.get('unifiedMarginStatus') not in (5,6):raise ValueError('Unified Trading Account 2.0 is required')
         self.client=client
-        self.journal=ExecutionJournal(Path(self.path).with_suffix('.execution.sqlite'),client,environment=self.environment)
+        self.journal=ExecutionJournal(Path(self.path).with_suffix('.execution.sqlite'),client,environment=self.environment,clock=self.clock)
         active=self.positions()
         known={r['payload']['symbol']:r for r in self.journal.records() if not r['payload'].get('reduceOnly') and r['phase'] not in ('closed','rejected','cancelled')}
         if any(p.get('positionIdx')!=0 for p in active.values()):raise ValueError('Only one-way positions are supported')
@@ -426,6 +426,7 @@ class TestnetSupervisor:
         entry=dec(p['avgPrice'] if p else order.get('avgPrice','0'))
         if not entry.is_finite() or entry<=0:return
         leverage=dec((p or {}).get('leverage') or self.state['config']['leverage'])
+        self.journal.record_timing(record['link'],fill_price=entry,filled_qty=filled,fill_confirmed_at=self.clock(),exchange_created_at=int(order['createdTime'])/1000)
         self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
             stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
             close_link=None,close_attempt=0,reason=None,
@@ -915,6 +916,7 @@ class TestnetSupervisor:
         alert_key='thoth-'+hashlib.sha256((identity+':'+symbol+':'+str(stamp)).encode()).hexdigest()[:28]
         details=dict(alert_key=alert_key,time=self.clock(),symbol=symbol,reason=reason,
             strategy=self.state['config']['strategy'],signal=observation.get('signal'),
+            entry_diagnostics=(observation.get('entry_context') or {}).get('entry_diagnostics'),
             observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'),source_signal=observation.get('source_signal'),entry_sources=observation.get('entry_sources',[]))
         with self.db() as db:
             db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',
@@ -975,6 +977,9 @@ class TestnetSupervisor:
                     self._signal_decision(symbol,'skipped: initial execution baseline; old signal not replayed',observation);continue
                 if not 0<=self.clock()-stamp<=(30 if current.strategy in INTRABAR_STRATEGIES else 2*interval_seconds(current.timeframe)):
                     self._signal_decision(symbol,'skipped: signal expired',observation);continue
+                entry_context=observation.get('entry_context')
+                if entry_context and entry_context.get('entry_diagnostics'):
+                    entry_context={**entry_context,'entry_diagnostics':{**entry_context['entry_diagnostics'],'queued_at':self.clock()}}
                 side='Buy' if observation['signal']=='Long' else 'Sell'
                 owner=self.state['owned'].get(symbol)
                 if owner:
@@ -983,7 +988,7 @@ class TestnetSupervisor:
                     reason='Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy=='order_block_sr_intrabar' else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
-                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=observation.get('entry_context'))
+                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
                         self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
@@ -997,7 +1002,7 @@ class TestnetSupervisor:
                 if self._sr_volume_window_used(symbol,current):
                     self._signal_decision(symbol,'skipped: one entry per coin per 4-hour candle already used',observation);continue
                 if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
-                    self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=observation.get('entry_context'))
+                    self.state['pending_signals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
                     self._signal_decision(symbol,'queued: '+observation['signal']+'; awaiting entry checks',observation)
                 else:self._signal_decision(symbol,'skipped: '+self._reversal_block_reason(symbol),observation)
             self._reversals(current)
@@ -1038,6 +1043,7 @@ class TestnetSupervisor:
         return False
 
     def _entry(self,symbol,side,stamp,identity,cfg,context=None):
+        checks_started_at=self.clock();check_timing={}
         if equity_locks(self.state['equity_trailing'],self.clock()):
             self._signal_decision(symbol,'skipped: equity trailing period pause active',{'time':stamp,'signal':side});return
         if self._sr_volume_window_used(symbol,cfg):
@@ -1064,15 +1070,22 @@ class TestnetSupervisor:
                 start=int(self.clock())//14400*14400
                 if not context or context.get('order_block_bar')!=start:
                     raise ValueError('Entry signal is not from the current 4h candle')
+                check_timing['volume_recheck_started_at']=self.clock()
                 volume_rows=self.client.candles(symbol,'240',limit=20)
+                check_timing['volume_recheck_completed_at']=self.clock()
                 if int(self.clock())//14400*14400!=start or not volume_rows or volume_rows[-1]['time']!=start or not entry_volume(volume_rows)['passed']:
                     raise ValueError('4h Volume must exceed MA 20 before entry')
+            check_timing['instrument_lookup_started_at']=self.clock()
             instrument=self.instrument_cache.get(symbol)
+            check_timing['instrument_rules_cached']=bool(instrument)
             if not instrument:instrument=self.client.instrument(symbol);self.instrument_cache[symbol]=instrument
+            check_timing['instrument_lookup_completed_at']=self.clock()
             leverage=instrument['leverageFilter']
             if not (dec(leverage['minLeverage'])<=cfg.leverage<=dec(leverage['maxLeverage'])) or dec(cfg.leverage)%dec(leverage['leverageStep'])!=0:
                 raise ValueError('Requested leverage is unsupported')
+            check_timing['ticker_started_at']=self.clock()
             ticker=self.client.request('GET','/v5/market/tickers',dict(category='linear',symbol=symbol))['list'][0]
+            check_timing['ticker_completed_at']=self.clock()
             price=dec(ticker['lastPrice'])
             if cfg.stop_dollars>=cfg.position_value/cfg.leverage:
                 raise ValueError('Dollar stop must be below the initial margin; liquidation could precede it')
@@ -1086,14 +1099,18 @@ class TestnetSupervisor:
             initial_stop=stop_price(side,price,payload['qty'],cfg.stop_dollars,instrument['priceFilter']['tickSize'])
             payload.update(stopLoss=initial_stop,slTriggerBy='MarkPrice',tpslMode='Full')
             if cfg.take_profit_enabled:payload.update(takeProfit=take_profit_price(side,price,payload['qty'],cfg.take_profit_dollars,instrument['priceFilter']['tickSize']),tpTriggerBy='MarkPrice',tpOrderType='Market')
+            check_timing['leverage_started_at']=self.clock()
             try:self.client.request('POST','/v5/position/set-leverage',dict(category='linear',symbol=symbol,buyLeverage=str(cfg.leverage),sellLeverage=str(cfg.leverage)),private=True)
             except BybitError as exc:
                 if exc.code!=110043:raise
+            check_timing['leverage_completed_at']=self.clock()
             from .signal_sources import recorded_source_map
             with self.db() as db:entry_sources=recorded_source_map(db,payload['orderLinkId']).get(payload['orderLinkId'],[])
             if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
                 entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
             metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':(context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'none' if cfg.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            metadata['thoth_entry_diagnostics']={**((context or {}).get('entry_diagnostics') or {}),
+                'checks_started_at':checks_started_at,'checks_completed_at':self.clock(),**check_timing}
             if cfg.strategy=='sr_volume_intrabar':
                 window=int(self.clock())//14400*14400
                 metadata['thoth_sr_volume_window']=window

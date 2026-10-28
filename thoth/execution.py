@@ -8,6 +8,7 @@ before it can be connected to an actual testnet account.
 import json
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from .bybit_testnet import AmbiguousOrder, BybitError, dec, stop_price
@@ -15,11 +16,12 @@ from .diagnostics import protection_details
 
 
 class ExecutionJournal:
-    def __init__(self, path, client, environment='testnet'):
+    def __init__(self, path, client, environment='testnet',clock=time.time):
         expected={'testnet':'https://api-testnet.bybit.com','live':'https://api.bybit.com'}.get(environment)
         if expected is None or client.BASE != expected:
             raise ValueError('Exchange endpoint does not match the explicitly selected environment')
         self.client=client
+        self.clock=clock
         self.path=str(path)
         self.lock=threading.RLock()
         Path(path).parent.mkdir(parents=True,exist_ok=True)
@@ -49,10 +51,26 @@ class ExecutionJournal:
         with self.db() as db:
             previous=db.execute('SELECT result FROM execution WHERE link=?',(link,)).fetchone()
             result=dict(result or {})
-            if previous and 'protection_error' in json.loads(previous[0]):result.setdefault('protection_error',json.loads(previous[0])['protection_error'])
+            old=json.loads(previous[0]) if previous else {}
+            if 'protection_error' in old:result.setdefault('protection_error',old['protection_error'])
+            if 'entry_timing' in old:result.setdefault('entry_timing',old['entry_timing'])
             db.execute('UPDATE execution SET phase=?, result=? WHERE link=?',
                        (phase,json.dumps(result or {}),link))
         return self.get(link)
+
+    def record_timing(self,link,**values):
+        """Best effort numeric metadata; never alter phase or retry a network write."""
+        from .entry_diagnostics import number
+        try:
+            with self.db() as db:
+                row=db.execute('SELECT result FROM execution WHERE link=?',(link,)).fetchone()
+                if not row:return
+                result=json.loads(row[0]);timing=result.setdefault('entry_timing',{})
+                for key,value in values.items():
+                    value=number(value)
+                    if value is not None and value>0:timing.setdefault(key,value)
+                db.execute('UPDATE execution SET result=? WHERE link=?',(json.dumps(result),link))
+        except Exception:pass  # Diagnostics must not interrupt protection/settlement.
 
     def submit(self,payload,stop_dollars=None,instrument=None):
         with self.lock:
@@ -73,6 +91,7 @@ class ExecutionJournal:
                         str(stop_dollars) if stop_dollars is not None else None,json.dumps(instrument), '{}'))
             if existing:
                 return self.poll(link)  # Never submit an existing intent again.
+            if not payload.get('reduceOnly'):self.record_timing(link,submit_started_at=self.clock())
             try:
                 response=self.client.submit(payload)
             except AmbiguousOrder:
@@ -81,6 +100,7 @@ class ExecutionJournal:
                 return self.update(link,'rejected',{'reason':'Exchange rejected submission','exchange_code':exc.code})
             except Exception:
                 return self.update(link,'unknown',{'reason':'Submission interrupted; reconcile before continuing'})
+            if not payload.get('reduceOnly'):self.record_timing(link,acknowledged_at=self.clock())
             if response['state']=='reconciled':
                 return self.poll(link)
             return self.update(link,'submitted',{'reason':'Accepted is not filled'})
@@ -98,6 +118,11 @@ class ExecutionJournal:
             if not order:
                 # A missing response is not proof that no order was submitted.
                 return self.update(link,'unknown',{'reason':'Order not found; investigate history before any resubmission'})
+            if not payload.get('reduceOnly'):
+                from .entry_diagnostics import number
+                created=number(order.get('createdTime'));updated=number(order.get('updatedTime'))
+                self.record_timing(link,exchange_created_at=created/1000 if created else None,
+                    first_exchange_update_at=updated/1000 if updated else None)
             status=order.get('orderStatus')
             try:
                 qty=dec(order.get('cumExecQty','0'))
@@ -105,6 +130,8 @@ class ExecutionJournal:
             except Exception:
                 return self.update(link,'unknown',{'reason':'Invalid exchange fill metadata'})
             terminal=status in ('Filled','Cancelled','PartiallyFilledCanceled','Rejected','Deactivated')
+            if qty>0 and not payload.get('reduceOnly'):
+                self.record_timing(link,fill_observed_at=self.clock())
             if qty==0:
                 return self.update(link,'cancelled' if terminal else 'submitted',{'exchange_status':status})
             if not terminal:

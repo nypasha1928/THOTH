@@ -19,6 +19,7 @@ def observe(tracker,rows,levels,cfg,now,max_gap):
     from .timeframes import interval_seconds
     start=int(now)//interval_seconds(cfg.timeframe)*interval_seconds(cfg.timeframe)
     report=volume_pass(rows,cfg.sr_volume_period)
+    previous_observed=tracker.get('observed_at')
     same_bar=tracker.get('bar')==start
     fresh=0<now-tracker.get('observed_at',0)<=max_gap
     pending=dict(tracker.get('volume_setups',{})) if same_bar and fresh else {}
@@ -40,7 +41,10 @@ def observe(tracker,rows,levels,cfg,now,max_gap):
     # Consume qualified decisions before dispatch, including conflicting sources.
     emitted.update(eligible)
     for key in eligible:pending.pop(key,None)
+    from .entry_diagnostics import observe_sources,qualification
+    seen=observe_sources(tracker,['sr:'+key for key in set(pending)|set(eligible)],now,price,start)
     tracker.update(volume_setups=pending,volume_emitted=sorted(emitted))
     observation.update(signal=signal,entry_sources=['sr:'+key for key in eligible] if signal else [],
-        volume_check=report,volume_conflict=len(sides)>1)
+        volume_check=report,volume_conflict=len(sides)>1,
+        entry_diagnostics=qualification(['sr:'+key for key in eligible],seen,now,price,previous_observed) if signal else None)
     return observation
