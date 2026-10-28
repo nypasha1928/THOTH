@@ -172,6 +172,12 @@ def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$
     return read_alerts(live.path,symbol,limit,offset,{int(value) for value in watch_ids.split(',')} if watch_ids else set())
 
 
+@app.get('/api/live/watchlist-review')
+def watchlist_review(scope: str = Query('current',pattern=r'^(current|all)$')):
+    from .watchlist_review import read
+    return read(live.path,scope)
+
+
 @app.get('/api/live/history/export')
 def export_trade_history():
     # One query returns all retained trades, independent of UI filters/pagination.

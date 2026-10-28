@@ -23,6 +23,16 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_watchlist_review_is_readonly_and_validates_scope(self):
+        before=self.client.get('/api/live').json()
+        for scope in ('current','all'):
+            response=self.client.get('/api/live/watchlist-review',params={'scope':scope})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json()['selected'],len(set(before['config']['symbols'])))
+        self.assertEqual(self.client.get('/api/live/watchlist-review?scope=bad').status_code,422)
+        after=self.client.get('/api/live').json()
+        self.assertEqual(after['config'],before['config']);self.assertEqual(after['entries'],before['entries'])
+
     def test_history_export_includes_all_pages_without_changing_trading(self):
         import json
         from thoth.app import live
