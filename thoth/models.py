@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from .tradfi import default_symbol_lists
+from .tradfi import default_symbol_lists,EXCLUDED_SYMBOLS
 
 
 class RSISettings(BaseModel):
@@ -120,6 +120,8 @@ class Settings(BaseModel):
     @model_validator(mode='after')
     def valid_symbols(self):
         import re
+        self.symbols=[s for s in self.symbols if s not in EXCLUDED_SYMBOLS]
+        self.saved_symbol_lists={name:[s for s in values if s not in EXCLUDED_SYMBOLS] for name,values in self.saved_symbol_lists.items()}
         if set(self.saved_symbol_lists)-{'main','tradfi'}:
             raise ValueError('Unknown saved symbol list')
         for name,values in self.saved_symbol_lists.items():

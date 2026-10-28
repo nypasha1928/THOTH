@@ -93,3 +93,26 @@ class TradFiTests(unittest.TestCase):
                         order=next(iter(exchange.orders.values()));exchange.fill(order['orderLinkId']);service.monitor()
                         owner=service.state['owned']['SOXLUSDT'];self.assertEqual(owner['strategy'],'order_block_sr_1h')
                         self.assertEqual(owner['entry_timeframe'],'60');self.assertEqual(owner['exit_timeframe'],'none')
+
+    def test_permanent_exclusions_clean_saved_state_and_do_not_delete_ownership(self):
+        import json
+        from thoth.tradfi import EXCLUDED_SYMBOLS
+        with tempfile.TemporaryDirectory() as tmp:
+            service=TestnetSupervisor(Path(tmp)/'live.sqlite')
+            state=service.load();state['config']['symbols']=['SOXLUSDT',*sorted(EXCLUDED_SYMBOLS)]
+            state['config']['saved_symbol_lists']={'main':['BTCUSDT','EIDOUSDT'],'tradfi':list(state['config']['symbols'])}
+            for name in ('pending_signals','reversals','entry_gates'):state[name]={'EIDOUSDT':{'fixture':True}}
+            state['owned']={'EIDOUSDT':{'fixture':'preserve managed position'}}
+            with service.db() as db:db.execute('UPDATE supervisor SET payload=? WHERE id=1',(json.dumps(state),))
+            cleaned=service.load();self.assertEqual(cleaned['config']['symbols'],['SOXLUSDT'])
+            self.assertEqual(cleaned['config']['saved_symbol_lists']['main'],['BTCUSDT'])
+            self.assertEqual(cleaned['config']['saved_symbol_lists']['tradfi'],['SOXLUSDT'])
+            self.assertIn('EIDOUSDT',cleaned['owned'])
+            for name in ('pending_signals','reversals','entry_gates'):self.assertEqual(cleaned[name],{})
+            cfg=TestnetSettings(**state['config']);self.assertEqual(cfg.symbols,['SOXLUSDT'])
+            service.state=cleaned;service.save()
+            with service.db() as db:persisted=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
+            self.assertEqual(persisted['config']['symbols'],['SOXLUSDT'])
+            # Even a stale caller cannot place an entry for a removed symbol.
+            service._entry('EIDOUSDT','Long',NOW,'fixture',cfg)
+            self.assertIsNone(service.client)

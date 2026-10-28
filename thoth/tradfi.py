@@ -10,3 +10,12 @@ TRADFI_SYMBOLS=list(dict.fromkeys(TRADFI_SYMBOLS+['SOXLUSDT', 'XAUUSDT', 'CLUSDT
 
 # Operator excluded these three after incomplete hourly S/R history reports.
 TRADFI_SYMBOLS=[s for s in TRADFI_SYMBOLS if s not in {'EIDOUSDT','EQTUSDT','STMUSDT'}]
+
+EXCLUDED_SYMBOLS=frozenset({'EIDOUSDT','EQTUSDT','STMUSDT'})
+
+def clean_selections(config):
+    """Apply the operator's permanent exclusions, including stale saved forms."""
+    config['symbols']=[s for s in config.get('symbols',[]) if s not in EXCLUDED_SYMBOLS]
+    config['saved_symbol_lists']={name:[s for s in values if s not in EXCLUDED_SYMBOLS]
+        for name,values in config.get('saved_symbol_lists',{}).items()}
+    return config
