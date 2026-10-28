@@ -28,7 +28,7 @@ class TradFiTests(unittest.TestCase):
     def test_profile_and_independent_lists_preserve_existing_selection(self):
         old=Settings(symbols=['ETHUSDT','SOXLUSDT'])
         self.assertEqual(old.saved_symbol_lists['main'],['ETHUSDT','SOXLUSDT'])
-        self.assertEqual(len(old.saved_symbol_lists['tradfi']),43)
+        self.assertEqual(len(old.saved_symbol_lists['tradfi']),294)
         new=Settings(**{**old.model_dump(),'strategy':'order_block_sr_1h','timeframe':'D',
             'active_symbol_list':'tradfi','symbols':['SOXLUSDT'],'major':False,'minor':False,
             'daily_loss_pct':35,'coin_pnl_trailing_enabled':True,'weekly_equity_trailing_enabled':True})
@@ -42,6 +42,19 @@ class TradFiTests(unittest.TestCase):
         self.assertEqual(Settings(strategy='order_block_sr_intrabar',timeframe='60').timeframe,'240')
         for lists in ({'bad':[]},{'tradfi':['SOXLUSDT','SOXLUSDT']},{'tradfi':['SOXLUSDT.P']}):
             with self.assertRaises(ValidationError):Settings(saved_symbol_lists=lists)
+
+    def test_expanded_catalogue_forex_new_labels_and_permanent_exclusions(self):
+        import json
+        self.assertEqual(len(TRADFI_SYMBOLS),294)
+        self.assertEqual(len(TRADFI_SYMBOLS),len(set(TRADFI_SYMBOLS)))
+        self.assertTrue({'EURUSDUSDT','GBPUSDUSDT','USDJPYUSDT','SECZUSDT','POLYMARKETUSDT','MAGSUSDT','CVNAUSDT','VUSDT'}.issubset(TRADFI_SYMBOLS))
+        self.assertFalse(any(s.endswith('NEW') for s in TRADFI_SYMBOLS))
+        self.assertFalse({'EIDOUSDT','EQTUSDT','STMUSDT'}&set(TRADFI_SYMBOLS))
+        catalogue=json.loads((Path(__file__).resolve().parents[1]/'watchlist.json').read_text())
+        stocks={r['symbol'] for r in catalogue if r.get('asset_group')=='tradfi' and r['selectable']}
+        self.assertEqual(stocks,set(TRADFI_SYMBOLS))
+        cfg=TestnetSettings(strategy='order_block_sr_1h',active_symbol_list='tradfi',symbols=list(TRADFI_SYMBOLS))
+        self.assertEqual(len(cfg.symbols),294);self.assertEqual(cfg.timeframe,'60')
 
     def test_old_installation_migrates_custom_main_symbols_without_replacement(self):
         import json

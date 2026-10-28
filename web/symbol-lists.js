@@ -1,5 +1,5 @@
 // Named saved selections share one account runner. Loading is draft-only until Save.
-function inActiveSymbolCatalogue(item){return !formDraft||formDraft.active_symbol_list!=='tradfi'||item.asset_group==='tradfi'}
+function inActiveSymbolCatalogue(item){if(!formDraft)return true;return formDraft.active_symbol_list==='tradfi'?item.asset_group==='tradfi':item.asset_group!=='tradfi'||(formDraft.saved_symbol_lists.main||[]).includes(item.symbol)}
 function renderSymbolLists(){
  let box=$('namedSymbolLists');
  if(!box){

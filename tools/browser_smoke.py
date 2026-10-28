@@ -204,10 +204,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
    page.check('#selectedOnly');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','NO_SUCH_SYMBOL');expect(page.locator('#coins')).to_contain_text('No matching symbols')
-   page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable).length'))
-   page.click('#saveSymbols');page.wait_for_function('() => lv.config.symbols.length===watchlist.filter(x=>x.selectable).length')
-   assert set(writes[-1][1]['symbols'])=={x['symbol'] for x in payloads['watchlist'] if x['selectable']}
-   page.reload();page.click('[data-page-link=settings]');expect(page.locator('#selectedSymbols button')).to_have_count(len([x for x in payloads['watchlist'] if x['selectable']]))
+   page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable&&inActiveSymbolCatalogue(x)).length'))
+   page.click('#saveSymbols');page.wait_for_function('() => lv.config.symbols.length===watchlist.filter(x=>x.selectable&&inActiveSymbolCatalogue(x)).length')
+   assert set(writes[-1][1]['symbols'])==set(page.evaluate('watchlist.filter(x=>x.selectable&&inActiveSymbolCatalogue(x)).map(x=>x.symbol)'))
+   page.reload();page.click('[data-page-link=settings]');expect(page.locator('#selectedSymbols button')).to_have_count(len(writes[-1][1]['symbols']))
    page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');page.click('[data-page-link=settings]')
    page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
    page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
@@ -633,11 +633,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Separate TradFi list is draft-only; original Main selection survives saving/reload.
    main_symbols=page.evaluate('formDraft.symbols.slice()')
    page.select_option('#activeSymbolList','tradfi')
-   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   expect(page.locator('#selectedSymbols button')).to_have_count(294)
    assert page.evaluate('lv.config.active_symbol_list')=='main'
    page.fill('#search','UMC');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','');page.click('#selectAllCoins')
-   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   expect(page.locator('#selectedSymbols button')).to_have_count(294)
    page.select_option('#strategyLogic','order_block_sr_1h')
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#strategyDescription')).to_contain_text('BOTH branches require forming 1h Volume > MA 20')
@@ -646,7 +646,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['active_symbol_list']=='tradfi' and writes[-1][1]['timeframe']=='60'
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#activeSymbolList')).to_have_value('tradfi')
-   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   expect(page.locator('#selectedSymbols button')).to_have_count(294)
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h');page.keyboard.press('Escape')
    page.select_option('#activeSymbolList','main')
    assert page.evaluate('formDraft.symbols')==main_symbols

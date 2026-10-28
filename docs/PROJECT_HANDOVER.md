@@ -118,3 +118,11 @@ class TradFiTests(unittest.TestCase):
             self.assertIsNone(service.client)
 
 Validation: 461 unit/API tests pass, including stale saved selections, both named lists, pending-intent cleanup, ownership preservation, persisted cleaned state and stale-call entry rejection. Diff check passes. No VPS or live exchange mutations performed by Codex.
+
+## Expanded TradFi catalogue with forex (2026-10-28)
+
+Operator supplied 282 normalized unique symbols across the larger paste and explicitly authorized inclusion of EURUSDUSDT, GBPUSDUSDT and USDJPYUSDT. Combined with the earlier list this produces 294 TradFi symbols, 251 additions to the prior 43. Display-only NEW badges stripped; duplicates not added; all USDT suffixes retained. EIDOUSDT/EQTUSDT/STMUSDT remain permanently excluded from catalogue, persisted selections, scans and entry submission. This branch also includes the previously supplied permanent-cleanup fix if not merged separately.
+
+Catalogue membership does not verify exchange tradability/account permissions or liquidity. Same hourly OB OR Major/Minor S/R with mandatory volume gate, stops and risk controls; no automatic leverage changes, orders or activation. Existing saved TradFi subsets do not silently expand: additions become available in the checklist; operator chooses new symbols and saves. Fresh/default lists start at 294. Main catalogue view now separates other TradFi symbols while preserving previously saved Main names; Select all is scoped to active list, avoiding a 491-selectable-symbol all-catalogue request over the unchanged 300-symbol limit. Guard explains oversized drafts without changing the saved selection. More selected symbols can lengthen scanning; expansion is not a latency improvement.
+
+Validation: 462 unit/API tests passed, including all three forex pairs, exact catalogue/default agreement, normalized unique IDs, excluded names absent, full 294-symbol config acceptance and group-scoped API saves. Desktop/mobile synthetic smoke passed group-specific Select all, 294 selections, persistence, Main restoration and no activation/order requests. JS syntax/diff checks passed. No production deployment or real exchange requests.
