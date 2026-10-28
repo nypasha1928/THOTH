@@ -172,6 +172,12 @@ def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$
     return read_alerts(live.path,symbol,limit,offset,{int(value) for value in watch_ids.split(',')} if watch_ids else set())
 
 
+@app.get('/api/live/history/export')
+def export_trade_history():
+    # One query returns all retained trades, independent of UI filters/pagination.
+    return live.history(limit=-1)
+
+
 @app.get('/api/live/history')
 def trade_history(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$'),limit: int = Query(50,ge=1,le=100),offset: int = Query(0,ge=0)):
     return live.history(symbol,limit,offset)
