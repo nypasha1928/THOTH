@@ -23,6 +23,25 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_history_export_includes_all_pages_without_changing_trading(self):
+        import json
+        from thoth.app import live
+        before=self.client.get('/api/live').json()
+        with live.db() as db:
+            for i in range(125):
+                symbol='BTCUSDT' if i%2 else 'ETHUSDT'
+                record=dict(symbol=symbol,side='Long',opened_at=i,closed_at=i+1,pnl=.1,reason='Test',strategy='sr_breakout')
+                db.execute('INSERT INTO trade_history VALUES(?,?,?,?)',(str(i),symbol,i+1,json.dumps(record)))
+        self.assertEqual(len(self.client.get('/api/live/history').json()['items']),50)
+        result=self.client.get('/api/live/history/export').json()
+        self.assertEqual(result['total'],125)
+        self.assertEqual(len(result['items']),125)
+        self.assertEqual({r['symbol'] for r in result['items']},{'BTCUSDT','ETHUSDT'})
+        self.assertEqual(result['items'][0]['closed_at'],125)
+        after=self.client.get('/api/live').json()
+        self.assertEqual(after['config'],before['config'])
+        self.assertEqual(after['entries'],before['entries'])
+
     def test_entry_timing_endpoint_is_read_only_and_omits_unrecorded_history(self):
         from unittest.mock import Mock
         from thoth.execution import ExecutionJournal
