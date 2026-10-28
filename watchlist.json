@@ -1570,27 +1570,6 @@
     "asset_group": "tradfi"
   },
   {
-    "original": "BYBIT:EIDOUSDT.P",
-    "symbol": "EIDOUSDT",
-    "selectable": true,
-    "status": "TradFi instrument validation pending",
-    "asset_group": "tradfi"
-  },
-  {
-    "original": "BYBIT:EQTUSDT.P",
-    "symbol": "EQTUSDT",
-    "selectable": true,
-    "status": "TradFi instrument validation pending",
-    "asset_group": "tradfi"
-  },
-  {
-    "original": "BYBIT:STMUSDT.P",
-    "symbol": "STMUSDT",
-    "selectable": true,
-    "status": "TradFi instrument validation pending",
-    "asset_group": "tradfi"
-  },
-  {
     "original": "BYBIT:XAUUSDT.P",
     "symbol": "XAUUSDT",
     "selectable": true,

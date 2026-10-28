@@ -1,591 +1,1020 @@
-# THOTH project handover
-
-Last updated: 2026-10-26 (America/New_York).
-
-## Direct S/R + Volume MA strategy / alerts / timestamp recovery (2026-10-26)
-
-- New separate `sr_volume_intrabar` profile, UI **S/R 4h/D · Volume MA · No SMA exit**. Monitors BOTH 4-hour and Daily S/R independently, using confirmed Major/Minor levels and current-price crossings. No candle-close wait; no second-stage permission or confirmation. Long resistance breakout / Short support break. Conflicting directions in the same sampled observation are skipped.
-- User confirmed REQUIRED volume rule: forming source-timeframe candle volume strictly greater than its volume SMA 20, including that forming candle. Own `sr_volume_period` default 20, editable. SMA price/7-50, RSI, VWAP and other entry filters do not apply. Volume-first qualification: observed current-candle breakouts remain eligible until volume passes while price stays beyond the same level. Pullback, changed level, candle rollover or observation recovery cancels eligibility. No early order/alert is queued; qualified decisions are consumed once per level/candle. First observations/restarts/gaps baseline rather than replay.
-- **User clarified: keep the selected opposite-signal action.** No SMA exit, but Reversal/Close-only still applies, alongside dollar stops, TP, trailing, daily/account/per-coin risk. Actual source timeframe and S/R provenance recorded in History/Analysis/Alerts. Chart timeframe is display only. Do not confuse this with the existing two-stage Volume Delta strategy.
-- Floating **Close all alerts** button dismisses all currently visible toast cards and records their IDs as dismissed in this page session, so later status updates do not recreate them. Saved Alerts history is retained; future new signals still appear. Button hidden when stack empty.
-- Bybit `10002` is a signed timestamp outside the receive window (clock skew or request delay), not a coin signal problem. Private GET can correct the client's signing clock from a finite server `time` in the HTTPS rejection and retry once with a newly signed timestamp. RTT must be <=10 seconds; invalid/missing server time or repeated timestamp rejection still fails closed. No write/transport retries added; receive window stays 5000 ms. No live monitoring bypass or automatic activation added. Persistent errors still require checking VPS NTP/network.
-- See `thoth/sr_volume.py`, runner/feed adapters, `tests/test_sr_volume.py`, `web/signal-alerts.js`. Uploaded Pine sources untouched. Validation: 386 unit/integration tests pass; desktop/mobile browser smoke passes including profile save, required filter/disabled SMA exit, bulk toast dismissal without deleting saved history. Generated indicator, JS syntax, deployment shell syntax and whitespace checks pass. No real orders or VPS deployment performed.
-
-## Volume-first S/R correction (2026-10-26)
-
-User corrected the initial implementation: do not permanently discard S/R just because volume was below MA at the first crossing. The direct strategy now evaluates volume first and qualifies an observed breakout later in the same source candle when volume passes and price is still beyond the unchanged confirmed level. Internal observation state is not an execution queue: no signal/order/volume-failure popup is generated before qualification. Pullback, changed level, candle rollover, restart or freshness gap cancels unqualified eligibility. Fresh crossings after cancellation can qualify normally. Qualified decisions remain once per level/candle; selected opposite action and all existing risk controls remain. Other S/R and staged profiles are unchanged. Validation: 387 unit/integration tests passed; JavaScript syntax and whitespace checks passed.
-
-## Volume MA chart color (2026-10-26)
-
-- Volume MA 20 line now uses light blue `#81d4fa`, matching the SMA 50 light blue. Display-only change; volume calculations and trading filters are unchanged. JavaScript syntax and whitespace checks passed.
-
-## Direct strategy per-coin 4-hour entry cap (2026-10-26)
-
-`sr_volume_intrabar` now allows at most one submitted entry per coin in each Bybit/UTC 4-hour candle (00/04/08/12/16/20 UTC), shared across 4h/Daily, directions and S/R source families. This is candle-aligned, not a rolling 4-hour timer. Reserve persistently before submit; ambiguous outcomes retain reservation, definitive rejected submits release it. Existing current-window ownership/history and journal metadata enforce the cap across upgrade/restart and closure. Other coins/profiles unaffected. Exits including opposite-signal close remain active; a reversal replacement is blocked if that coin's window is already used. A new window permits a NEW qualified signal, never replays queued old signals. Validation: 388 unit/integration tests pass, including per-coin/shared-timeframe restriction, persisted restart state, pre-upgrade ownership/history and next-window eligibility; JavaScript syntax and whitespace checks pass. No real trades run by Codex.
-
-## New 4h SMA intrabar reversal strategy (2026-10-26)
-
-- User requested `sma_7_50_intrabar`: fixed 4h SMA7 cross ABOVE SMA50 -> Long; BELOW -> Short during forming candle, no bar-close wait. Mandatory Reversal, no SMA exit or entry filters, protective stops/TP/trailing/account controls retained. Opposite cross closes and reconciles before new side, subject to risk. Distinct from existing close-confirmed `sma_7_50` and from the S/R profile’s per-4h entry cap. Each fresh crossing may reverse again inside the same candle.
-- Pure `thoth/sma_intrabar.py`, durable per-coin session/scan baseline in Runner, immediate bounded packet processing, 60-row 4h feed, replay prevention on restart/gap. Chart shows confirmed SMA reference arrows independently of actual intrabar actions. Tests cover forming Long/Short, same-bar reversal, duplicate samples, gap/restart, fixed normalization and real fixture entry/fill/stop/close/settle/replacement.
-- Validation: 391 unit/integration tests pass; full desktop/mobile browser smoke passes, including fixed 4h/Reversal/no-exit settings save. JS syntax, generated-indicator and whitespace checks pass. No VPS access or real trades.
-- User confirmed additional Daily / 3-Day / Weekly trailing stops track TOTAL ACCOUNT EQUITY and pause entries until their calendar UTC period ends. Implemented in the same branch; see section below.
-
-## Daily / 3-Day / Weekly equity trailing (2026-10-26)
-
-- User confirmed TOTAL USDT account equity including realized and unrealized P&L; close all THOTH-managed positions when equity falls the configured fixed USDT drop below the period's observed transfer-adjusted peak. No profit-activation gate. Each period has an independent checkbox and dollar drop input; all OFF by default, drop defaults $1 for explicit configuration. Existing daily percentage limit and combined/coin open P&L trailing remain separate. Any triggered control closes all; all triggered periods must expire before entry permission returns.
-- UTC calendar windows: Daily 00:00; Weekly Monday 00:00; 3-Day stable 72h blocks anchored to Unix epoch 1970-01-01 UTC. Exact start/end and countdown shown. Baseline begins at first verified equity sample after enabling/in a new window; earlier historical peaks are never invented. Peaks and pause latches persist on disk, including when flat. Editing drop preserves observed peaks; disabling does not release an already-triggered period latch early.
-- `equity_trailing_resume_automatic` defaults ON: restore previously enabled entries only after all triggered periods expire, settlement completes and independent risk checks pass. New signals only; no pending/reversal replay. Operator Pause, Manual close-all and restart clear resume intent; they never auto-enable trading. Users can disable the resume checkbox. Latched periods block explicit activation even if their feature checkbox is turned off. Stop/exits continue while entry permission is paused.
-- `thoth/equity_trailing.py` pure Decimal/window math; `TestnetSupervisor` owns durable equity_trailing states, cashflow ledger/cursor and close-all obligation. Pause and flatten intent are persisted BEFORE exchange actions. Existing independent protection errors/daily/portfolio stops retain priority. Combined trailing cannot overwrite a previously latched close-all reason.
-- Deposits/withdrawals are excluded from performance. Reuses existing transaction-log request, not a new request per period. Incremental cross-midnight overlap/cursor retains deduplicated USDT transfer IDs/timestamps for 8 days, supports weekly tracking beyond daily resets. Invalid/missing transfer timestamps when enabled fail rather than inventing cashflows. Existing daily protection still receives its own baseline-filtered net flow. No caller secrets are exposed.
-- Validation: 402 unit/integration tests pass; full desktop/mobile browser smoke passes with settings save, peak/threshold/countdown, latched display after disabling, and separate SMA strategy. JS syntax and whitespace checks pass.
-- Final clock decision confirmed by user: KEEP 00:00 UTC as it is. Daily midnight UTC, Weekly Monday midnight UTC, fixed UTC 3-day blocks. New York equivalent is 20:00 EDT / 19:00 EST (Weekly Sunday evening); do not switch to fixed 20:00 New York.
-- UI `web/equity-trailing.js`: independent settings and status cards inside Daily protection, peak/actual equity threshold/remaining drop and UTC countdown. All controls are server sampled; exact fill equity cannot be guaranteed. Uploaded Pine references unchanged.
-
-## 4h SMA strategy opposite Order Block exit (2026-10-26)
-
-- User explicitly selected **4-hour OB exits** and **keep SMA Reversal**. Also explicitly confirmed **NO candle-close wait**. New selectable `sma_ob_exit_enabled` defaults ON for handling `sma_7_50_intrabar` owners; hidden/unused for other strategy owners. Applies to existing positions in this strategy after deployment. Normal `sma_exit_enabled` remains forced OFF.
-- Long -> first fresh Bearish OB FORMATION closes; Short -> first fresh Bullish FORMATION closes. Same-direction formations, Breakout Above Supply and Breakdown Below Demand never cause this exit. OB exit closes ONLY and never creates a replacement entry. Independent fresh SMA7/50 crosses still reverse normally, subject to risk.
-- NO optional indicator filters. Important finding: SMA200 was embedded inside `OrderBlockState.step`, not merely `select`. Added keyword `formation_filter=False` mode; defaults remain True so prior S/R→OB behavior is unchanged. Raw uploaded pattern/ATR/zone formulas and exact Pine bytes retained. Unfiltered mode does not require 200 bars. Chart uses unfiltered formation-only OB boxes on all viewed timeframes for this strategy; actual live exit remains 4h regardless chart timeframe or display toggle.
-- `thoth/order_block_exit.py`: rollback-safe closed state plus forming preview, ATR continuity, source/session/freshness baseline, per-bar formation consumption, break exclusion and current/contiguous 4h validation. Pre-entry/unknown-origin formations at initial observation/recovery establish a baseline. A live formation on a candle that provably began AFTER position entry can close immediately on recovery; no replay of prior closed boxes. A 10-second just-closed-candle publication grace waits for Bybit’s real new 4h candle without fabricating data or generating spurious coin blocks. Persist observation and `signal_exit` obligation before exchange close writes.
-- Supervisor checks only managed SMA-profile positions, starts with 1000 bars then 60/gap-sized updates. Data faults recorded in `order_block_exit_blocks`, isolate that coin’s entries, retain exchange stops and other coins. Ready/recovery activity and per-coin entry recovery check avoid a permanent stale-data block after closing. Disabling the exit or switching strategy clears its inactive data blocks.
-- Validation: 410 unit/integration tests pass; full desktop/mobile browser smoke passes, including exit checkbox save/off/on and preserved SMA Reversal. Tests cover raw formation on wrong SMA side and with <200 bars/zero volume, Long/Short exits, same-direction ignore, break ignore, rollback/duplicate/startup/gap/restart behavior, protected fixture position -> reduce-only close -> reconciled History without replacement, selectable disable, isolated data faults/recovery, chart references all five intervals.
-
-## Strategy display name correction (2026-10-26)
-
-- User requested the Order Block exit appear in the strategy name. `sma_7_50_intrabar` now displays **SMA 7/50 · 4h Reversal · Order Block Exit** in Settings, History/Alerts/activation and Analysis. Display label only; strategy identifier, saved configuration and execution behavior are unchanged. Exit remains selectable, so the checkbox controls whether the named exit is enabled. JavaScript syntax and whitespace checks pass.
-
-## Protective-stop investigation / specific diagnostics (2026-10-26)
-
-- User reports BOMEUSDT (14:27 NY), KERNELUSDT (16:00), BEATUSDT (16:02) filled then protective-close at `validate_protection · ValidationError`. Subsequent BOME signals are skipped because that coin stays blocked; these are NOT repeated fills. TRX was protected successfully. Failures precede attach/verify stages, so not an OB exit failure. MSFT/NVO were separate Bybit create-order rejections code110126; no assumed meaning. Official docs raw `bybit-exchange/docs/master/docs/v5/error.mdx` reachable but did not list110126; do not confuse with documented110123/110125 terms or110132 regional restrictions.
-- Current user settings: position notional50 USDT, leverage20, stop2 USDT -> approx2.50 initial margin; stop consumes80% of initial margin / ~4% price distance. Coin-specific maintenance/fees/liquidation can leave less than2 loss capacity. LIKELY liquidation-boundary rejection, NOT yet proven for these historic orders because old diagnostics discarded the precise local ValueError. Current settings also do not prove each failed order's stored stop until journal checked. No stop/leverage settings altered or protection checks weakened.
-- User was asked via async tool to run a read-only docker Python report for only BOME/KERNEL/BEAT: saved entry side/qty/stop$/attachedstop/tick/protection_error plus PUBLIC `/v5/market/risk-limit` tiers using unarmed `ProductionClient` without credentials. Output pending. No real orders placed or private credentials read by Codex.
-- Added `diagnostics.protection_details`: allowlisted failed-check names, human-safe local reason codes (e.g stop_at_or_beyond_liquidation), and finite bounded numeric entry/qty/leverage/margin/requested-stop/expected-stop/liquidation/tick/readback values. No raw upstream response/message, keys or secrets retained. Activity now identifies the failed check/reason. Execution journal preserves context across settlement; authenticated account snapshot includes curated `execution[].protection_error`.
-- Trading calculations, liquidation guard, per-coin protective close/block and rejection behavior are unchanged. Diagnostic update does not fix an unsafe stop configuration or recover missing historical liquidation snapshots. Tests reproduce BOTH safe and unsafe $2 stops on50 notional/20x, Long/Short, no attach after unsafe boundary, settled-error persistence and secret redaction. 412 unit/integration tests pass after snapshot exposure; whitespace checks pass. No real trades or VPS deployment performed.
-
-## Start here in a new chat
-
-Read this file, inspect git status and origin/main, then read the linked implementation notes. This document records decisions, not permission to enable trading or disclose credentials. The user wants sustained implementation, reviewable pull requests, and simple deployment guidance. Explain defects before fixing them. Do not claim a branch-comparison URL is an already-created PR.
-
-## Deployment and account
-
-- Repository: nypasha1928/THOTH. PWA: https://app.thothtrade.com. DigitalOcean Frankfurt Ubuntu VPS, repo /opt/thoth; user deploys manually over SSH.
-- SSH: root@165.227.169.71. Never request or print private keys, passwords or Bybit secrets. Secrets are files under /etc/thoth, not the repository.
-- Deployment uses compose.yaml + compose.live.yaml + compose.live-unverified.yaml with THOTH_PUBLIC_HOST, THOTH_PASSWORD_PATH, THOTH_BYBIT_LIVE_KEY_PATH and THOTH_BYBIT_LIVE_SECRET_PATH exports. Preserve volumes, databases, position ownership, journals and risk state.
-- User pauses entries before restart. Existing exchange stops remain, server exits briefly stop. Restart requires explicit entry activation. User authorized live trading without mandatory TradingView/testnet gates; do not reintroduce those gates.
-- Bybit isolated, one-way, dedicated USDT account. Typical $50 notional / 20x = about $2.50 initial margin; dollar stop configurable. Up to 11 positions discussed for comparison.
-- The user will not add capital until reviewing performance together. Do not promise profit or suggest simulated results prove an actual alternative fill.
-
-## Existing trading behavior
-
-- S/R Breakout, SMA 7/200, S/R 1h -> Exit 1m and RSI 1h -> Exit 1m are selectable. SMA entry crossover confirmed on close; hourly intrabar modes sampled, no hourly close wait.
-- Long SMA exit: SMA7 below SMA50. Short: SMA7 above SMA50. Intrabar, normally sampled about 5 seconds; mandatory minute exits in hourly modes.
-- Reversal means close current position, confirm settled/flat, then open opposite subject to risk. Close-only remains selectable.
-- S/R entry filters SMA200 and SMA7/50 separate, optional; no filter unless selected. Major/minor levels selectable.
-- Daily stop: starting equity times saved percentage is a fixed dollar allowance below transfer-adjusted daily peak. Reset at 00:00 UTC, not New York midnight. Closes managed winners and losers. Per-coin consecutive-loss cooldowns; account controls remain separate.
-- Coin SMA-data faults isolate that coin; account read rate-limit handling retries verified recovery. Never bypass daily, ownership or order-ambiguity checks.
-- Per-position dollar stops and optional dollar TP exist. Per-position trailing is a separate older option.
-
-## Combined fixed P&L trailing (merged by user)
-
-See thoth/portfolio_trailing.py, thoth/testnet.py, tests/test_portfolio_trailing.py and README.
-
-- Disabled by default. Editable USDT activation and fixed USDT drop. Examples: activate at $1; peak $1.50 -> close all at $1.40, peak $1 -> close at $0.90 with $0.10 drop.
-- Combined current unrealized P&L includes all managed winners and losers. It is not 200% per trade. Closing/adding trades changes the metric; realized profit is not carried into it.
-- Close ALL, but do NOT disable entry permission because of this trailing trigger. New orders wait only until flatten/cancel/settlement completes, then new qualifying signals may trade. Other risk controls/manual pause/restart still apply. Do not change this to a manual trailing-stop reset.
-- Fixed peak persists across restart. Trigger creates durable flatten obligation before exchange writes. Late fills also flattened. Changing combined parameters resets only an untriggered cycle; other settings must preserve peak.
-- History displays the persisted `Open P&L trailing stop` reason as **Combined Trailing Stop** (added with dynamic observation work; old stored reasons remain unchanged). Simulated dynamic exits never enter actual History.
-- P&L card shows waiting/active, peak, threshold. Server-monitored, not an exchange-native portfolio stop. Fees, slippage, delays and outages affect realized result.
-- Last completed validation for fixed feature: 250 unit/integration tests and desktop/mobile browser smoke passed. Branch codex/portfolio-pnl-trailing was merged; deployment instructions sent, actual VPS state not independently accessible.
-
-## RSI status: deferred by user
-
-User requested original Pine behavior after corrected port differed from TradingView. Original reference/ml_rsi_900_uploaded.pine is preserved byte-for-byte (SHA256 cf415bc7edbd732e04bf2c11148a2a04d06c4ff5dc418625134fd3a43e3078df).
-
-Settings offers Uploaded Pine array behavior versus Corrected ML. Uploaded arrays allocate 3 empty slots then append means, leaving threshold indices 0/2 unavailable; its mode preserves that outcome, so only eligible filtered static 30/70 signals can appear. It is not a verified reproduction of screenshot ML thresholds. Corrected remains migration default until explicitly selected. See docs/rsi-source-audit.md, docs/ml-rsi-strategy-draft.md and docs/rsi-visual-comparison.md. Do not silently repair original or claim numerical TradingView parity. RSI work is currently paused/deferred.
-
-## UI/security already present
-
-Separate Chart/Live positions/History/Analysis/Settings/Security pages. History 50/page, winners green/losses red, NY opening date+time and closing time. Chart has searchable symbols independent of traded watchlist, pan/pinch/zoom/ruler, price/time scales, live-price yellow line/countdown, volume MA20, SMA7/50/200 colors, S/R styles and separate compact indicator dropdowns. RSI pane/price markers share timestamp hover guide. Chart visibility never changes trading filters.
-
-Password changes, recovery codes, Google Authenticator TOTP and passkeys exist; user tested Android passkey and password+TOTP on Windows. Never recover plaintext passwords or reveal saved secrets.
-
-## Active task: dynamic combined trailing observation
-
-User authorized implementation on 2026-10-22. Branch codex/dynamic-trailing-observation, based origin/main 688d02d when begun.
-
-- Add dynamic observation ONLY alongside current fixed combined trailing. Fixed remains sole real trailing executor, settings/peak/positions untouched by observation. No dynamic live execution selector in this phase.
-- Observe whatever THOTH-managed coins, quantities, sides and position count are currently open; **11 was only an example, never hardcode it**. A changing basket starts a fresh comparison and marks the earlier one incomplete; frozen post-close copies must exclude new trades. Estimate dollar trailing distance from recent aggregate P&L fluctuations, with editable min/max bounds and multiplier. Ratchet dynamic threshold upward only.
-- Separate comparison screen: fixed actual close time/confirmed realized outcome versus dynamic simulated trigger/results. If dynamic waits beyond real closure, follow a frozen virtual copy using public market prices. No new real trades.
-- Clearly label simulated continuation, assumed fees, missing funding/data, incomplete observations, basket changes, and unavailable realized results. Never say the operator "should have waited" or imply simulated fills were executable.
-- Observation must be bounded and asynchronous. No extra authenticated exchange requests, no observation I/O/network blocking live risk management, no writes to live execution/risk/position state. Preserve fixed peak on update/restart.
-- Step 1 complete: handover created.
-- Step 2 implemented: separate read-only trailing_observation.py worker/database, nonblocking live snapshot hook, dynamic ratchet/volatility model, public batch mark-price virtual continuation, confirmed actual-history lookup, observation-only API and separate Trailing comparison page. No dynamic executor exists.
-- Step 3: 260 Python tests passed (including changing coin baskets with 2, 11 and 5 positions) after calculation/data-quality refinements. Browser checks passed for the new separate comparison page, 11-position display, observation settings save without live-setting writes, bookmark reload and existing desktop/mobile flows. A fetch-wrapper signature mismatch was fixed; pre-existing quote-redraw hover fixture timing was made atomic. Final desktop/mobile browser run also passed the Combined Trailing Stop History label. Indicator regeneration is unchanged; shell syntax and source deployment packaging passed. Merged by the user. The user subsequently supplied a recorded comparison cycle, confirming comparison-feature use; the exact VPS commit is not independently verified. Local checks do not establish real profitability.
-- Implementation limits: aggregate-P&L volatility window 60 (5-second normalized), eight-return warm-up uses maximum distance; public virtual marks sampled 15 seconds, continuation expires at 24 hours; 20 unfinished baskets and 100 recent completed/expired records retained. Only sampled gross quote difference is comparable; assumed 5.5 bps fees editable, funding/slippage/liquidations/other exits not simulated. Actual net realized data is separate. Observation starts on first observed fixed activation, not retrospectively. Snapshot gaps/basket changes/late starts suppress advantage claims. Dynamic execution remains unavailable.
-
-## Local verification and next-chat workflow
-
-- /tmp/thoth-security-clean/bin/python -m unittest discover -s tests
-- /tmp/thoth-security-venv/bin/python tools/browser_smoke.py (Playwright, /usr/bin/chromium). Browser uses synthetic fixtures only and overwrites tracked PNGs; restore generated screenshots unless intentionally delivering new artifacts.
-- node --check on changed JS, git diff --check. Read applicable AGENTS if introduced.
-- After checks, commit/push branch and provide GitHub pull/new URL if no tool can create actual PR. User merges, then manually deploys.
-- Keep this handover current after each completed step. Record what is actually verified; do not infer deployment from merge.
-
-## Latest UI step: prominent combined trailing status
-
-Branch codex/prominent-trailing-status, based main 7051f35. User requested a clearer colored status beneath Open LIVE P&L. Added separate green Active, blue Waiting, amber Closing and neutral Off panels, with large Peak and Close-all threshold figures. Text labels supplement colors; no flashing. This is display-only: no changes to trailing math, fixed peaks, settings, order execution or observation. Validation: JS syntax/diff checks and full desktop/mobile browser smoke passed, including active-panel green border and large peak/threshold readouts. Merged by the user; the color follow-up below supersedes its palette. Exact VPS deployment commit is not independently verified. This UI step did not change backend logic; previous backend validation remains 260 tests.
-
-The user has supplied a five-position cycle: fixed gross trigger $0.99, actual realized about $0.5980, dynamic sampled gross $0.96. Fees confirmed $0.13727342 opening + $0.13679398 closing. Do not claim a guaranteed minimum or 200% actual margin return. Their chosen $0.50 sizing maps to $50 notional /20x=$2.50 margin; five such positions about $12.50 margin, $0.60 realized about4.8%. Their target mapping is chosen amount x2, not total portfolio margin x2. Preserve distinction between actual net reported P&L and simulated gross/assumed-fee estimates.
-
-### Trailing-panel color follow-up
-
-User merged prominent status panel, then requested its box border/text use the same green as the Open LIVE P&L dollar amount and its background match the website. Branch codex/trailing-site-colors applies #b9ee79 text/border (including heading, amounts and small description) on #101918 for every phase; phase labels remain explicit. Supersedes the earlier blue/amber/green fills. CSS/display only; no trading, settings or peak changes. Full desktop/mobile browser checks passed, including computed text/border colors matching the Open LIVE P&L amount and background matching document.body. Merged by user; later background clarification below supersedes the body-background choice. Actual VPS commit not independently verified.
-
-### Trailing background and amount-weight correction
-
-User merged the site-color follow-up, then clarified that the panel background must match the **Open LIVE P&L card**, not the darker page/body. Branch codex/trailing-card-background uses inherited card background (#1a2521 currently) and normal 400 weight for dollar figures, matching the main Open P&L amount. The green border/text remain. Display-only change. Desktop/mobile browser smoke passed, including computed background matching the P&L card and dollar-figure weight matching the main P&L amount. Ready for PR review; not yet merged/deployed.
-
-### Mobile account summary layout
-
-User merged the card-background correction, then requested Equity + Daily loss limit on the top mobile row and a full-width Open LIVE P&L card below so trailing values sit horizontally. Branch codex/mobile-pnl-layout adds explicit classes to only the three account-summary cards and a <=850px layout override; it does not change Analysis-page stats or desktop card order. Peak and threshold stay in a two-column grid on mobile. Desktop/mobile browser smoke passed, including matching top-card row heights, full-width lower P&L, horizontal peak/threshold placement and no mobile page overflow. Display-only; ready for PR review, not yet merged/deployed.
-
-### Combined mobile layout + New York chart time
-
-User explicitly requested ONE combined pull request, replacing the unmerged mobile-only request. Branch codex/chart-new-york-time is based on codex/mobile-pnl-layout and includes both changes. All chart time labels, candle/RSI hover, crosshair, S/R tooltips, history-range dates and quote timestamps use America/New_York with EST/EDT. Chart axis says NY. Candle countdown duration, epoch timestamps, entry calculations and 00:00 UTC daily risk reset remain unchanged; daily candles are still Bybit UTC candles labelled by their New York opening time. Validation: desktop/mobile browser smoke passed, including mobile card geometry/horizontal trailing figures, explicit New York timestamps in winter/summer and both DST transitions, and unchanged UTC daily-reset text. JS syntax/diff checks passed. Updated stale-marker browser fixture to reacquire its element inside the atomic hover sample. Ready for PR review, not yet merged/deployed. Use only the combined PR link.
-
-## Active feature step: SMA 7/50, combined entries and retractable panes
-
-User decisions confirmed: add **SMA 7/50** and **S/R + SMA 7/50** entry strategies; either source independently triggers, not same-candle AND; skip opposing same-candle signals. Both use **confirmed 1-minute closes**. Make SMA7/50 intrabar exit a separate selectable on/off checkbox for both, preserving other stops/risk controls and Reversal/Close-only. Existing hourly modes remain mandatory minute-exit as before.
-
-Branch codex/sma-50-strategies-and-panes, based merged main 8ea3322 (includes mobile layout and NYC chart time). New IDs sma_7_50 and sr_sma_7_50, model-enforced 1-minute entries, existing optional exit checkbox unchanged. S/R filters affect only the S/R branch. Same-direction signals yield one entry. Combined chart shows both reference sources. Settings/history/Analysis names and activity reasons updated. Nothing auto-selects a strategy or enables orders.
-
-Volume and RSI have browser-local minimize/expand buttons. RSI has explicit Close pane/Show pane controls. Collapsed panes retain labelled strips; closed RSI leaves no strip. Price plot reclaims pane space with fixed outer height. RSI price arrows remain separately controllable; no display action affects trading.
-
-Validation complete: 267 Python tests passed. New coverage includes both crossover directions, confirmed timing, optional exits, OR/conflict truth table, batch/stream/checkpoint/runner equivalence, S/R-filter independence, protected orders/history tags, Analysis/API names and independent chart reference sources. Full desktop/mobile browser smoke passed, including both strategy saves with exit toggled off/on, locked 1-minute entry timeframe, minimize/restore/close RSI pane, larger reclaimed price area, persistent display state and zero trading writes from pane controls. Indicator regeneration unchanged; JS/shell syntax, diff checks and source release packaging passed. Ready for PR review on codex/sma-50-strategies-and-panes; not merged/deployed. Changing strategy on the server requires paused entries and flat/reconciled managed exposure.
-
-## Trade timing analysis
-
-Prior strategies/panes step merged by user, main d8bff90; VPS version not independently verified. Branch codex/time-of-day-analysis adds read-only best/worst hour, weekday and calendar date ranked by confirmed realized P&L. Opening-time default / Closing-time selector; America/New_York DST; existing coin/strategy filters. Full trade result assigned to chosen timestamp, missing/invalid timestamps excluded without fallback. Counts, distinct dates, averages, win rates, ties, limited-sample labels. Collapsible tables, dates 50/page. No trading/risk changes. Portable tzdata included for slim images. Validation: 272 Python tests and full desktop/mobile browser smoke passed, including basis selection, exclusions and date pagination. Await user merge and VPS rebuild; actual account rankings require deployed ledger.
-
-## Current step: flexible intervals, per-coin P&L trailing and all-coins selection
-
-Branch codex/flexible-strategy-timeframes based merged main 4d830b2 (timing Analysis user merged). User asked all strategy timeframes, per-coin equivalent of combined trailing, select all coins, and RSI reconstruction. Follow-up: percentages were only examples; use exact combined controls (dollar Trigger P&L + dollar trailing drop), no new percentage basis. RSI will use a NEW rule the user will describe; do not reconstruct calculations until supplied. Original Pine remains untouched.
-
-Removed backend/frontend 1-minute forcing for SMA7/50/combined and hourly forcing for intrabar modes. Available intervals 1/5/60/240/D. Intrabar observation boundaries, adjacency, level freshness and metadata use selected interval; mandatory minute exits preserved. Generic intrabar labels replace misleading 1h labels while stored IDs remain compatible. Defaults preserve old saved settings. Strategy/timeframe changes require paused flat/reconciled state to avoid changing exits on open positions.
-
-New default-off coin_pnl_trailing_* settings, independent per-owned-position tracker using existing portfolio_trailing.advance. Positive finite USDT activation/drop, applies to existing exposures when enabled. Peak, activation and trigger persist on owner. Persist symbol-only signal_exit obligation before close I/O; reconciler retries after failure/restart/disable. No flatten_reason or entry pause set; clears only that symbol's queued entry/reversal. Combined trail independent, can still close all. Position row has separate per-coin trailing status; closure reason Per-coin Trailing Stop. Shared amounts per position, not individual overrides per symbol. Existing percent-based price trailing also preserved.
-
-Select all coins ignores current search, includes selectable watchlist only, drafts without API save/start; active-entry editing lock and max_positions remain. Validation complete: 280 Python tests passed; full desktop/mobile browser smoke passed, including select-all ignoring search/active-entry lock, per-coin dollar settings persistence and independent combined toggle, selectable SMA/intrabar intervals and optional exits. Integration checks cover long/short peaks, symbol-only reduce-only closure and History reason, entry permission and next-signal continuation, persisted close retry after restart/disable, simultaneous combined close-all, and exits before unavailable wallet reads. Confirmed-close batch/stream parity tested across all five intervals. Indicator regeneration unchanged; JS/shell syntax, diff checks and source-release packaging passed. Pushed for user review; not yet merged or deployed. VPS not updated by coding environment.
-
-## Eight RSI crossing reconstruction
-
-Per-coin/timeframe/select-all step merged by user; based main a21013a. Exact VPS deployment not independently verified. Current branch codex/eight-rsi-crossing-signals. User provided eight signal rules: static30 up/down, static70 up/down, ml_long up/down, ml_short up/down. They confirmed arrows must show EVERY crossing even if trade filters block. When asked about filters, explained existing defaults Volume/VWAP/SMA on, MACD off; saved server switches cannot be inferred remotely. Do not disable filters without their instruction.
-
-Disclosed before edits: prior six rules omitted static30_down/static70_up, filtered events can hide arrows, uploaded Pine's ML arrays can leave unavailable thresholds. No numerical/smoothing/clustering repair or source-file change made. RSIState now returns raw crossings (all eight) separately from eligible events. New RSISettings.signal_rules defaults original_six for existing saved behavior; selecting eight_crossings adds both new static trade events. New field is included in the existing RSI strategy fingerprint. Entry-family switches and filters still gate events, not raw crossing evidence; runner dispatches only events. Chart no longer forces entry-family switches to true, because raw crossings provide independent display while events accurately reflect saved eligibility.
-
-Chart defaults to raw crossings; browser-local filtered-only option switches to eligible events. Exact requested first six titles plus Bullish Signal (ML Short Up) and Bearish Signal (ML Long Down). Eight independent style controls, synchronized pane/price x coordinates and hover; blue 30/70 guides retained. Existing device styles merge by kind, two new families get defaults. Uploaded Pine mode can show four static crossings but no unavailable ML crossings; its legacy six-entry behavior stays unless eight selected. Corrected ML thresholds remain adaptive; no TradingView numerical parity claim.
-
-Validation: 285 Python tests passed, full desktop/mobile browser smoke passed. Tests cover all eight strict crossing directions, prior equality/current touch, moving thresholds, raw crossings surviving blocked filters, legacy six-event preservation, checkpoint equivalence, family switches, API all-eight output with zero eligible trades, runner eligible-only dispatch and per-kind deduplication. Browser checks all eight pane/price placements and colors, hover, raw/filtered toggle and saved eight-rule selection. Await PR merge/deployment; no live orders or server settings changed by coding environment. Original Pine retained byte-for-byte.
-
-### RSI filters-off follow-up (same branch/PR)
-
-User explicitly instructed all RSI filters OFF. Defaults and form fallbacks now false for volume_filter, volume_for_static, vwap_filter, sma_filter, histogram_filter. One-time supervisor startup migration rsi_filters_off_v1 clears these switches even on older saved configurations and logs it; fresh databases carry the marker. Subsequent deliberate opt-in survives restart. Risk and S/R filter switches unchanged; entries remain subject to existing startup manual activation. Updated source-parity tests explicitly enable Pine filters so numerical tests retain their original purpose.
-
-New screenshots show Close/14/EMA/4/sigma6, clustering1000/data3000; those match THOTH defaults. Smooth RSI is UNCHECKED in screenshot, while THOTH currently defaults true: disclosed and asked user whether to change smoothing; user explicitly chose KEEP ON. Do not claim screenshot parity for that switch. Range10–90/step5 only fills unused Pine factors array; perfAlpha10 is never used. Do not invent effects or controls for those inputs. Screenshots do not show VWAP/SMA/MACD switches. ML numeric parity with pictured TradingView remains unverified.
-
-Filters-off follow-up validation: 287 Python tests and full desktop/mobile browser smoke passed. Migration test covers old saved flags becoming false once, unaffected risk/S/R settings/RSI parameters, and subsequent explicit opt-in retained across restart. Browser checks all RSI filter boxes initially unchecked. Made the synthetic combined-trailing fixture survive its own polling refresh; no production trailing behavior changed. Indicator regeneration, JS/shell syntax, diff and source packaging passed. Same branch updated; User subsequently confirmed KEEP SMOOTHING ON, so smooth=true / EMA4 is deliberately retained despite the screenshot’s unchecked Smooth box. User screenshots are comparisons, not evidence that corrected ML numerically matches TradingView.
-
-### RSI screenshot line palette
-
-User requests line colors match TradingView screenshot. Existing bright green #00ff00 / red #ff0000 / width3 and threshold-based rule match; previous neutral #808080 differs from Pine color.gray #787b86. Changed neutral default to #787b86. Added device-local rsiPaletteVersion1: only an older saved default #808080 upgrades on restore; custom colors are preserved, including any later deliberate #808080 selection after version1 is saved. No calculation, threshold, filter or execution change. Smoothing remains ON per explicit user choice.
-
-Palette validation passed: direct JavaScript checks cover upper/lower strict boundaries, exact green/red/Pine-gray values, width3, legacy default-gray upgrade and preservation of newer/custom colors. Full desktop/mobile browser smoke passed with rendered segment colors and width3 checks. No backend changes in this palette follow-up; previous 287 Python tests remain the applicable backend validation.
-
-## Shared RSI Long/Short colors correction
-
-User merged eight-signal/filter/palette PR; main b29e741. User reports RSI curve colors differ from Long/Short colors. Found actual cause: earlier verification checked defaults, but curve used rsiLongColor/rsiShortColor while threshold paths/tags used separately saved rsiUpperColor/rsiLowerColor. Pine uses longcol/shortcol for BOTH. Disclosed mismatch before correction.
-
-Branch codex/shared-rsi-long-short-colors removes duplicate upper/lower palette fields/controls and uses shared Long/Short values for curve, horizontal threshold paths and value tags. UI labels RSI Long colour (curve and threshold), RSI Short colour (curve and threshold). Defaults #00ff00/#ff0000, neutral #787b86, curve width3. Existing custom Long/Short colors remain; conflicting old upper/lower colors ignored. Browser-local rsiSharedColorsVersion1 resets legacy Solid mode to requested Trend once; subsequent explicit Solid choices persist. Arrow colors remain independently configurable. No RSI calculation, filter, smoothing, signal, settings API or trading changes. Backend prior287 tests remain applicable. Validation complete: full desktop/mobile browser smoke passed, including changing shared Long and Short colors and asserting matching curve segments, threshold strokes and scale labels; controls restored to screenshot defaults afterward. Direct JS checks cover legacy Trend migration, retained custom colors and subsequent Solid choice. JS syntax and diff checks passed. Ready for PR review, not deployed.
-
-## Plain RSI curve, without cluster dots
-
-User merged shared-color correction (main922afcf), then requested no dots on the RSI curve: plain green above long_S, red below short_S, gray between. Dots were optional ML cluster-circle overlay, enabled by default. Branch codex/plain-rsi-curve changes showRSIClusters default false and introduces browser-local rsiPlainCurveVersion1 migration: old saved dots enabled become hidden and Trend coloring selected. Later explicit opt-in to dots or Solid is retained. Signal arrows, threshold guides and calculations remain unchanged. Cluster controls retained as optional display settings. User can immediately uncheck Appearance → RSI → Show RSI cluster circles without a deployment. Direct JavaScript default/migration/color checks passed; Full desktop/mobile browser smoke passed, including no cluster circles and retained three-color curve/width and all signal-arrow tests. No backend changes; prior 287 tests remain applicable. Ready for review, not deployed.
-
-## User-authorized uploaded-original selection
-
-Branch codex/use-uploaded-rsi-original, based main a1b7c56. User requested preserve corrected version but replace selected calculation with uploaded original, while retaining today's looks/eight signal updates and ability to use RSI as a strategy. Disclosed BEFORE work that uploaded mode has unavailable ML thresholds: no ML lines or four ML signals, even though styles and controls remain. Asked explicitly; user chose "Switch to uploaded original as-is". Do not claim this will match pictured TradingView values or that original mode can trade ML crossings.
-
-RSISettings default and form fallback now uploaded_pine. One-time startup migration rsi_original_mode_v1 selects it on older saved configs, copies previous RSI inputs and timestamp to rsi_previous_calculation, logs mode switch. New installs start selected with marker. Corrected calculation implementation untouched and selectable; later explicit opt-in persists on restarts. Migration only changes calculation_mode, not signal_rules, filters, smoothing, timeframe, strategy, risk or styles. rsi.py unchanged; original Pine byte checksum cf415bc7edbd732e04bf2c11148a2a04d06c4ff5dc418625134fd3a43e3078df retained.
-
-RSI intrabar remains an existing selectable trading strategy, with chosen entry timeframe and mandatory minute exits, for eligible static crossings in uploaded mode. Corrected alternative retains adaptive ML capability. Startup still pauses entries as usual. Original array outcome is a Python port, not a Pine interpreter or established TradingView parity. New tests preserve original-source checksum, migration backup/all other settings, risk and ownership, no auto-activation, and later corrected selection surviving restart. Corrected-mode numerical/bootstrap tests now explicitly choose corrected so both implementations remain tested. Validation complete: 289 Python tests passed; full desktop/mobile browser smoke passed, including uploaded-original default, preserved Corrected selection/save, return to uploaded mode, eight-rule save and unchanged chart controls. Existing synthetic integration tests cover both original/corrected RSI entries followed by minute exits after restart. Indicator regeneration unchanged; JS/shell syntax, diff checks and source packaging passed. Ready for PR review, not deployed.
-
-## Fixed RSI thresholds, latest user preference
-
-User merged original-mode step (maincc1b40f), saw no ML lines, then explicitly preferred FIXED Long56.68 / Short42.38. Branch codex/fixed-rsi-long-short. This supersedes selecting uploaded-original by default, while preserving both uploaded and corrected alternatives. Do not call fixed levels adaptive ML or claim TradingView parity.
-
-RSISettings calculation_mode fixed default; fixed_long/fixed_short editable finite (0,100), Short<Long validator. RSIState still computes same RSI/smoothing and static30/70, but substitutes fixed values into existing Long/Short crossing slots; no clustering. Runner already gates full ML window only for corrected; FeedAdapter now backfills ML only for corrected. Fixed mode needs normal RSI warm-up, no 3000-value ML window. Header/status explicitly say fixed and omit partial-ML-window wording. Existing colors, arrows, eight-rule selection, optional filters and pane controls retained. Long/Short entry switch label now covers fixed or ML. Mandatory minute exits for RSI unchanged.
-
-One-time supervisor migration rsi_fixed_thresholds_v1 backs up prior RSI inputs/time to rsi_fixed_previous_calculation, selects exact fixed values, preserves all other inputs/risk/strategy/timeframe. Marks original-mode migration completed so older databases do not immediately revert to uploaded. Fresh databases carry both markers. Later edits/other-mode choices persist. No auto-activation. Corrected/original math untouched except the fixed-only threshold branch; original Pine source retained.
-
-Backend 295 tests passed: constants/all eight crossings without clustering, checkpoint equivalence, input validation, no ML warm-up/backfill, once-only migration/backup/edit persistence, API exact levels/fixed status. Actual synthetic RSI entry/order protection/minute exit/restart integration now covers fixed (Long/Short, threshold-only entry with static signals off), plus both preserved modes. User further required compatibility with RSI → Exit1m and selectable chart/entry intervals. Expanded synthetic order/protection/restart/settlement integration across fixed mode 1/5/60/240/D, both Long and Short, asserting saved entry interval and exit1m metadata. Entry-only fixed threshold events tested with static switches off. Backend295 tests still pass. Full desktop/mobile browser smoke passed: fixed default/exact inputs, editable levels/save, all five RSI entry intervals saved with minute exit retained, original/corrected alternatives still selectable, existing chart timeframe/appearance/pane controls unchanged. Indicator regeneration unchanged; JS/shell syntax, diff and release packaging passed. Ready for PR review, not deployed.
-
-## Daily S/R + RSI independent intrabar entries
-
-Branch codex/daily-sr-rsi based merged fixed-level main2fb48d3. User asked Daily S/R+RSI no filters, minute exits, and reliable RSI firing. Confirmed via question: trigger DURING Daily candle, no close wait. User twice clarified each source must fire independently at its own time, no AND. Also plans Select all coins. Explained each coin needs its own signal, orders paced and max/risk limits remain. No live-profit guarantee or live-exchange certification claimed.
-
-New sr_rsi_daily profile: Daily entry interval, mandatory minute SMA7/50 exits via existing management tuple. Fixed RSI mode/all8 source families; preserves editable fixed56.68/42.38 defaults and smoothing (EMA4), forces only entry filters off (both S/R filters and all RSI filters). No existing-strategy settings changed unless user selects this profile. Frontend selectors, History/Analysis labels and API filter accept new ID; Daily/exit/filter fields locked truthfully. Chart view remains independent, with existing reference S/R/RSI rendering, style colors and collapsible panes. Batch/stream combined references share same source merger; historical reference signals do not reproduce sampled live entries.
-
-Runtime daily_sr_rsi.observe combines pure SR tracker and RSI event tracker in one persisted SQLite observation. RSI preview’s own rsi_conflict kept separate from a forming-SR reference conflict; only confirmed prior Daily S/R levels participate in live price crosses. Missing readiness of one source does not hold the other: minimum common closed history2, each source requires its own actual levels/RSI and warm observation. Stale shared candle timestamps still reject without partial consumption. Same-direction simultaneous sources one signal, opposite simultaneous consumed/skipped, different-time sources independent. Existing per-kind/per-level once-per-entry-bar replay guard retained. Freshness budget max(30, symbols/8+20) only for this profile allows one paced full scan; longer gaps rebaseline. Existing single-source strategies keep30sec guard.
-
-Select-all scanning does NOT send all orders simultaneously: existing executor waits for each prior fill and stop acknowledgement, drains fresh queued signals up to saved maximum. No increase in max_positions or bypass of daily/per-coin risk, order ownership, stops or signal expiry. Activity prefix identifies combined Daily strategy; history records entryD/exit1.
-
-Validation complete:307 Python tests passed; full desktop/mobile browser smoke passed. Tests include OR truth table, true RSI14/EMA4 forming-Daily Long/Short crosses while SR levels unavailable; actual SR triggers while RSI unready; separate source times, all8 events, conflicts consumed, duplicate/restart prevention, joint tracker persistence/stale rejection, batch/stream/checkpoint parity, full300-symbol observation-budget case. Stateful simulated exchange verifies BTC SR-only, ETH RSI-only, SOL both matching queue once each, fills/stop verification, minute Long/Short exits after restart, historyD/1 labels and max-position cap after first fill. Browser checks new strategy save, locked Daily/minute exit, every filter off, fixed/all8 selection and independent chart controls. No real account orders placed. Await PR merge/VPS deployment and user review.
-
-## Select-all validation and coin-specific Bybit rejection
-
-User reported Select all rejected the saved selection and requested removal of THOTH Trading heading above default symbol area. Root cause: watchlist has224 selectable unique symbols including HUSDT/WUSDT/SUSDT/FUSDT but model and API regex required at least2 base characters. Updated USDT validation to allow1..30 uppercase alphanumeric base characters in settings/order model, chart/quote/history/analysis. Malformed symbols still rejected. Removed requested heading; retained THOTH brand. Real API regression saves full watchlist and reads persisted selection; checks all four short symbols on chart/quote/history/analysis, with mocked market data. Desktop/mobile browser smoke now saves all224, reloads and checks persistence; full browser suite passed.
-
-User further explicitly required any Bybit rejection affect only its coin and Activity explain it. Found pre-entry BybitError fell into global safety lock. Definite Bybit rejection now emits symbol/code and skips that entry without disabling others. Journal persists definite submission rejection exchange_code; supervisor reports rejection immediately instead of falsely claiming submitted/awaiting fill. Unknown/ambiguous outcomes retain reconciliation safety; shared account risk checks unchanged. Simulator test covers instrument rejection, leverage rejection and order/create rejection, verifying entries remain enabled and a different coin still submits. No live orders or VPS changes made.
-
-Validation:309 Python tests passed; focused supervisor suite38 passed after final ambiguous-error safeguard. Full desktop/mobile browser smoke passed; release packaging, indicator regeneration consistency, shell/JS syntax and diff whitespace checks passed. Branch codex/select-all-symbols-fix; awaiting merge/deployment.
-
-## Chart display recovery from stale saved candle windows
-
-User reported AVAXUSDT/SEIUSDT blank charts with “Market history gap exceeds API window; backfill required”. Chart endpoint reused live Runner.history; old saved latest candle could predate the current public window and trigger the execution continuity guard before drawing. Chart now catches only the two recognized saved-history continuity gaps, validates the fresh fetched OHLC window and its actual interval continuity, then renders an independent display replay using current public candles, including RSI. Response/history_notice is shown in chart status: latest available Bybit candles; trading history recovery remains separate. No synthetic bars, checkpoint deletion, entry activation or relaxation of live history guards. Other validation errors are not swallowed; fresh public candle gaps return502. Historical indicator warm-up depends on available replay window.
-
-Regression seeds real Runner histories/checkpoints for AVAX/SEI far behind current window, verifies chart200 with full fresh candle/indicator/RSI output and truthful notice, checks checkpoint rows unchanged, confirms Runner still rejects discontinuous execution history and fresh missing candles return502.310 Python tests passed; JS/shell checks and indicator regeneration consistency passed. Full desktop/mobile browser smoke and release packaging passed. Branch codex/chart-history-gap; no VPS or exchange actions performed.
-
-## Durable signal-decision explanations
-
-User investigated missed JCTUSDT bullish Daily S/R+RSI signal at03:39NY. Server diagnostic showed sr_rsi_daily D selected, running/entries true, no symbol blocks/pending/reversal, no JCT journal records; RSI tracker fired ml_long_up, SR fired empty. This proves consumed RSI and no order journal but does NOT prove reason/time of original miss. Explained existing replay guards consume recovery/paused crossings; no retroactive certainty. User asked how to know, authorized diagnostic implementation. No re-entry/replay policy changes.
-
-Daily joint observer now attaches one diagnostic for newly consumed RSI kinds/SR levels, explaining fresh crossing, conflict or recovery baseline; retains latest source decision and its observation time atomically with tracker consumption in candles DB. RSI tracker also retains previous gap/freshness and allowed gap so large-watchlist/recovery freshness can be checked. No extra Activity on repeated poll of same consumed crossing. Supervisor records reasons for baseline, flattening, expired observations, same-direction ownership, paused/risk entries, queued entries, queue expiry/cap, cooldown and missing SMA exit monitoring. Existing reversals and definite Bybit rejection messages remain. Durable live.sqlite signal_decisions capped5000, with time/symbol/strategy/direction/source diagnostic; Activity remains latest30 display. Authenticated GET /api/live/signal-decisions?symbol=JCTUSDT&limit=50 (limit1..200) retrieves retained explanations independently of Activity. Latest source decision is NOT proof of order; queue decision NOT proof of fill. Existing execution journal remains order evidence.
-
-Tests cover recovery-vs-fresh diagnostics and no repeated event, paused signal audit with no order and duplicate suppression, expired queue and persistence across restart, filtered/bounded endpoint. Full suite313 tests passed (final rerun logged /tmp/thoth-audit-verified.log); shell/JS syntax, indicator regeneration consistency and diff checks passed. No UI structure changes/browser rerun required. Branch codex/signal-decision-audit, awaiting merge/server deployment. Cannot explain older03:39 state retrospectively and does not open a stale JCT position.
-
-## Signal Alerts page and floating bottom-left notifications
-
-User requested an alert for every created signal as an additional way to gather status. Asked delivery preference; user authorized reasonable default and explicitly asked floating bottom-left alerts on Windows. Implemented in-app notifications, not native OS/phone push. Signal alerts are the existing durable signal_decisions updates for the active selected strategy/coins (including recovery/paused/conflict/queue status); historical chart arrows and prior events are not reconstructed. A signal may have multiple status updates; queued is NOT filled. Opposite-signal owner handling now also persists its decision. No change to signal eligibility, once-per-bar replay policy, risk controls or order dispatch.
-
-New authenticated GET /api/live/signal-alerts: symbol optional, limit1..100 default50, offset>=0, returns stable row IDs, retained total, newest-first updates. Uses existing capped5000 decision table, does not expose secrets. New #alerts page in web/pages.js, separate web/signal-alerts.js loaded before pages. Table shows observed NY time, coin, direction, source/crossing, strategy, reason; coin filter and50-row pagination; explicit no-order-proof scope and retention. Refreshes every5sec only visible/latest page. Source names label fixed Long/Short without claiming adaptive ML. Optional sound enabled by direct click (AudioContext), off by default, while app visible/open and browser allows. No push notification subscription or closed-app delivery.
-
-Global in-app popup polling every5sec while document visible. First response establishes baseline without replaying old saved updates. Stable IDs prevent duplicate popups across polls. Up to3 bottom-left dismissible12sec popups, full burst remains in saved list. Responsive width and aria-live; content via textContent. No notification permission requested, no exchange calls, no activation change. Source/decision history has bounded retention; not a guarantee of tick-level capture.
-
-Validation:314 Python tests passed. Full desktop/mobile browser smoke passed, including Alerts empty/list/filter, fresh popup, duplicate poll suppression, dismiss, no overflow or activation requests; same fixture tests retained for prior features. API pagination/filter/limits test added. JS/shell checks, indicator regeneration consistency and diff checks passed. Source files survived development-environment disconnect; no deployed changes made during disconnect. Branch codex/signal-alerts; awaiting PR merge and VPS update.
-## Fix false Daily recovery baseline during large continuous scans
-
-User supplied actual signal-decision diagnostics: XPIN/WET/KAS/ATOM observation gaps101.281/108.484/121.455/106.857sec, but gap_limit47.875sec for223 symbols. This conclusively explains those skipped events: previous formula symbols/8+20 counted request starts but not network, history/indicator/SQLite processing and dispatch. It does NOT retroactively prove original JCT03:39 cause. Disclosed defect before changes.
-
-Runner now measures each completed scan with monotonic clock; Daily joint observations use min300sec,max30sec,watchlist minimum,1.5*previous scan duration + worker interval +10sec. Both SR and RSI use same budget. Persistent tracker records worker session UUID and scan sequence; only same-session consecutive scans (same scan allowed for direct method/tests) can emit. Restart/session change or missed coin scan baselines even inside budget. Larger real gaps remain bounded at300sec. API worker health includes scan_seconds. Latest source diagnostics add continuous_scan. Signal eligibility, candle time/current-level validation, once-per-Daily-kind/level consumption, conflicts and executor30sec signal age unchanged. Already-consumed crossings NOT replayed. Large watchlist can still take roughly100sec to revisit each coin; sampled intrabar, not instant tick capture. This change does not optimize scan duration or certify tick-level data freshness.
-
-Regression tests replay reported101..121sec gaps separately for SR and RSI in223-symbol profile and verify Long signals, duplicates suppressed; new process baseline, skipped sequence baseline and >300sec delay suppression.314 Python tests passed; indicator regeneration consistency, shell syntax and diff checks passed. No UI changes/browser rerun required. Branch codex/daily-scan-freshness from mainbcca18f; separate from pending codex/signal-alerts, can merge both. No VPS changes or real orders made.
-
-
-Signal Alerts integration: scan timing fix merged in PR54 (mainad8d138). User reported PR55 handover conflict; resolved by retaining both Alerts and scan timing sections. Signal Alerts branch now includes merged timing fix. Combined delivery branch was not pushed because user chose sequential PRs.
-
-
-## Manual dismissal for floating alerts
-
-User saw WAVES alert and requested it stay until clicked. Removed12sec timeout and automatic oldest-popup removal, and render every fetched new update rather than only newest3. Bottom-left stack scrolls within45vh, so new updates do not discard unacknowledged alerts or cover entire chart. Click × dismisses; View signal alerts opens saved page and dismisses that popup. Persists while current app page remains open, not across reloads; underlying5000 saved updates remain in Alerts. No trading changes. JS syntax and diff checks passed; no new tests needed for this reversible display-only change. Branch codex/persistent-signal-alerts.
-
-## Immediate per-coin dispatch for Daily/RSI intrabar scans
-
-User reported XPIN filled/protected but1000PEPE/AAVE/OPN skipped “signal expired” during same large-watchlist cycle. Root cause confirmed in Runner: observations stamped during per-coin analysis accumulated until ALL symbols analyzed; supervisor then rejected earliest observations older30sec. Distinct from prior between-scan recovery-budget bug. Disclosed before changes; user authorized tracing/fix without permitting stale signals.
-
-Runner now uses FeedAdapter's streaming hooks for sr_rsi_daily/rsi_hourly_intrabar: account scan preparation once, then each observation is dispatched immediately after that symbol's analysis/persistence rather than held for end-of-watchlist batch. No duplicate end batch. Existing SR/confirmed strategies and adapters lacking streaming capability retain prior behavior (including held-data guards). Fetch phase remains bounded4-concurrent/8starts/sec and completes before analysis; this does NOT provide instantaneous tick detection, remove download wait, or solve all sampling latency. Dispatch exceptions remove corresponding successful-observation entry so health correctly degrades while other coins continue.
-
-FeedAdapter.begin_market_scan runs normal supervisor monitoring; per-observation apply_signals can reuse recent monitor state. Existing independent monitoring loop continues. apply_signals default remains full monitoring, streaming skips redundant polling only when last successful monitor timestamp within15sec; older/missing/future monitor timestamps force refresh using existing failure handling. All config matching, journal/stop reconciliation, account/daily/cooldown/position checks retained. Entry30sec age and pending30sec expiry unchanged. Signals delayed by actual locks/monitor failures/pending-order settlement may still expire (correctly); no timestamp rewritten to make an old signal fresh, no replay of prior skipped crossings.
-
-Regression demonstrates each symbol dispatched before next symbol processing, simulated40sec subsequent work cannot age earlier observations in a batch, one scan preparation and no duplicate batch. Adapter/supervisor test verifies one recent monitor reused across3coins and refresh after16sec, no order for empty signals.317 tests passed, final log /tmp/thoth-dispatch-verified.log. Indicator regeneration consistency, shell syntax and diff checks passed; no UI change/browser rerun necessary. Branch codex/immediate-signal-dispatch from main3c20eec, awaiting merge/server update; no live exchange orders made.
-
-## Latest outcome on a single persistent signal alert
-
-User showed KNC/ZKC queued popups even though Activity confirmed filled/protected and ZKC closed. Authorized fixing stale alert status. New signal_decision records include exact deterministic alert_key matching execution orderLinkId (same config identity/symbol/observation stamp). Entry preflight ValueError/definite Bybit rejection now persists terminal skip/rejection decision with same key instead of only Activity. Read-only thoth/signal_alerts.py groups same-key status updates into one alert, preserves first diagnostic/source/observed timestamp, and joins ONLY exact journal link to project prepared/submitted/partial/protected/rejected/cancelled/unknown/mismatch/stop_error/closed state. Closing is projected from matching owned entry link and close_link. Unlinked no-longer-pending queued rows say outcome not recorded rather than remain waiting. Legacy pre-link queued records explicitly say historical/final outcome not linked; no guessing outcomes from coin name/current position. Original /signal-decisions audit unchanged/un-grouped.
-
-Alerts endpoint returns stable first-decision id and latest update_id, grouped pagination, plus optional watch_ids (<=200 numeric IDs) refresh for visible popup cards outside latest50. UI updates existing popup text even when no new IDs arrive (journal phase changes), updates one card in place for same signal; dismissed IDs do not resurrect. Watch rotates in200-card chunks for long visible stacks. Persistent manual dismissal retained, different later signals on same coin remain independent. Saved Alerts table shows latest outcomes, underlying5000 update retention unchanged. No order/risk/signal eligibility changes.
-
-Tests:320 Python tests passed (final /tmp/thoth-lifecycle-verified.log). Integration verifies exact order linkage, protected->closed settled status same ID, separate later same-coin signal, unsupported leverage updates queued card outcome. API tests watch old visible alert beyond newest50 and validate watch IDs. Full desktop/mobile browser smoke passed including queued->stop-verified popup change without duplicate. JS/shell, indicator regeneration and whitespace checks passed. Branch codex/alert-latest-outcome; no VPS deployment/live orders.
-
-## Entry signal source in History and Analysis
-
-User wants actual signal source (Major/Minor, long/short term, RSI crossing) shown in History and Analysis to evaluate minor-level losses. New signal_sources module extracts ONLY contributing Daily sources (sr_signal/rsi_signal must equal actual emitted direction), labels sr:long/short_support/resistance_major/minor and all8 RSI crossings clearly; long-term is distinct from Long position. Recorded entry_sources output added to confirmed SR batch/stream and SMA evaluators, mixed SR+SMA merges matching source list without changing decisions; Runner standalone intrabar SR records only fresh fired levels matching chosen direction, standalone RSI records emitted event kinds. Daily uses its existing precise diagnostic. _signal_decision retains entry_sources; _entry retrieves source from exact alert/order link, stores thoth_entry_sources in journal instrument metadata; adoption, ownership, trade settlement and history whitelist preserve entry_sources. Pure SMA fallbacks identify known7/50 or7/200 strategy if diagnostic absent. Source collection changes metadata only, not thresholds, filters, reversals or stops.
-
-History now adds Entry signal source column after Strategy. Read-only history/analysis enrichment can recover older missing source ONLY via exact retained alert_key == trade journal link; no coin/time/chart guessing. Otherwise Source not recorded. Recovery from retained audit for already-closed old trades remains dependent on5000 audit retention; new journal/trade metadata persists source independently. Analysis includes by_source and by_symbol_source tables with trade count, win/loss/flat, win rate, realized P&L and average. Multiple matching sources are grouped as one source combination so each trade/P&L counted once, not duplicated. Existing coin/strategy filters apply.
-
-Validation:323 Python tests passed (final /tmp/thoth-sources-verified.log). New tests cover fill->restart->close metadata persistence; exact historic source recovery and unrelated same-coin record remains unknown; stale/unready RSI not falsely attributed when SR causes entry; multisource P&L counting once. Existing batch/stream/checkpoint parity tests pass with additive provenance fields. Desktop/mobile browser suite passed with History source/unknown cells and source analysis table assertions; no overflow or activation requests. JS/shell/indicator-regeneration/diff checks passed. Branch codex/history-entry-sources from maind8ef14e; awaiting merge/deployment, no live exchange activity.
-
-## Source-specific hour and weekday performance
-
-User asked which hours/days positions win/lose and which signal works better. Extended existing New York timing analysis with Signal source selector, preserving coin/strategy and opening/closing-time controls. Source key is canonical sorted source-ID combination joined by | (unrecorded for missing); each trade counted once. Source options derived after coin/strategy filter but before source selection, so dropdown does not lose alternatives. All totals, source/coin/strategy tables and existing detailed hourly/weekday/date timing recomputed for selected source. Invalid/no-longer-available source gives no trades rather than silently analyzing all.
-
-New “Signal sources by hour and weekday” comparison table gives each source combination’s best/worst observed hour and weekday, net realized P&L and bucket trade count, limited-sample flag/ties, plus total/timed-trade/observed-day coverage. Uses existing timing_analysis rankings (observed buckets only), excludes missing timestamps, opening time default and closing time selectable. Whole realized trade outcome assigned to chosen timestamp; not within-hour mark-to-market profit or a predictive recommendation. Source dropdown allows calendar-date inspection through existing date table. Unknown sources remain explicit. No trading or position changes.
-
-Validation:325 Python tests passed (final log /tmp/thoth-source-time-verified.log). Tests source-filtered totals/timings, opposite source cannot contaminate best/worst, known Fri09 best/Sat10 worst, missing timestamps, exit-time no fallback, coverage and limited samples; API filter/option contract. Desktop/mobile browser smoke passed with source table and select/reset source filter, no overflow/activation requests. JS/shell/indicator-regeneration/diff checks passed. Branch codex/source-time-analysis from main9e95234, awaiting merge/VPS deployment.
-
-## Inverse S/R 4-hour / Daily strategy and compact lists
-
-User requested new strategy using4h/Daily S/R with opposite trade direction, same mandatory1m SMA7/50 exits, explicit settings verification; also scroll inactive per-coin loss streak list while leaving active countdowns visible, and collapse long saved-symbol list under LIVE Saved trading symbols heading. Implemented separate sr_inverse_intrabar profile: choose240 orD (one entry timeframe at a time), default240; other intervals rejected. inverse_direction_confirmed defaultsFalse and is required for this profile, checkbox explicitly maps Long breakout->SHORT / Short break->LONG. Exit autoenabled/locked. Major/Minor selectable, existing optional SR filters act on ORIGINAL breakout before inversion. Sampled forming-candle entries; no RSI branch. Existing strategy selection and settings untouched until user chooses new profile; changing strategy/timeframe still requires paused/flat/reconciled account.
-
-Runner uses confirmed selected-timeframe levels and existing observe_breakout, flips only emitted Long/Short direction after raw eligibility and source capture. Preserves source_signal, marks provenance inverse_sr:level so History/Analysis distinguish inverse sources. Same-session/consecutive-scan bounded measured freshness asDaily, restart baseline/no replay. New profile in mandatory-minute strategy tuple, immediate streaming dispatch,30sec expiry/risk/ownership/stop checks retained. Position side submitted after inversion drives stop math and existing1m exits (actual Short exits7above50; actual Long exits7below50), including restart recovery/reversal. Chart maps to underlying SR references with explicit inverse-direction notice; E/X actual trades. Settings/Analysis/History labels and API strategy whitelist include new ID. Alert source display handles precise inverse source plus original->actual mapping. Confirmed historical replay does not invent inverse intrabar entries.
-
-Saved symbols heading remains visible with count; ticker names in collapsed details with150px scrolling region. Per-coin active pause countdowns stay outside collapsible scrolling Other coin loss streaks; inactive/elapsed streak list uses150px scroll. Scroll position preserved through periodic UI refreshes. Account-wide cooldown display unchanged.
-
-Validation:327 Python tests passed; new simulator tests both240/D and both raw directions, mandatory confirmation/timeframe/level-family checks, exact inverted Buy/Sell, verified protection, worker/account restart, actual-side1m intrabar exits and inverse source/history labels. Full desktop/mobile browser smoke passed for inverse selector/confirmation/mandatory exits, both allowed timeframes, compact lists and active countdown separation; existing features/no overflow/no activation remain. Initial browser retry exposed test click while chart load still active; smoke now waits for chartLoading false before older-history click (no production workaround). JS/shell/indicator-regeneration/diff checks passed. Branch codex/inverse-sr-and-compact-lists from mainb1f156c; no VPS deployment/live trades made.
-
-## Configurable inverse S/R entry waiting time
-
-After considering distance/ATR entry rules, user explicitly chose timing only and answered60seconds. New inverse_entry_delay_seconds defaults60, configurable0..3600 (0 disables); only sr_inverse_intrabar uses it. Existing normal strategies ignore field and keep their behavior. Settings field visible only for inverse, explains minimum wait + fresh breakout recheck; no distance/ATR rule added. Strategy/source fingerprints bind delay parameter/new delay implementation. Old direction-only simulator tests explicitly set0; new delay tests cover actual60-second default.
-
-Runner first detects original SR cross, maps inverse actual side/provenance as before, then applies durable per-coin delayed_entry in existing observation tracker SQLite transaction. Arm only while entries running, no flatten/protection block or per-coin loss cooldown; old paused/recovery crossings consumed, not replayed. No order before ready_at. At first subsequent sample>=deadline, require same process/continuous scan, same entry candle and identical captured confirmed levels, price still beyond each captured level and selected original SR filters still passing. Otherwise cancel. Opposite breakout cancels old wait and may start new one. Capture copies level metadata to detect later level changes. Restart/observation gaps cancel rather than revive old waits. Existing sources remain once-per-level-per-entry-bar. Mature release timestamp is current recheck time; original detected_at retained separately. Existing executor30sec expiry begins on released signal, not while deliberate wait pending. Minute exits/position management unaffected. Large watchlist can cause release later than60sec; no sleep or exact-clock/tick guarantee. Timer is not a guarantee of greater price distance or a reversal.
-
-Activity records wait started/completed/cancelled via inverse_delay_event, without misleading pending-order popup while only timer armed. Existing signal/order alerts start at actual released entry decision. No order/risk bypass, no live exchange calls during development.
-
-Validation:331 Python tests passed, final /tmp/thoth-delay-release-tests.log. Tests both inverse sides wait until deadline and release once, pullback/restart/pause/level/candle/filter cancellations,0/off and bounds/default60, real Runner/supervisor no order until delay then fresh Sell submission, per-coin cooldown prevents arming. Full desktop/mobile browser smoke passed with inverse delay visible/editable/saved at60; no overflow/activation requests. JS/shell/indicator-regeneration/diff checks passed. Branch codex/inverse-entry-delay from main2770284; awaiting PR/deployment. Once deployed inspect Settings timer60 before enabling inverse entries; existing positions keep minute exits.
-
-## User correction: invert the SMA exit direction too
-
-SUPERSEDES earlier actual-position exit specification for sr_inverse_intrabar. User explicitly corrected after reporting3losses: wants inverse exits too. Stated mapping before coding: actual SHORT exits1m SMA7 crossing BELOW SMA50; actual LONG exits1m SMA7 crossing ABOVE SMA50. No candle-close wait. Earlier actual-side mapping was previously agreed; do not claim proof it caused those losses without trade evidence.
-
-_manage_sma_exit now selects opposite comparison side ONLY when persisted owner's strategy is sr_inverse_intrabar. Actual exchange position side remains unchanged for reduce-only close, stop-loss/TP/trailing/risk calculations. Other strategies retain actual Long below / Short above. Entry inversion and configurable60sec entry wait unchanged; exit has no wait. Uses owner's strategy, not current chart/selected config. Existing inverse positions adopt revised exit rule after deployment; no forced close on deployment, only next observed qualifying cross or other existing exit condition.
-
-Reason prefixed Inverse SMA7 crossed above/below50 (intrabar exit); History abbreviates Inverse SMA7/50(EXIT) with full reason tooltip. Settings strategy description, general exit note, runner health note and chart notice updated to explicit new mapping. Confirmation checkbox still confirms inverse entry direction; no new approval hurdle. History source provenance unchanged.
-
-Validation:331 Python tests passed. Updated exchange-simulator matrix both240/D and both actual Buy/Sell positions, restart recovery, former crossing does NOT close, reversed crossing DOES close, correct reduce-only settlement and full inverse reason in history. Existing normal-strategy exits tests pass. Full desktop/mobile browser smoke passed with explicit Short BELOW/Long ABOVE description assertions. JS/shell/indicator-regeneration/diff checks passed. Branch codex/inverse-sma-exits from maine5ee4e5; no VPS/live exchange modifications performed.
-
-## New uploaded Volume Delta + VWAP strategy — awaiting signal-rule choices
-
-User uploaded sediment file0000000076008246b2d148985d05f4b4, requested new strategy with SMA7/50 filter. Preserved exact bytes at reference/volume_delta_vwap_uploaded.pine SHA25653bad89b605b256d5e7a5bfec7785931cca450d9fc5cad255ad6c0d9676a95fd. Branch codex/volume-delta-vwap-strategy from maina1d04cf. No strategy/execution changes implemented yet; no PR pushed.
-
-Read all Pine. Merged indicator includes independent Volume Delta candle conditions, VWAP divergence and standalone7/50+7/200 cross signal families. Default Delta LTF mode uses1m bullish/bearish candle volume (proxy, NOT actual exchange buyer/seller aggressor delta); premiumFalse clamps lower TF>=60sec, auto1500 results1m for supported entry intervals. Tick branch is realtime incremental, cannot reconstruct from REST candles. Default Delta strongbull(close>open,norm>0)/strongbear(close<open,norm<0); otherVWAP/volume/price filters off. Script's SMAcross signal family has its OWN defaultVWAP filter, unrelated to requested7/50alignment. VWAP divergence defaultsSession hlc3,lookback5,ATR14*3,gap suppression,>15bars or>10+range20>ATR*2, volumeMAoff, alert.once_per_bar_close. Source script unchanged.
-
-Disclosed before coding: zero-volume norm=delta/volume undefined; would skip zero-volume signal instead of fabricate. Explained default proxy distinction. Asked async3choices: (1) Volume Delta only vsDelta ORVWAPdivergence vsVWAPonly, SMAcrosses not autoentries because user requested filter; (2) intrabar vsclose; (3) normal1m exits vsinverted1m exits. Awaiting answers; do not assume inversion from prior separate profile or silently add all merged signal families. SMA7/50 intended defaultenabledselectablefilter (alignment, not crossover). No numerical parity claim or live orders.
-
-## Volume Delta strategy completed after clarification
-
-User chose Volume Delta bullish/bearish ONLY, intrabar, then clarified OPEN TRADES with existing dollar stops/trailing but NO SMA exit (not signals-only). Repeated “do not change script logic”. Preserved original uploaded Pine bytes/SHA noted above, with unit hash assertion. Did not change Pine source or enable its VWAP-divergence or standalone SMA-cross entry families. New profile volume_delta_intrabar, name Volume Delta intrabar · No SMA exit. Nested VolumeDeltaSettings: SMA7/50 alignment defaultsTrue because user explicitly requested it (Pine optional use_sma_filter defaultFalse); original strongbull/strongbear defaults retained, weak/all options and bullish/bearish toggles from script available. Other additional source filters remain defaultoff/not added. No inverse mapping or60sec wait. Explicit settings/description noSMAexit; model forces sma_exit_enabledFalse and management skips SMA exits by persisted owner strategy, including restart. Dollar stops/TP/trailing/reversal/daily/coin risk unchanged. Intrabar30sec execution expiry remains separate from mandatory-minute-exit tuple; metadata exit_timeframe none. Strategy switch still requires paused/flat/reconciled account.
-
-volume_delta.signal implements selected LTF proxy: bullish1m candle volume sum minus bearish1m sum, divided by parent volume, parent candle body sign, original strong/weak/all conditions and requested simple7/50 alignment using forming close. Neutral lower volume excluded from delta; parent volume remains denominator. Disclosed zero-volume undefined ratio before implementation; skip zero-volume rather than synthesize. No tick mode implemented (source default LTF); no true aggressor-delta claim. FeedAdapter parent60 candles, default1m lower data at most2pages for current supported entry candle, reuses cached closed minutes, requires complete closed-minute coverage. Source inputs invalid/stale missing -> no fabricated signal, affected coin only. SDK read pacing remains. Default source auto/nonpremium resolves1m for supported1/5/60/240/D.
-
-Runner processes Volume Delta data as each download future completes (single writer), so a slow lower-history fetch does not hold ready coins. Other strategy download behavior unchanged. Persisted sampled observer with process/session scan freshness and once-per-direction/candle consumption. Initial baseline has no order; next fresh observation of still-valid condition may emit (this is a candle condition, not crossing). Emitted conditions during pause consumed; restart cannot duplicate consumed direction in same candle. Normal immediate per-symbol dispatch/account15sec refresh/order reconciliation retained.
-
-History/Analysis/Alerts/strategy API names and source labels include Volume Delta. Chart adds separate default-on appearance toggle/marker for Volume Delta, keeps existing indicators independent. Replays 1-minute reference conditions; for higher intervals only current parent signal computed using actual1m inputs, historical parent-only data does NOT fabricate delta arrows. Current data failure leaves chart visible with notice. These reference arrows are not order proof; full original delta-candle fill/VWAP plot cosmetics not ported in this entry-strategy task. No TradingView numerical/feed-timing parity claimed.
-
-Validation:340 tests passed (final log /tmp/thoth-delta-release-tests.log). Tests original hash, normalization/neutral behavior/strongweak conditions/SMA gating/zero volume/gaps, bounded Daily lower-page caching, batch/stream/checkpoint minute reference parity, all5timeframes xLong/Short real simulated account orders/fills/stop verification and assertion that SMA exit is never called, no duplicate same-candle entries, manual close/history sources/exit none. Ready-vs-slow fetch synchronization regression verifies no batch hold. API higher-TF chart current signal and unavailable data/no fabricated historical signals. Full desktop/mobile browser smoke passed, separate new strategy/own filter selectable, no SMA exit checkbox enabled, nine indicator appearance groups; no overflow/activation requests. JS/shell/indicator-regeneration/diff checks passed. No real exchange orders or deployment. Branch codex/volume-delta-vwap-strategy from maina1d04cf; awaiting PR merge.
-
-## Volume Delta arrows visible independently of active strategy
-
-User could not see Volume Delta arrows after deploying new strategy. Found chart data/rendering tied to cfg.strategy==volume_delta_intrabar and referenceSignalStrategy. Fixed display-only: authenticated chart optional include_volume_delta flag, separate volume_delta_analysis/status. Chart checkbox requests data while enabled regardless saved trading strategy; rendering separate time map, not strategy-gated. V▲/V▼ marks distinguish from SR triangles. Appearance toggle now reloads reference data on enable; global arrows master still applies. Trading profile/settings/order permission never changed by chart view.
-
-Also compute recent higher-TF closed reference conditions from ACTUAL fully covered1m groups already fetched. Bounded public window1,000 minutes (3,000 for Daily, at most3pages, existing30sec read cache); full coverage includes final minute and parent SMA history. No complete lower group -> no arrow, no fabricated OHLC delta. Current forming condition separately checked; status shows delta/qualifying direction or no eligible condition/data, and covered closed-bar count. Prior “current only above1m” limitation superseded by these bounded real-data references, not full chart history or replayed actual intrabar entries. Existing minute reference replay and other indicators retained.
-
-User steering during fix: disregard VWAP Settings, SMA Cross Settings, Price SMA Filter and Volume Filter; keep SMA7/50 filter. Confirmed Volume Delta already uses only requested SMA7/50 alignment filter; no other filters/families added. Original Pine unchanged and live entry helper unchanged except additive read-only reference_history for chart. Volume data still needed for Delta itself.
-
-Validation:342 tests passed (/tmp/thoth-delta-chart-verified.log). New API regression overlay on SR profile with unchanged trading config; off/default no extra lower-history fetch, on separate data; true higher reference only with all real lower minutes, missing final minute or unfinished parent no fabricated historical arrow. API tests now isolate live_feed per test to avoid leaked temporary history DB mocks. Desktop/mobile browser smoke passed (/tmp/thoth-delta-chart-browser-verified.log), independent V marker with non-Volume strategy, appearance hide/show/refetch, other features no JS errors/overflow/activation. SVG text assertion accounts for tooltip title, existing async settings save assertion now waits for saved state rather than reading stale request fixture. JS/shell/indicator-regeneration/diff checks passed. Branch codex/volume-delta-chart-visibility from main4451444. No live server or orders changed.
-
-
-## Plain Volume Delta chart triangles
-
-User requested remove V letter/no visible text from Volume Delta markers, plans to change signal color. Removed V prefix only; markers now plain▲/▼, existing appearance color behavior and tooltip/source metadata retained. No signal/trading/math changes. Updated existing browser expectation; JS syntax and diff checks passed. Branch codex/plain-volume-delta-arrows.
-
-
-## Two-stage higher-timeframe permission → minute Volume Delta (current task)
-
-Branch `codex/htf-volume-confirmation`, based on main `abe42cf`. See [TWO_STAGE_VOLUME_DELTA.md](TWO_STAGE_VOLUME_DELTA.md) for settings, lifecycle and implementation limits.
-
-User's latest clarification SUPERSEDES the earlier directional matching answer: BOTH 4h and Daily S/R OR RSI are monitored intrabar; whichever fresh source arrives first gives per-coin permission ONLY, not an entry direction. After arming, a NEW 1m Volume Delta signal chooses Long OR Short regardless of higher-source direction. Simultaneous opposing higher sources still give directionless permission. SMA7/50 minute alignment filter mandatory. No SMA exit or inverse wait. Configured stops/TP/trailing/opposite-signal action/account safeguards remain. Higher signals do not demonstrate that sideways trading will stop.
-
-New separate profile `sr_rsi_volume_gate`. Gate state persisted under supervisor `entry_gates`. First higher trigger arms; later higher signals do not reset/change it. Positive settled P&L resets that coin's consecutive loss count to0, flat unchanged, negative increments. Default3 losses locks ONLY that coin for default60minutes (existing limit/minutes editable, scope forcedpercoin). Clear pending/reversal for lockedcoin. Cooldown expiry transitions to waiting for fresh higher signal, never automatically opens/unlocks. Both endpoints of unlock observation must be after cooldown; signals during pause/cooldown are not buffered/replayed. Fresh unlock resets count0, then waits for a subsequent minute condition. Stop and trailing management continue; an already-armed position can still close on an opposite minute signal while entries paused.
-
-Feed fetches both higher sources independently while waiting; always minute last. Once armed or during cooldown only minute needed. Higher sources reuse existing durable causal S/R + fixed RSI observations with separate240/D fingerprints/histories and session guards. No uploaded Pine/VolumeDelta calculation changed. A minute condition consumed at arming is not replayed, so it needs a NEW qualifying minute condition afterward. Existing30sec order expiry and paced queues unchanged. Rule edits/removing-readding symbols invalidate armed permissions but preserve locks. Restart preserves permission/locks but requires normal manual activation and fresh minute observation baseline.
-
-Settings/Analysis/History strategy names added; mandatory controls locked and described. Live positions has compact per-coin permission list with Armed/Waiting/Locked/WaitingFresh, source frame, loss count and countdown. Activity/SignalAlerts record gate changes; exact order sources include higher `htf:240:`/`htf:D:` source IDs plus minute VolumeDelta IDs, formatted in Alerts/History/Analysis. Chart timeframe stays view-only; arrows do not reconstruct stateful gates or prove orders.
-
-Validation:354 unittest tests passed (`/tmp/stage-final-tests.log`), 12 new gate/account/runner tests: either-side confirmation, same-observation no entry, opposing higher permissions, pause consumption, pause still permits managed opposite exits, mandatory model constraints, real settled third-loss lock, cross-coin isolation, third losing reversal cannot open replacement, cooldown/fresh unlock, durable state, source history, real higher RSI → real minute Short through feed and exchange simulator, healthy-source isolation when minute/other-source unavailable. Full desktop/mobile browser smoke passed (`/tmp/stage-browser.log`), including new Settings profile, enforced fields, gate armed/lock display, no activation requests. JS syntax, shell syntax, generated indicator and diff checks passed. No live deployment or real orders. Review branch is pushed only after checks; GitHub direct PR creation unavailable in this environment, so provide Create PR link accurately.
-
-## Fix staged worker stale minute packets after first live rollout
-
-User's first worker report still described Inverse S/R:207 OK,16 trailing symbols error `-1`,168.51sec scan. Consistent with a strategy change during an old scan (do not claim exchange failure). Next report confirmed NEW staged strategy but214/223 coins degraded with source_errors.1=`Current Volume Delta candle unavailable`,9 OK,589.31sec scan. Root implementation defect: minute snapshots were fetched in background futures, which could queue the whole universe ahead of expensive higher-history analysis; they arrived at evaluation after their minute had ended. Minute timestamp was also captured before higher calculations. User was told defect before fixing, advised pause entries during preparation.
-
-Branch `codex/fresh-minute-volume-check` from merged main5038267. Stage fetch now returns only higher-source packet plus minute_on_demand marker. Runner evaluates higher histories first, calls FeedAdapter.staged_minute_inputs(symbol) for60 fresh minute candles immediately before VolumeDelta, then updates now AFTER that network read. Existing strict current-minute guard, SMA filter, gate/loss state and no-replay guards unchanged. New bounded_downloads generator holds maximum4 outstanding/ready higher packets and replenishes only after caller finishes processing a yielded symbol. Existing strategies retain their pipeline. Health bar uses actual observation timestamp. Does not guarantee a particular full-watchlist scan duration; startup history bootstrap still expensive; measure next live worker report after deploy. No widened freshness allowance or stale candle acceptance.
-
-Validation:356 unittest tests passed (/tmp/fresh-minute-tests.log). Added regression advances clock180sec during higher analysis, verifies subsequent actual minute fetch/current timestamp has no stale error; deterministic100-symbol fake executor proves only4 submissions before processing and one replacement after resumption. Updated feed test proves no eager minute fetch, fresh read also when already armed. Existing real two-stage order/stop/loss/reversal tests pass. No frontend changes; previous browser checks apply. No live access/deployment or real orders. Review branch pushed after checks, provide Create PR link.
-
-## Follow-up staged scan efficiency and strict rollover retry
-
-After user deployed f2f9411 (PR68), report:220/223 coins OK, EDENUSDT/KASUSDT/MSFTUSDT degraded with minute-current-candle error;390.18sec sweep. Prior fix reduced214 errors to3, but scan still slow. These reports do NOT include actual received bar or offset, so minute-boundary explanation is a hypothesis, not proven for the three named coins. Explained this and the full-history refresh before changing code.
-
-Branch `codex/staged-scan-refresh-efficiency` from mainf2f9411. New stage-only adaptive higher download size: bootstrap up to1000 when no adequate saved history; with>=50 cached candles request3 recent overlapping candles, growing by elapsed4h/D periods up to1000 after gaps. Existing durable history retains all saved warmup; do not reset it. Higher source analysis uses latest_only=True, returning one latest closed analysis rather than decoding1000 records twice per coin; shared analysis skips unchanged checkpoint rewrites when no closed candle advanced. Full/chart callers retain default full output. Recent overlap corrections still invalidate checkpoints; old corrections outside refresh overlap are not proactively redownloaded on each scan. No signal/formula changes; full initial bootstrap and watchlist/API work can still be slow, no guaranteed sweep duration.
-
-Minute freshness helper retries ONLY if last candle is exactlypreviousminute and local current minute is<=5sec old: at most3 total reads, stop-event waits0.25/0.75sec. Missing, older-than-one-minute, future, previousminute outside5sec, or retry exhaustion failclosed. Never use old candle as current. Failure now includes expected/received epoch bar to diagnose actual cases. No widened crossing freshness or automatic risk bypass.
-
-Validation:359 unit tests passed (/tmp/staged-efficient-tests.log). Added exact retry scope/exhaustion/no stale acceptance tests; history sizing bootstrap3/catchup7/cap1000; full-vs-latest parity, unchanged checkpoint preservation, incremental recent-forming-finalization parity vs fresh batch replay. All prior strategy/order/protection/history tests pass. Generated indicator unchanged/diff check passed. No UI changes or real deployment/orders. User must deploy merge and provide another worker report; compare actual scan_seconds and detailed remaining errors rather than claiming server performance is solved.
-
-## Armed minute checks prioritized; waiting coins no longer fetch minute data
-
-User reported all223 OK after PR69 but scan318.74sec. Explained data availability is fixed but a sweep over300sec can still fail the unchanged observation freshness check. User asked next step, then clarified delay after higher signal and VolumeDelta. Work authorized: reduce unnecessary work, do not raise300sec cap. Branch `codex/prioritize-armed-volume-checks` from main3574724.
-
-Production staged packets now flag minute_not_needed for waiting/cooldown coins: no minute request and no minute tracker update until armed. Higher trigger still arms without an order; a later first minute read establishes a baseline, subsequent fresh condition may emit. Already-armed coins get no higher fetch. FeedAdapter.staged_armed_symbols lists only saved symbols in armed phase for active managed staged profile.
-
-Bounded higher download iterator now has optional main-thread heartbeat, wakes once per second while futures pending. Runner polls armed coins at5sec scheduling opportunities, up to4 due coins pergroup sorted by oldest last check. Repeated observations and order dispatch happen immediately during the wider permission sweep, not after it. Group bounds preserve waiting-coin progress. Already-checked armed coins are not redundantly fetched again by normal pass. All indicator/supervisor dispatch stays same thread; no extra client/exchange-writing threads. Gate/actual-side filter/stop/trailing/risk/no replay/300sec guards unchanged. Opposite managed exits continue during entry pause. Health adds priority_minute_checks. Large armed sets/network/CPU/private checks still increase latency; do not promise5sec percoin or guaranteed fills. Timing discussion: with11 armed, rough scheduler target3 groups≈15sec PLUS work/network; after actual detection no deliberate delay, entry checks/queue then submission/fill.30sec is detected-signal expiry, not a wait timer. Arming has no fixed expiry, retained until lock/rule invalidation.
-
-Validation:361 unittest tests passed (/tmp/armed-priority-tests.log). New regressions no minute read/entry for unarmed packet and dynamic armed getter; blocked higher fetch test requires an armed coin to receive another check/dispatch BEFORE blocked permission fetch can finish. Existing real higher-RSI→minuteShort test adjusted for mandatory first minute baseline after arming; actual protected order still verified. All prior loss, stop, reversal, source, rate, API/chart tests pass. Generated indicator unchanged/diff check passed. No UI changes. No live deployment/orders; after user merge deploy and measure scan_seconds/priority checks/actual activity before claiming timing solved.
-
-## Independent higher-permission and minute-confirmation workers (latest, supersedes shared heartbeat)
-
-User returned before stopping: TradingView shows other breakouts but Activity dominated previouslyarmed LAB/SAGA and unsupported-leverage XCN/ESPORTS. Latest report220OK/3degraded, scan453.094sec,160 priority checks; EDGE/RAVE/SIREN 4h source errors `RSI forming candle or contiguous history unavailable`. Explained leverage/duplicate logs are separate; scan above300sec can suppress new arming; user explicitly authorized fixing today. No exact missed coin/time was supplied, so do not claim an exact TradingView breakout was reconstructed or parity proven.
-
-Branch `codex/independent-staged-workers` from mainf263804. Shared main-thread minute heartbeat was still slowing higher permission sweep. Runner.start now owns two worker threads: main higher4h/Daily (normal other profiles unchanged), separate confirmation_only Runner active only for managed staged strategy. Each has its own observation session/counters/timing. Main staged path never fetches/evaluates minute data for armed coins and never dispatches empty primary observations for those coins (prevents cursor racing a minute signal). Waiting source decisions dispatch immediately to normal locked supervisor; confirmation worker discovers newlyarmed saved symbols and polls up to4 due coins perbatch, oldest checked first, five-second cadence including work time. Supervisor management/entry/order state remains serialized by existing RLock and shared journal, global Bybit pacer retained. Paused entries still consume observations and allow configured managed exits; no auto-enable, leverage override or new filters.
-
-Minute continuity now counts actual per-coin CHECK ATTEMPTS, not global rotating batch number. Failed attempt breaks that coin's continuity; worker restart UUID requires baseline; elapsed freshness still capped300sec. Estimated complete confirmation round derives from actual batch duration/groupcount for its bounded budget; prevents legitimate11coin rotations being mistaken for missed cycles. Stop/start owns both threads. Separate SQLite observation identities keep primary frames apart from minute tracker. Root health dynamically includes confirmation health while primary sweep still runs. `scan_seconds` top level is now higher-only; nested confirmation contains batch scan_seconds, estimated_round_seconds, armed_coins, checked_this_cycle, total_checks, max_check_age_seconds, stale_symbols and pending_first_check. Legacy priority_minute_checks is cumulative since worker start, explicitly labelled by priority_check_count_basis (earlier version per-sweep metric superseded). Overall health degraded if either worker reports errors; minute checks older300sec explicitly reported. Source status `scanning` during sweep avoids an old disabled status throughout initialization.
-
-Higher packets recheck current4h/D bar at analysis time and refetch once if a queued packet crossed a candle boundary. If refreshed bar still missing/future/old, source error includes expected/received. Sampling timing diagnostics make continuous higher gaps over effective<=300sec budget explicit in source_errors, even absent an RSI crossing; not merely OK data while baseline resets. Healthy other higher source still independent. Old missed/restart signals are NOT replayed. Original Pine, signal math, filter, cooldown, reversal, stops/TP/trailing and risk protections unchanged. Actual server time still needs measurement; shared API/CPU/locks can limit both paths, do not guarantee scan<300 or instant fills.
-
-Validation:364 unittests passed (/tmp/independent-workers-tests.log). Actual simulated exchange regression holds higher worker blocked and minute worker independently detects Short, submits and confirms exchange stop BEFORE higher worker can finish. Tests start/stop both threads, actual11coin rotation produces each expected direction despite skipped global batches, real higherRSI→minuteShort across distinct workers and baseline, rollover refetch plus explicit453>300 diagnostic, all prior order/loss/reversal/history/security tests. Full desktop/mobile browser smoke passed (/tmp/independent-workers-browser.log), noJS errors/overflow/activation; generated indicator unchanged/shell/diff checks passed. Browser fixture images restored. No live orders/deployment. User must merge then deploy paused; inspect both health sections and new signal timestamps before claiming field timing resolved.
-
-## Field follow-up before the Order Block task
-
-User provided post-PR71 report: all223OK, primary scan226.37sec (<300 cap), independent confirmation batch0.69sec, estimatedround5sec with2 armed. Read-only VPS query later confirmed entriespaused; numerous other higher signals were correctly ignored during pause, not proof of continued missed-crossing defect. After userenabled, ARC armed8:57:54 on240; BABY VolumeDelta Long queued9:00:50, submitted9:00:54, filled/Bybitstopverified9:00:58. This establishes those actual observed transitions, not universal speed, all TradingView breakouts or profitability. User plans gradual best100-coin selection to reduce load; do NOT automatically prune their saved list.
-
-## New S/R-only → Order Block 5m strategy (current task)
-
-Branch `codex/sr-order-block-confirmation`, based on mainc2fbbd5. User upload preserved exactly as `reference/order_block_salem_uploaded.pine` SHA256e2fcbf0221f92fc175ead52f569c86d063c4f43d7588048c031c2e0934af03d5, .gitattributes -text -whitespace. See [SR_ORDER_BLOCK_STRATEGY.md](SR_ORDER_BLOCK_STRATEGY.md) for current rules and limitations.
-
-User confirmed NEW separate profile replacing VolumeDelta only in this new sequence: BOTH4h/D S/R ONLY intrabar permission, NO RSI. Directionless permission remains until per-coin losses lock; confirmation chooses either direction. User corrected confirmation timeframe to5m (supersedes initial inference1m). User first answered applySMA200toallfour, then explicitly corrected event-specific comparisons: ABOVE5mSMA200 accept BearishOBformed(Short) OR BreakoutAboveSupply(Long); BELOW accept BullishOBformed(Long) OR BreakdownBelowDemand(Short). Equality neither. This latest message supersedes earlier allLongbelow/allShortabove assumption. No RSI/VWAP/SMA7/50/volume/strength filters. Supply/demand breaks still strict high/low wick tests from original, not closing-price zone crosses. All4families selectable/defaultenabled, period200/timeframe5 fixed.
-
-Implemented `sr_order_block_gate`, nested order_block settings. Shared STAGED_STRATEGIES includes originalVolumeDelta and newOB; originalVolume formulas/timeframe/filter untouched. Model enforces5m/noSMAexit/percoinscope/noS/Rfilters/SMAperiod200/filter_breaksTrue. Higher source uses a dedicated SR-only observer with durable session/gap guards, NEVER RSIpreview. Independent confirmation worker dispatches to OrderBlock helper, reports timeframe5 and event-aware SMA note. Existing source+confirmation workers, global pacing, journals/ownership, same-direction protection, configured opposite-signal actions, stops/TP/trails/risk and3loss→60min→freshhigherS/R controls retained. New profile selection requires paused/flat/reconciled as before; existing cooldowns persist, no automatic enable or leverage adjustment.
-
-Core `order_block.py` ports ATR14/engulf/breakHighLow/whiteSoldiers/blackCrows, switch priority, DAC/pivot zone values, strict head-only break removal before newzones, overlap firstbounce/mutate thenreplacement, zone queues. Uploaded source unchanged. Profile explicitly overrides optional default filters and adds user-requested normal-direction SMA comparisons to zone-break alerts that bypassSMA in uploaded original. No hidden fixes to Pine. Pure preview clones CLOSED state (Pine rollback), no preview zone corruption. Separate order_block_checkpoints stores closed state/recent-candle validation; first up-to1000 5m bars then60/gapcatchup, >=200 SMA warmup. Rawdata retained5000bars; source changes/recent revisions replay retainedhistory. Initial older zones before available bootstrap cannot be recovered; no TradingView parity claim. Startup/gap/currentlyvisible events baselineconsumed, no replay; new events deduped byfamily/bar. Opposing eligible events remain in reference data but skip ambiguous trade, as existing combined profiles.
-
-Settings/activation names `S/R 4h/D → Order Block 5m`; own details/4checkboxes, source filters lockedoff, timeframe5/SMA200 locked, RSIsettings hidden evenafterreload. Gate status shows5mOB andfreshS/R-only waiting. History/Analysis/Alerts exactsourceIDs ob:bullish_formed,ob:bearish_formed,ob:supply_breakout,ob:demand_breakdown plushtf:...:sr:... labels. Optional readonly chart include_order_block only replayson5m; otherframesnotice. Separate appearance dropdown boxes/two colors, visibleStrengthlabels and rightward extension; NO OBtrianglemarkers, no trading setting changes from visuals. Existing SMA7/50/200 chart lines remain displayindicators. Old strategies still selectable.
-
-Validation:377 unittest tests passed (/tmp/ob-final-tests.log); new tests exactsourcehash, modelmandatoryrules, handcalculatedformation zones/offsets/mirror, above/below/equal4-event rules, strictwick/head-order/noequalitybreak, originalbounce/replace,800bar full/checkpoint/mirrorparityall4types, previewrollback. Simulatedaccount tests SRonlybothhigherframes(assertRSInevercalled), actual5minformationfrombaseline→protectedLong(assertSMAexitnevercalled), initial1000vs60fetch, no duplicate/restartreplay, closedzonesnotmutatedbyformingpreview, Historysources,3losslock/isolation/cooldownwaitfresh. APInewprofilefilter/5mrefs/displayoff/otherTFnotice withunchangedconfig/noenable. Full desktop/mobile browser smoke passed (/tmp/ob-boxes-final-browser.log): newprofile5m/fixed200/noRSI reload/4familysettings/sourcefilterdisabled, gate5mstatus, OBboxes/blueOrangecolors/strengthlabels/displaytoggle,10appearancegroups, noJSerrors/overflow/activationrequests. FixturePNGs restored before commit. No real deployment/orders. User must merge, deploypaused and close/reconcile positions before selecting newprofile; compare sampledlivebehavior/TVsettings with intentional SMA exceptions. Gradual best100coin plan remains future/manual, no saved-symbol changes.
-
-
-Final visual steering before PR: user explicitly said Order Blocks are BOXES, not arrows, and supplied TradingView screenshot. Removed OBtrianglemarkers entirely. Boxes defaultON, separate appearance checkbox `Show Order Block boxes`, blue demand#2157f3/orange supply#ff5d00,20%fill/2pxborder, rightwardextension, visiblegrayStrengthlabels(round2). Broken zones disappear as source; no extra green/red broken-box overlay. Only two box color controls. Other existing indicator arrows are unaffected. Browser mock asserts demand/supply rectangles, originalcolors, Strength3text, noOBmarkers, customboxcolor and hide/show; inspected local synthetic screenshot /tmp/thoth-order-block-boxes-fixture.png. Screenshot isappearanceguideonly; 5mconfirmation unchanged. New settings display checked/disabled mandatorySMA200 checkbox separately from unusedS/R filter toggles. Original Pine preservedunchanged. Final browser/test log paths in release notes below supersede earlier intermediate visual runs.
-
-Release validation for final box UI: /tmp/ob-release-browser.log passed full desktop/mobile suite, including mandatorychecked/disabledOB SMA200 control, two box colors, blue/orange rectangles, Strength labels and noOBarrowmarkers. Backend release /tmp/ob-final-tests.log:377passed; JS/shell/generated-indicator/diff checkspassed. Visual synthetic screenshot inspected at /tmp/thoth-order-block-boxes-fixture.png. User screenshot has1m selected but explicitly clarified tradingconfirmation5m earlier; do not silently change timeframe from the appearance example.
-
-
-## Order Block boxes independent of chart timeframe (latest)
-
-User objected to restricting boxes to5m; clarified chart display must be independent of botconfirmation. Branch codex/order-block-boxes-all-charts from main330eb0b. Removed API5m-only replay restriction. Existing reference engine already supports interval; now receives displayed interval1/5/60/240/D. Boxes and SMA200 use that timeframe, status explicitly distinguishes chart references from fixed5m tradingconfirmation. Appearance group renamed Order Block boxes. Box colors/strength/geometry unchanged. No strategy/model/worker/filter/order/risk changes, no deployedstatechanges.
-
-Validation:378unit tests passed (/tmp/ob-all-charts-tests.log). API regression all5intervals verifies actual known demandbox106/97, correctly labelled interval, unchanged saved strategy/config/timeframe5 and entriesFalse. Browser smoke label references updated; desktop/mobile checks run separately (/tmp/ob-all-charts-browser.log). User must merge/deploy to see this display fix; no need to change strategy or enableentries just to inspect charts.
-
-## S/R reference arrows visible across every chart (latest)
-
-User: S/Rarrows notseen, wants allcharts fortracking. Branch codex/sr-arrows-all-charts from maine446652. Chart already returned someSR data, but inherited savedtradefilters/families and onlyclosed arrows, plus savedappearance couldhideSR. Fixed display-only: allchartintervals1/5/60/240/D replay SRwithbothMajor/Minor, priceSMA/SMA7/50filtersOFF, independentactiveprofile. Tradingconfig untouched. Currentformingreference compares currentclose vs previousclosedclose using onlylastconfirmedSRlevels; provisional=True, canchange/disappear, no unfinishedpivotconfirmation or liveorderproof. Appshows sr_reference_status explaining unfiltered confirmed/provisional references. Both Analysis(mainstrategy) and SRseries remain separate.
-
-Chart layer now has visible `S/R arrows` checkbox, synced with AppearanceSRcontrol. SMA/VolumeDelta master no longer hidesSR; each hasowncontrol. Existing markercolors/geometry preserved, formingmarkerscarrydata-sr-provisional and explicittooltip. One-time srDisplayVersion2 migration turnsSRvisibilityON for this requestedfix while preservingotherappearance; subsequentmanualOFF/ON persists normally. No fabricatedarrows whennocross, noentry/risk/strategy/timeframe edits.
-
-Validation:380unit tests (/tmp/sr-display-final-tests.log): actual500bar fixtureSRsignals all5intervals withtradefiltersON andbothfamiliesOFF stillshowsMajor+Minor andretainsconfig/entries; formingLong/Short/None preview usesfixedconfirmedlevels anddoesnotmutate mainanalysis. Browser smoke (/tmp/sr-display-browser.log) checksall5timeframesSRvisibility, independentmastertoggles, provisionaltooltip, legacyvisibilitymigrationandfuturemanualpreferencepersistence, no settingswrites/activation. Fullsuiteotherfeaturesalsoincluded. Usermustmerge/deploy; see confirmedreferencearrows andprovisionalones, notguaranteedcapture/replayofeveryhistoricalintrabarpath. Native liveworker/confirmations unchanged.
-
-
-## Account monitor interruption diagnostics — October 27, 2026
-
-User supplied the retained 100 activities. At 01:37:08 EDT, account_monitor UnexpectedError latched the account safety lock. Opposite SMA closes continued but replacement entries were blocked; operator re-enabled at 02:02 EDT. Later per-coin cooldowns are separate. Docker logs for 05:35–05:40 UTC returned nothing; the underlying historical exception remains UNKNOWN. Do not attribute it to the stop size, a particular coin, rate limiting, or the 104-second market scan without evidence. Successful later protective stops do not prove uninterrupted entries.
-
-Branch codex/account-monitor-failure-diagnostics adds curated builtin exception names and the last five THOTH-only traceback code locations (basename/function/line), never exception messages, source text, locals, credentials or upstream bodies. Activity/status summarize the innermost location. A separate persisted monitor_failures archive retains the latest 100 timestamped account-monitor failures, exposed through the authenticated supervisor snapshot, surviving ordinary activity churn and recovery/restart. This is forward-looking evidence collection, not a root-cause fix, and cannot reconstruct the old exception. Existing safety locks, manual activation, stops, exits and rate-limit recovery are unchanged. UI still displays 30 general activities and the ordinary event buffer remains 100.
-
-Validation: 416 unit tests passed in /tmp/monitor-diagnostics-tests.log, including safe traceback extraction/redaction, unchanged other diagnostic stages, and monitor archive persistence after 110 ordinary events and restart. No live API/order/deployment actions. User must merge/deploy to capture future failures; no need to reset databases or clear protections.
-
-
-## Phone/Windows entry-pause alerts and saved reasons — October 27, 2026
-
-User asked why the bot paused before manual activation, then requested phone notifications with reason, persistent readable history, and Windows access for copying into chat. Explained the supplied 04:05 recovery→05:05 manual activation interval is one deployment restart pause, not repeated MRVL pauses. The earlier 01:37 UnexpectedError root cause remains UNKNOWN; previous diagnostic improvements remain intact. No new trading behavior is authorized here.
-
-Branch codex/phone-pause-notifications from main8fbf6d1. Account supervisor saves enabled→disabled transitions atomically into entry_pauses alongside its existing payload, live only. Captures manual/risk/restart pauses, not per-coin cooldowns; retains1,000 independent of100 general activities. Initial restart from enabled records explicit server-restart/manual-activation reason. Already-paused restarts do not invent a new transition. Historical pauses before this version are not reconstructed. No network in trading save/lock path; no changes to order/exit/risk/resume logic.
-
-New PushNotifications owns private phone-alerts.sqlite with persistent P-256 VAPID key, max20 opt-in device subscriptions, durable per-device delivery jobs and pause cursor. Separate thread reads saved pause outbox every2s; encrypted Web Push with8s transport timeout, no redirects/proxies, allowlisted HTTPS browser provider domains, validated P-256/auth keys, exponential30–300s retries,404/410 cleanup,24h job retention/1h providerTTL. New subscribers skip old pauses. Test is queued and limited1/30sec/device; provider acceptance is not confirmed receipt. Authenticated same-origin GET/enable/disable/test API; no subscription endpoints/private keys exposed in GET. Single-process existing deployment requirement retained.
-
-Security → Phone pause alerts on phone AND Windows: enable per-device, send test, disable. iOS16.4+ requires Home Screen install; Android Chrome and Windows supported where browser permits. Separate expandable Recent account pauses shows latest50 New York timestamps/reasons without enabling push. Copy pause report uses clipboard, with selectable textarea fallback. Real SW push displays reason + savedNYtime, requireInteraction hint; clicks open only local THOTH/login. No trading requests/offline commands/caching. Delivery cannot be guaranteed or sent by a fully offline server. Device/browser permission is required after merge/deploy.
-
-Validation:426unit/API tests passed /tmp/phone-push-tests.log including actual encryption/VAPID signing with transport mocked, endpoint/key rejection, durable stop/restart capture, no replay/duplicates, restart key retention, provider retries/expiry, per-coin exclusion, retained reason after re-enable, auth/cross-origin and opt-in/test/disable without trading. Full desktop/mobile existing smoke /tmp/phone-alert-browser.log passed; targeted /tmp/phone-alert-controls-browser.log passes mobile+desktop permission/enable/test/disable/copy/NYreason/history, no page errors or overflow/trading calls. node tools/push_worker_smoke.js passes real SW handlers with mocked OS, savedreason+NYtime, local-only click. No real push messages, external account actions, production deployment or activation performed. Standard merge/deploy then user enables/testing on each device.
-
-
-## Standalone Order Block 4h — no entry filters (October 27, 2026)
-
-User requested simple standalone 4h: Bullish formation OR Supply breakout→Long, Bearish formation OR Demand breakdown→Short, no bar-close wait, NO FILTERS. Then explicitly reaffirmed Daily Stop Loss, Daily/3-Day/Weekly equity trailing and all other protections remain unchanged. Branch codex/order-block-4h-unfiltered from mainf00549e, internal order_block_intrabar, display Order Block · 4h · No Filters. No added S/R permission, RSI, SMA200, SMA7/50, VWAP, volume or strength entry filtering; original uploaded Pine bytes remain untouched. No separate SMA/OB exit; selected opposite_action is preserved (reverse/close_only), protective stops/TP/coin+combined trailing/account controls remain. Old S/R→OB5m inverted-filter profile and SMA4h→opposite-formation exit unchanged.
-
-Model fixes timeframe240, entry SMA flags off, SMA exit off, all4 OrderBlockSettings families true/filter_breaksFalse. Reuses existing causal OrderBlockState with formation_filterFalse and existing rollback-safe runner checkpoint, now unfiltered for this profile only. Confirmed history holds zones; forming preview is copied, not committed. Current4h required; first/startup/gap/revised-history observations baseline, no replay. Each event kind once/bar. Only NEW-event sides determine direct-profile conflicts, so an already-consumed wick break cannot suppress a later new opposite event. Newly simultaneous opposite events skip; matching events share one entry/source list. Existing5m profile conflict semantics unchanged.
-
-Bounded4-packet immediate-dispatch intrabar feed, initial1000 closed-history bootstrap then60 overlap/gap catchup based on cached checkpoint, fixed4h only, no extra1m/5m reads. Generic30-second freshness/queue expiry and existing order pacing/settlement checks apply. No arbitrary minimum wait. Entry source IDs ob:bullish_formed,ob:bearish_formed,ob:supply_breakout,ob:demand_breakdown propagate through alerts/history/analysis; metadata entry_timeframe240, exit_timeframe none. Account controls are not reset or disabled.
-
-UI adds distinct option/description/analysis/activation/history names. Trading timeframe locked4h; opposite action selectable; unused RSI/Volume/SR controls hidden, SMA entry checkboxes off/disabled, SMAexit off/disabled. Other indicators still chart-only. Existing chart box colors/geometry remain; unfiltered boxes and all4 reference event types on any viewed1m/5m/1h/4h/D chart, with explicit fixed4h execution notice. No OB arrows.
-
-Validation:434 unit/API tests passed /tmp/ob-4h-tests.log. New tests all4 real forming events without200bar warmup and with zero volume; no duplicates/startup/gap replay; new opposite break after consumed prior break in same4h candle; ambiguity skip; real worker direct order→protected fill with no HTFgate/SMA/OBexit; bootstrap1000→60; exact entrysource/history provenance; 31-second stale signal rejected; selected reverse vs close_only including protected replacement/source; all account controls retained; all5 chart timeframes unfiltered boxes/read-only config and new analysis filter. Existing tests preserve uploaded Pine hash, old5m filter behavior and account protections. Full desktop/mobile smoke passed /tmp/ob-4h-browser.log, including fixed4h/no-entryfilters settings, all4 saved families, unchanged saved risk values, reload and activation display name, existing profiles/chart/other functionality. JS/diff checks passed. No real exchange orders, production deployment or live activation performed. Merge/deploy paused, close/reconcile managed positions before selecting new profile, then manually enable when ready.
-
-
-## Mandatory Volume Pass MA for standalone 4h Order Block (latest, October 27)
-
-User added: Volume Pass MA; do not take positions without passing. Branch codex/order-block-volume-ma from maind2a107e. Existing order_block_intrabar ID now displayed Order Block · 4h · Volume MA. ONLY this profile changes. Mandatory forming4h volume strictly>ownSMA20, including current candle, multiplier1. No disable checkbox. All4 entry events still present; all OTHER entry filters remain off. Raw OrderBlockState/zone formulas, uploaded Pine bytes, other strategies and all daily/period/combined/coin trailing/stops/TP/cooldown/risk controls unchanged. Historical trades under this same strategy ID before upgrade did not have this volume gate; the current label does not prove historical volume qualification.
-
-Shared order_block.entry_volume helper calls existing validated sr_volume.volume_pass(rows,20). Its module is already in source_fingerprint, so cache/receipt source version changes appropriately. Runner computes volume on current4h history before candidate signals, suppresses low-volume signal/entrysources/events, and does not consume a fresh low-volume event as a trade. It is re-evaluated on later scans in the SAME candle and can qualify only if still a raw formation/break event with passing volume. First/restart/gap baseline still consumes preexisting events even if low-volume, avoiding replay. Conflicts/once-per-family dedup preserved; no low-volume entry queue/alert churn. Status exposes volume_checks.
-
-Final _entry guard for same profile requires original order_block_bar context to equal current4h candle and re-reads latest20 4h candles to recheck strict volume pass before any entry order. Covers queued/reversal orders and rejects stale-bar/missing-context/warmup/equal/below data; no bypass with crafted observed signal. Adds one small public kline read per attempted qualified entry, not per watched coin. Existing stop/risk/expiry/pacing checks remain. Raw boxes on any chart are intentionally unfiltered reference geometry; chart status separates raw references from the mandatory trading volume requirement.
-
-Validation:439 tests passed /tmp/ob-volume-tests.log, all4 real event families low→pass/no duplicate, full20-candle contiguous4h volume window, equality/below/currentbar submission refusal, low-volume realworker no entry/queue/queued activity, disappearing raw event not replayed, recovery baseline, existing full order/reversal/protection/source/risk/otherprofile regressions. Existing zero-volume raw formation and unfiltered SMA OBexit tests still pass; test strategy fixtures updated to passing volume. Full desktop/mobile smoke /tmp/ob-volume-browser.log validates required-volume description/newname/retained risk settings alongside existing suite. No real orders/deployment/activation. User must merge/deploy paused. Internal strategy ID/timeframe unchanged, so existing positions need not be closed merely for this volume gate; original saved dollar stops/TP remain, standard manual restart activation applies.
-
-
-## Independent Order Block + S/R 4h with mandatory volume, and overall-stop explanation (October 27)
-
-User requested Order Block + S/R · 4h · Volume MA. Explicit clarification: either independently triggers entry; BOTH OB and S/R Major/Minor must pass4h Volume>MA20. Branch codex/order-block-sr-volume from mainf30ba13; new internal order_block_sr_intrabar, existing OB-only option retained. Fixed240, bothMajor+Minor forcedON, all4OB familiesON, VolumeMA20mandatory, allotherentryfiltersOFF, no separateSMA/OBexit. Oppositeaction selectable, allposition/account/daily/period/trailing controls retained.
-
-Runner uses shared one4h history packet: existing unfiltered OB observer plus new independent order_block_sr_branch with confirmed prior4h levels from causal IndicatorState, both source families, noSMA filters, existing sr_volume volume-first qualification. S/R tracker identity is profile fingerprint+:sr, separate from OB tracker. New pure order_block_sr.combine dedups matching sources and skips newly opposing simultaneous signals/conflicts; added module to source_fingerprint. Sourceerrors isolated perbranch; a valid OB branch may still trade if a very new coin lacks S/R pivot warmup, and viceversa, with degradedsource status. Bothbranches require freshobservations/no startup or gap replay. No added one-entry-per4h cap beyond existing per-event/per-level dedup; selectedoppositesignalaction/risk controls remain.
-
-Feed bootstrap1000 then60/gapcatchup forbothbranches, max4inflight packets and immediateprocessing. S/R warmup depends on2*pivot_long+1 (default43), fixed4h only; noDaily orlower-timeframe extra reads. Final entry/reversal/queue guard reuses current4h context and latest20-candle volume check for BOTH direct profiles, so no branch bypasses volume.30sec expiry preserved. Sources ob:... and sr:... retained through alerts/protectedfills/History/Analysis. UI adds option/status/name/analysis filter, fixed4h, bothMajorMinorvisiblecheckeddisabled, pivotperiodsvisible, unusedfilters/RSIhidden, no added exits. Chart OBboxes/SRreferences remainraw/viewtimeframe; live execution4h.
-
-During implementation user reported overall-position stop pauses at08:51 and09:08EDT withDaily allowance9.70 remaining, and askedwhether to raise it while testing andwhyittriggeredwithsame$1stop. Explained separate account controls: if still25% andlosing_margin, $50/20x=$2.50margin → about$0.625 overall-loss threshold forone loser, independent of$1individualstop. Losing-only denominator can shrink whenanotherposition recovers, so ratio cancross evencombinedlossimproves. Theseare examples; oldlogs do NOT proveactual ratios or changedsettings. Do notraise/bypassrisklimitsautomatically; useraskedquestion, notauthorizationtochange. Also repeated reports couldreflectalatchedoverallstop untilflatreview ratherthanprovablytwoindependent thresholdcrossings.
-
-Added diagnostic-only last_portfolio_stop savedatfirst thresholdcrossing: time, observedgrossopenlosses, selectedmargin,basis, loss_pct, limit_pct, threshold_dollars. Currentstatus/Activity and existingpersistentpause/phonealerts include frozenactual figures; snapshotexposeslastrecord. Existinglatchedolderstopswithoutdetailskeepgenericreason; nohistoricalvaluesinvented. Lastrecordsurvivesflat/resume; nextfreshtriggeroverwrites. Formula/threshold/closureofALLpositions/manualrestart unchanged. Dailyprotectionunrelated.
-
-Validation:446unit/API tests /tmp/ob-sr-volume-tests.log passed. Newmodel/riskretention, pureOR/agree/conflict/volumecombine, all8long/shortpivotMajor/Minor support/resistance branches low→pass withnoOBrequired, dedup/restart, actual OB-only andSR-only workerorders→protectedfills with1000/60/20fixed4hread pattern, nogate/SMAexit, sourceHistorylabels, finalvolume recheck rejection, newAPIsettings/analysis/chart. Portfoliofixture verifies$0.70loss/$2.50margin=28%vs25%,$0.625threshold, unchangedmanualflatresume andfrozendetailsaftersettlement. Full desktop/mobile smoke passed /tmp/ob-sr-volume-browser.log: bothfamiliesrequired, independent-volume description, savedunchangedriskvalues, reload, activationname, existingprofiles/chart/security. JS/diffcheckspassed; fixtureimagesrestored. No realexchangeorders/deployment/activation/risksettingchanges. Usermustmerge/deploypausedandclose/reconcilepositionsbeforeswitchingtoNEWstrategyID.
-
-
-## Entry-delay investigation PR (October 27, 2026)
-
-User requested a pull to investigate late entries after runner scan_seconds192.616 (3m13) and OB-only note, and asked what earlier Detailed analysis meant. Explained earlier file was only written analysis, not an app change or individual entry-latency measurement. New branch codex/entry-delay-diagnostics from main3872a9b adds diagnostics, NOT scan optimization or entry-distance rejection. No volume/expiry/sizing/risk/strategy selection changes. Old report /workspace/analysis/order-block-review-2026-10-27.md and annotated29-rowCSV remain outside source repository; no private trade extract added to repo.
-
-New entry_diagnostics.py: bounded per-candle source observation timestamps/prices, qualification metadata, finite numeric measurement projection and readonly journal report. OB raw events observed before volume qualification; SR pending crossing timing retained only while original pending setup remains valid, reset on pullback/reappearance. Combined OB+SR merges timelines for matching sources without changing decisions. Records qualified_at/price, previous_observed_at, raw source first-seen/price. These are SAMPLED observations, not exact market event times. Observed volume wait includes time between checks; no claim to isolate true unsampled crossing time.
-
-Runner captures existing fetch start/end and processing time in existing bounded download path, previous round seconds, and propagates metadata through entry_context to pending/reversal intent. Queued_at recorded only with an entry intent. Supervisor records existing checks: overall checks start/end, volume recheck, instrument lookup/cache hit, ticker read and leverage request timestamps; no extra exchange calls. Metadata in instrument.thoth_entry_diagnostics survives journal settlement.
-
-ExecutionJournal has optionalclock (supervisorpassesclock), best-effort numeric record_timing that cannot changephase/retrywrites or throwoptionalerrors. Captures submit start, acknowledgement; existing reconcile supplies exchange_created_at, first_exchange_update_at and first nonzero fill observation; adoption supplies confirmed average entry/qty and fill_confirmed_at from existing reconciliation. entry_timing preserved across resultupdates/closure. Fill observation may be partial and later than actual execution. No extra /execution/list request, no exact execution timestamp manufactured. Negative/local-vs-exchangeclock ordering yields missingduration +clock_order_warning, not fabricatedzero.
-
-Authenticated GET /api/live/entry-diagnostics (limit1–100, offset, optionalsymbol) reads only new tagged execution rows using directreadonlySQLite, joins exactclosed-trade link forPnL/reason, excludesreduce-onlyandoldermissingdiagnostics. Outputs boundedpage withhuman sourcelabels, sampled timing, check substeps, price movementqualified→actualfill (%/USDT/fractionofstop), phaseandrealizedPnL. Positive signedmovement means price travelledintheentrydirection sincequalifiedsample, not guaranteedlostprofit or pureexecutionslippage.
-
-New Analysis → Entry delay investigation section, manualrefresh/filter/older-pagebutton/copyreport/selectablecopyfallback, NewYork qualifiedtime. Main tablecheckgap, observedvolume-wait, qualified→submit, submit→firstfillseen, movement, PnL; expandableJSONdetails containallsubsteps. NoautomaticAPIpolling. UI explicitly says newsubmittedentriesonly, expired/skippedsignalsremainSignalalerts, unknownhistoricaltimesareunknown. Bindafterpagednodesmount. Allvaluesrenderastext.
-
-Validation:451unit/API tests passed /tmp/entry-delay-release-tests.log. Addedhandcalculatedstage/price/stop-distance projections inclnegativeclock/unknown-vs-zero; simulatedworkerrawlowvolume→qualified→submit→fill withunchanged1000/60/60/20readpattern, firstseen/qualification/gap/wait, exactjournalP&Ljoin andtimingspersistafterclose; SRpullbackresetsrawclock; journalrecordfailuredoesnotthrow orretryorders; readonlyAPIfilters/olderomission/configentriesunchanged; APIauthrequired. Full desktop/mobile smoke /tmp/entry-delay-browser.log passed including realnewtable/192.60s+120.00sfixture/copyreport and existingapp/strategy/chart/security checks. JS/diffchecks passed, fixtureimagesrestored. No live orders/deployment/activation/realpushes performed. Usermustmerge/deploypaused, manuallyreactivateafterreadiness, collectnewtrades thenAnalysis→Copy timing report. Existingpositionsneednotclosefordiagnostic-onlydeployment; no newstrategyIDadded. Previous193s scan remains to optimize afterevidence.
-
-
-### Same diagnostic PR: sampled fast-mover ranking (latest steering)
-
-Before receiving the PR link, user asked whether we can identify fast-moving coins. Added to SAME codex/entry-delay-diagnostics branch after initial94281b1 push (not a separate strategy/filter). entry_diagnostics.record_speed stores latestprice and priorintervalnetchange in price_observations keyedcoin+profile, inside the existing OBobserver SQLite transaction. No new marketcalls or independenttradingdecisions. Restricts to OB-only/combineddirectprofiles; bothdirectionsrank by abspercentagechange/minute so coinunitprice doesnotbias ranking. First/restart/gap>existingmaxgap≤300s givesunknownspeed, notfakezero.
-
-Readonly authenticated /api/live/fast-movers filterscurrent savedstrategy/symbols, excludesage>300s/negativeclockage and missingsecond sample, sortsbyabsolutepercent/min, returnslimit≤300(default50) withnetdirection,gap,age,tracked/stalecounts. Analysiscardmanualrefreshshowsranking andcurrentstrategyname; Copytimingreportincludes latestloadedfast_movers snapshot. No coin removed, blocked or re-sized automatically. This is instantaneoussampledNETspeed, not fullrealizedvolatility, liquiditygrade or reliablelong-termclassification; spikes/retracementsbetweenchecks canbemissed. Oldvolume-onlyrunnerreport cannotaccuratelynamefastestcoinswithoutpriceobservations.
-
-Finalvalidation supersedes451countabove:452unit/API tests /tmp/entry-delay-release-tests.log passed, including normalizedpricecomparison(large-dollar1%vscheapcoin-2%), fresh/stale limits, sessionrestartbaseline, savedsymbolfilter, pricehistory/APIreadonly/auth; allpreviousentry/exit/risk/network-count testsstillpass. Fullupdateddesktop/mobile browser /tmp/entry-delay-browser.log passed, including realtimingtable/copy andfast-moverfixture0.400%/min. JS/diffcheckspassed; fixturesrestored. Currentstrategyselection/filters/risklimits andscan cadence remainunchanged. Deploydiagnostics, collectnewentries+twofreshcoinobservations, copyreport; optimizationremainsnextstepafterevidence.
-
-## Copy all closed trades (2026-10-27)
-
-History now has **Copy all trades**, independent of the visible page and symbol filter. Authenticated read-only `/api/live/history/export` returns all retained closed trades in one SQL query, including older pages. The tab-separated report includes full New York opening/closing timestamps, symbol, side, entry/quantity, realized P&L, reason, strategy and source, plus trade/unique-coin counts. Clipboard failure offers a selected readonly textarea. Errors never copy partial results. Rejected orders and previously pruned records are explicitly excluded; no trading/risk changes.
-
-History copy timestamp fix: serialize DOM timestamp nodes through textContent; earlier exports printed [object HTMLTimeElement]. Counts and P&L were unaffected.
-
-## Watchlist review (2026-10-28)
-
-Analysis now includes a scrollable **Watchlist review**, manual refresh and **Copy review report** with clipboard fallback. Authenticated read-only `/api/live/watchlist-review?scope=current|all` reviews every saved symbol (does not include removed historical coins). Default current-strategy scope prevents older experiments contaminating current results; all scope includes per-strategy breakdowns. Counts closed trades, wins/losses/realized P&L, earliest retained entry/latest close, deduplicated exact-key signal lifecycles, skipped reasons, pre-entry leverage/minimum-size failures, rejected entry journal orders/codes and rejection signal events. The latter counts can overlap and must not be summed. Missing timing is unknown; median gaps and qualification-to-submit use only recorded entry timings, with sample counts. Latest speed reuses the current-profile saved observation report. Records are retained history, NOT a guaranteed two-week window; signal decisions retain at most 5000 rows and legacy unlinked events cannot be reliably deduplicated. No exchange requests, automatic exclusions, settings writes or trading/risk changes. Unknown codes do not imply a permanent ban. UI copy includes all selected coins, not just the visible scroll area.
-
-Watchlist review validation: 455 unit/API tests pass, including scope separation, saved-symbol filtering, rejection/close-order separation, lifecycle deduplication, numeric timing aggregation, absent timing, read-only state and authentication. Desktop/mobile synthetic browser smoke passes review rendering, scope switching and copy contents; JavaScript syntax and diff checks pass. No live orders or deployment performed.
-
-## TradFi named list and 1-hour OB + S/R profile (2026-10-28)
-
-User reports Bybit TradFi verification completed and SOXLUSDT successfully traded; prior 110126 does not establish a permanent symbol restriction. No automatic bans or risk/leverage changes. Added 27-symbol TradFi seed: the 26 supplied USDT names plus explicitly confirmed SOXLUSDT. They are added to the chart/trading catalogue with `asset_group=tradfi`, pending normal exchange validation (not verified by Codex).
-
-- Settings watchlist selector **Main · existing selection** / **TradFi · USDT perpetuals** stores separate server-persisted selections via `active_symbol_list` and `saved_symbol_lists`. Migration copies the exact existing selection into Main, without dropping previously selected stocks. TradFi starts with the supplied seed and can be narrowed with the existing checklist. Draft load does not save or activate trading. TradFi search/Select all is restricted to the stock catalogue; Main retains the full existing catalogue. One active list and one strategy per account runner; not simultaneous independent portfolios. Changing list/strategy still uses existing entry pause, held-symbol removal and flat/reconciled strategy-switch guards. Selected profile is chosen separately; loading a list does not silently change risk/strategy.
-- New separate `order_block_sr_1h`, label **Order Block + S/R · 1h · Volume MA · TradFi**. Reuses the original independent OB OR confirmed Major/Minor S/R logic on fixed 60-minute forming candles. Both branches mandatory Volume > SMA20 including forming candle; final 20 contiguous hourly candles revalidated before submission against current 1h identity. Raw Pine unchanged. No RSI, SMA/VWAP/strength entry filters, no separate SMA/OB exit; selected opposite-signal action and all position/account/period risk controls retained. Original `order_block_sr_intrabar` remains fixed 4h.
-- Shared combination/volume continuity helpers now take source timeframe with existing 4h defaults. Separate strategy fingerprints/checkpoints prevent replay/cross-profile state reuse. Bootstrap then bounded overlap fetches use 1h for the new profile; chart timeframe stays view-only. New ID supported by History/Analysis/alerts/entry timings/fast movers.
-- Validation: 460 unit/API tests pass, including custom old-config migration, named-list persistence/validation, 1h volume-first S/R gating/restart baseline, simulated OB and SR entry/fill/protection metadata, final volume rejection, correct hourly-only reads, and chart-view independence. Desktop/mobile smoke passes stock-only selection, draft isolation, save/reload, original Main restoration, new profile description/activation label and unchanged risk values. JS syntax/diff checks passed. No real orders, live server changes or account verification performed by Codex.
-
-TradFi catalogue expanded with the second supplied 20-symbol list (SOXL deduplicated): 46 unique names total, including gold/silver/WTI/Brent commodities, ETFs and pre-IPO names. No forex pairs were supplied. Existing saved selections are not silently expanded; Select all in the TradFi list loads the expanded catalogue as a draft. New/default TradFi lists start with all 46.
+"""Optional Chromium smoke check with synthetic account/market fixtures only.
+Run: python tools/browser_smoke.py (requires Playwright and /usr/bin/chromium).
+No credentials or exchange execution are used. Writes labelled fixture previews.
+"""
+import os,subprocess,tempfile,time,json,math,urllib.request,copy,sys
+from urllib.parse import parse_qs
+from pathlib import Path
+from playwright.sync_api import sync_playwright,expect
+root=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(root))
+from thoth.analytics import analyze
+with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
+ env={k:v for k,v in os.environ.items() if not k.startswith('THOTH_')};env['THOTH_DB']=d+'/paper.sqlite'
+ log=open(d+'/server.log','w')
+ server=subprocess.Popen([sys.executable,'-m','uvicorn','thoth.app:app','--host','127.0.0.1','--port','8097'],cwd=root,env=env,stdout=log,stderr=log)
+ try:
+  base='http://127.0.0.1:8097'
+  for _ in range(100):
+   try:
+    urllib.request.urlopen(base+'/healthz');break
+   except Exception:time.sleep(.1)
+  def get(path):return json.load(urllib.request.urlopen(base+'/api/'+path))
+  payloads={path:get(path) for path in ['live','watchlist','runner','readiness']}
+  payloads['live']['enabled_on_server']=True
+  payloads['live']['unverified_live_allowed']=True
+  payloads['live']['config']['daily_loss_pct']=5
+  rows=[];bars=[];sma=[]
+  for i in range(1000):
+   stamp=1792300000+i*60;value=2400+math.sin(i/9)*8+i*.02
+   rows.append(dict(time=stamp,open=value-(1 if i%2==0 else -2),close=value+1,high=value+3,low=value-3,volume=100+(i%30)*50))
+   levels={f'{f}_{s}_{k}':dict(value=2400+(-10 if s=='support' else 10)+(3 if k=='minor' else 0),pivot_time=1792300000+max(0,(i//100)*100-20)*60) for f in ('long','short') for s in ('support','resistance') for k in ('major','minor')}
+   bars.append(dict(time=stamp,sma=value-4,signal='Long' if i%23==0 else 'Short' if i%29==0 else None,levels=levels));sma.append(dict(time=stamp,value=value-4))
+  rsi_bars=[dict(time=row['time'],rsi=50+math.sin(i/9)*20,thresholds={'static30':30,'static70':70,'ml_long':60,'ml_short':40},vwap=row['close']-1,ml_ready=True,rsi_samples=3001,rsi_cluster=0 if math.sin(i/9)<-.3 else 2 if math.sin(i/9)>.3 else 1,events=[dict(kind=['static30_up','static70_down','ml_long_up','ml_short_down','ml_short_up','ml_long_down','static30_down','static70_up'][(i//8)%8],side='Long' if (i//8)%8 in (0,2,4,7) else 'Short')] if i%8==0 else []) for i,row in enumerate(rows)]
+  for bar in rsi_bars:bar['crossings']=copy.deepcopy(bar['events'])
+  rsi_bars[975]['crossings']=[dict(kind='static70_up',side='Long')]
+  rsi_bars[975]['events']=[]
+  rsi_bars[980]['events'].extend([dict(kind='static30_up',side='Long'),dict(kind='ml_long_up',side='Long')])
+  rsi_bars[980]['crossings']=copy.deepcopy(rsi_bars[980]['events'])
+  chart=dict(rsi_analysis=rsi_bars,rsi_status='Corrected ML RSI · synthetic fixture',indicator_status='S/R reference arrows: confirmed candle-close breakouts; not historical live intrabar triggers',source='SIMULATED BROWSER FIXTURE · not exchange results',candles=rows,analysis=bars,sma=sma)
+  chart_daily=copy.deepcopy(chart)
+  for array in ('candles','analysis','sma','rsi_analysis'):
+   for i,row in enumerate(chart_daily[array]):
+    row['time']=1700006400+i*86400
+    if array=='analysis':
+     for level in row['levels'].values():level['pivot_time']=1700006400+max(0,(i//100)*100-20)*86400
+  chart_intervals={'1':chart,'D':chart_daily}
+  for interval,duration in [('5',300),('60',3600),('240',14400)]:
+   item=copy.deepcopy(chart);origin=1792300000//duration*duration
+   for array in ('candles','analysis','sma','rsi_analysis'):
+    for i,row in enumerate(item[array]):
+     row['time']=origin+i*duration
+     if array=='analysis':
+      for level in row['levels'].values():level['pivot_time']=origin+max(0,(i//100)*100-20)*duration
+   chart_intervals[interval]=item
+  chart_older=copy.deepcopy(chart)
+  old_rows=[];old_bars=[];old_sma=[]
+  for i in range(-1000,0):
+   stamp=chart['candles'][0]['time']+i*60
+   old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
+   old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
+  chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
+  comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
+  def route(req):
+   url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
+   if path.startswith('chart/'):
+    chart_queries.append(url)
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    result=chart_older if 'lookback=2000' in url else chart_intervals[params.get('interval',['1'])[0]]
+    if delta_preview[0] and params.get('include_volume_delta')==['true']:result={**result,'volume_delta_analysis':[dict(time=result['candles'][-1]['time'],signal='Long')],'volume_delta_status':'Synthetic Volume Delta fixture; not exchange evidence'}
+    if ob_preview[0] and params.get('include_order_block')==['true']:
+     last=result['candles'][-1];result={**result,'order_block_analysis':[dict(time=last['time'],events=[dict(kind='bullish_formed',side='Long')],zones={'demand':[dict(time=last['time']-600,high=last['close']+1,low=last['close']-2)],'supply':[dict(time=last['time']-3600,high=last['close']+7,low=last['close']+5)]})],'order_block_status':'Synthetic Order Block reference fixture'}
+    if sr_preview[0]:result={**result,'sr_analysis':[{**bar,'signal':'Long','provisional':True} if bar['time']==result['candles'][-1]['time'] else bar for bar in result['analysis']]}
+   elif path.startswith('quote/'):
+    symbol=path.split('/')[1];environment='live'
+    result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
+   elif path=='live/signal-alerts':
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    records=[item for item in alert_items if not params.get('symbol') or item['symbol']==params['symbol'][0]]
+    offset=int(params.get('offset',['0'])[0]);limit=int(params.get('limit',['50'])[0])
+    watched={int(value) for value in params.get('watch_ids',[''])[0].split(',') if value}
+    result=dict(items=list(reversed(records))[offset:offset+limit],updates=[item for item in records if item['id'] in watched],total=len(records),limit=limit,offset=offset)
+   elif path=='security/status':result=dict(totp_enabled=False,recovery_codes_remaining=0,passkeys=[])
+   elif path=='live/trailing-comparison':
+    result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
+   elif path=='live/trailing-comparison/settings' and method=='PUT':
+    result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
+   elif path=='live/watchlist-review':result=dict(items=[dict(symbol='WLDUSDT',trades=5,wins=3,losses=2,realized_pnl=.5,signal_events=8,skipped_events=2,rejected_orders=1,rejection_events=1,entry_check_failures=1,median_check_gap_seconds=192.6,median_qualified_to_submit_seconds=4,latest_speed=None,review_note='Review recorded rejection/check failure',rejection_codes={'110126':1})],selected=1,traded=1,closed_trades=5,realized_pnl=.5,scope=parse_qs(url.split('?',1)[1] if '?' in url else '').get('scope',['current'])[0],strategy='order_block_sr_intrabar',limitations='Retained records only; no automatic changes.')
+   elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
+   elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
+   elif path=='live/history':
+    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
+    if history_many:
+     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+     offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
+   elif path=='live/analysis':
+    params=parse_qs(url.split('?',1)[1] if '?' in url else '')
+    records=list(analysis_many) if analysis_many else [dict(symbol='ETHUSDT',strategy='sma_cross',pnl=.24,opened_at=1792501200,closed_at=1792508400),dict(symbol='BTCUSDT',strategy='sr_breakout',entry_sources=['sr:short_support_minor'],pnl=-.31,opened_at=1792504800,closed_at=1792512000),dict(symbol='SOLUSDT',strategy='sr_breakout',pnl=0,closed_at=1792515600)]
+    if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
+    if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
+    result=analyze(records,params.get('time_basis',['entry'])[0],params.get('source',[None])[0])
+   elif path=='phone-alerts':result=dict(public_key='',devices=[],recent_pauses=[])
+   elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
+   elif path in payloads:
+    result=payloads[path]
+    if path=='live':result={**result,'server_time':time.time()}
+   elif path.endswith('/settings') and method=='PUT':
+    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;writes.append((target,cfg));result=payloads[target]
+   elif path.endswith('/activate'):
+    activation.append(path);req.fulfill(status=400,json={'detail':'Fixture refuses trading'});return
+   else:raise AssertionError((method,path))
+   req.fulfill(json=copy.deepcopy(result))
+  with sync_playwright() as p:
+   browser=p.chromium.launch(executable_path='/usr/bin/chromium',headless=True,args=['--no-sandbox'])
+   page=browser.new_page(viewport={'width':1440,'height':1080})
+   page.on('pageerror',lambda e:errors.append(str(e)))
+   page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   # S/R visibility is independent of bot filters/timeframe and other arrow layers.
+   for interval in ['1','5','60','240','D']:
+    page.select_option('#tf',interval);expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   page.select_option('#tf','1');page.uncheck('#showSignals')
+   expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   page.uncheck('#showSRSignals');expect(page.locator('[data-signal-source="S/R"]')).to_have_count(0)
+   page.check('#showSRSignals');page.check('#showSignals')
+   sr_preview[0]=True;page.click('#refresh')
+   expect(page.locator('[data-sr-provisional="true"]')).to_have_count(1)
+   expect(page.locator('[data-sr-provisional="true"] title')).to_contain_text('Forming candle preview')
+   sr_preview[0]=False;page.click('#refresh')
+   page.evaluate("() => localStorage.setItem(chartStyleKey,JSON.stringify({...chartStyle,showSRArrows:false,srDisplayVersion:1}))")
+   page.reload();expect(page.locator('#showSRSignals')).to_be_checked()
+   page.uncheck('#showSRSignals');page.reload();expect(page.locator('#showSRSignals')).not_to_be_checked()
+   page.check('#showSRSignals');expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   assert not writes  # Chart controls never saved bot configuration.
+
+   # Read-only risk displays use the server clock and never activate orders.
+   payloads['live']['risk'].update(day='2026-10-20',baseline_ms=1792454402000,peak_ms=1792458000000,baseline=100,peak=150,loss_allowance=5,loss_used=2,remaining=3,remaining_pct=3,stop_equity=145,loss_pct=2,symbols={'XVGUSDT':dict(streak=3,pause_until=time.time()+125)})
+   payloads['live']['events']=[dict(time=time.time()-40+i,message='Synthetic activity '+str(i)) for i in range(40)]
+   page.evaluate('(data)=>{updateAccount(data);render();}',copy.deepcopy(payloads['live']))
+   expect(page.locator('#dailyCountdown')).to_contain_text('Time until next UTC day:')
+   expect(page.locator('#dailyCountdown')).to_contain_text('00:00 UTC')
+   page.evaluate("() => { window.savedRiskOffset=riskClockOffset; riskClockOffset=Date.UTC(2026,9,20,23,59,50)-Date.now(); renderRiskOverview(); }")
+   expect(page.locator('#dailyCountdown')).to_contain_text('00:10')
+   page.evaluate("() => { riskClockOffset=Date.UTC(2026,9,21,0,0,0)-Date.now(); renderRiskOverview(); }")
+   expect(page.locator('#dailyCountdown')).to_contain_text('24:00:00')
+   page.evaluate("() => { riskClockOffset=window.savedRiskOffset; renderRiskOverview(); }")
+   expect(page.locator('#sma_exit_enabled')).to_be_checked()
+   expect(page.locator('#sma_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
+   expect(page.locator('#dailyBudget')).to_contain_text('$3.00')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('Allowance: $5.00')
+   page.evaluate("() => { lv.sma_exit_blocks={GALAUSDT:{details:{error_type:'ValidationError'},retry_after:0}}; render(); }")
+   expect(page.locator('#smaDataStatus')).to_contain_text('blocked only for GALAUSDT')
+   page.evaluate("() => { lv.sma_exit_blocks={}; render(); }")
+   expect(page.locator('#smaDataStatus')).to_be_empty()
+   page.evaluate("() => { window.beforeRateFixture={status:lv.status,reason:lv.reason,entries:lv.entries}; Object.assign(lv,{status:'rate_limited',reason:'Bybit account read rate-limited; entries waiting for verified recovery',entries:false}); render(); }")
+   expect(page.locator('#status')).to_contain_text('rate limited')
+   expect(page.locator('#start')).to_be_disabled()
+   expect(page.locator('#pause')).to_be_enabled()
+   page.evaluate("() => { Object.assign(lv,window.beforeRateFixture); render(); }")
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('stop threshold: $145.00')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('Baseline recorded: 2026-10-20 00:00:02 UTC')
+   expect(page.locator('#dailyBudgetDetails')).to_contain_text('Peak recorded: 2026-10-20 01:00:00 UTC')
+   page.evaluate("() => { lv.risk.baseline_required=true; renderRiskOverview(); }")
+   expect(page.locator('#dailyBudget')).to_contain_text('pending baseline review')
+   expect(page.locator('#dailyBudget')).not_to_contain_text('$3.00')
+   page.evaluate("() => { lv.risk.baseline_required=false; renderRiskOverview(); }")
+   expect(page.locator('#coinCooldowns')).to_contain_text('XVGUSDT')
+   page.evaluate("() => {lv.risk.symbols.FIXTUREUSDT={streak:2,pause_until:0};renderRiskOverview()}")
+   expect(page.locator('#coinLossStreaks')).to_contain_text('FIXTUREUSDT')
+   expect(page.locator('#coinCooldowns')).not_to_contain_text('FIXTUREUSDT')
+   assert page.locator('#coinLossStreaks').evaluate('(el)=>getComputedStyle(el).overflowY')=='auto'
+   assert not page.locator('.saved-symbol-details').evaluate('(el)=>el.open')
+   first_timer=page.locator('#coinCooldowns').inner_text()
+   expect(page.locator('#coinCooldowns')).not_to_have_text(first_timer,timeout=5000)
+   expect(page.locator('#events li')).to_have_count(30)
+   expect(page.locator('#events li').first).to_contain_text('Synthetic activity 39')
+   expect(page.locator('#events li').last).to_contain_text('Synthetic activity 10')
+   expect(page.locator('#events')).to_have_css('overflow-y','auto')
+   page.select_option('#symbol','ETHUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   expect(page.locator('#chartScope')).to_contain_text('Included in saved trading list')
+   page.click('[data-page-link=security]');expect(page.locator('#accountSecurity')).to_be_visible()
+   expect(page.locator('#settings')).not_to_be_visible()
+   page.reload();expect(page.locator('#page-security')).to_be_visible()
+   page.click('[data-page-link=chart]');page.select_option('#symbol','ETHUSDT')
+   page.click('[data-page-link=settings]');expect(page.locator('#accountSecurity')).not_to_be_visible()
+   expect(page.locator('#page-chart')).not_to_be_visible()
+   page.click('#onlyChart');expect(page.locator('#selectedSymbols button')).to_have_count(1)
+   expect(page.locator('#selectedSymbols')).to_contain_text('ETHUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   # Draft edits cannot trigger activation; no order route is reached.
+   page.click('#start');expect(page.locator('#symbolSaveMessage')).to_contain_text('Save your strategy')
+   assert not activation
+   page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT')
+   page.click('[data-page-link=settings]');page.click('#saveSymbols');expect(page.locator('#savedSymbolList')).not_to_contain_text('SOLUSDT')
+   expect(page.locator('#symbol')).to_have_value('ETHUSDT')
+   assert writes[-1][1]['symbols']==['ETHUSDT']
+   if page.locator('#sma_7_50_filter_enabled').is_visible():
+    page.check('#sma_enabled');page.check('#sma_7_50_filter_enabled');page.click('#saveSymbols');page.wait_for_function('() => lv.config.sma_7_50_filter_enabled && lv.config.sma_enabled')
+    assert writes[-1][1]['sma_7_50_filter_enabled'] is True
+    assert writes[-1][1]['sma_enabled'] is True
+    page.uncheck('#sma_enabled');page.uncheck('#sma_7_50_filter_enabled');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.sma_7_50_filter_enabled && !lv.config.sma_enabled')
+   page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
+   assert writes[-1][1]['symbols']==['ETHUSDT']
+   page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
+   page.check('#selectedOnly');expect(page.locator('#coins input')).to_have_count(1)
+   page.fill('#search','NO_SUCH_SYMBOL');expect(page.locator('#coins')).to_contain_text('No matching symbols')
+   page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable).length'))
+   page.click('#saveSymbols');page.wait_for_function('() => lv.config.symbols.length===watchlist.filter(x=>x.selectable).length')
+   assert set(writes[-1][1]['symbols'])=={x['symbol'] for x in payloads['watchlist'] if x['selectable']}
+   page.reload();page.click('[data-page-link=settings]');expect(page.locator('#selectedSymbols button')).to_have_count(len([x for x in payloads['watchlist'] if x['selectable']]))
+   page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');page.click('[data-page-link=settings]')
+   page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
+   page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT');expect(page.locator('#savedSymbols')).to_contain_text('Saved trading symbols (1)')
+   page.click('[data-page-link=chart]');page.click('#older');expect(page.locator('#latest')).to_be_enabled();page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   page.locator('#chart').click(position={'x':100,'y':160});expect(page.locator('#candleInfo')).to_contain_text(' O ')
+   assert page.locator('#chart path').count()>30
+   page.uncheck('#showLevels');page.uncheck('#showSignals');page.check('#fitLevels')
+   page.check('#showLevels');page.check('#showSignals')
+   page.locator('#zoom').fill('35');page.locator('#zoom').dispatch_event('input')
+   assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+   # Chart-only search and coin-name navigation must never modify trading settings.
+   saved_before=copy.deepcopy(writes[-1][1]['symbols']);write_count=len(writes)
+   page.click('#chartSearch');page.fill('#chartSearchInput','ETHUSDT')
+   page.locator('#chartSearchResults button').filter(has_text='ETHUSDT').click()
+   expect(page.locator('#symbol')).to_have_value('ETHUSDT')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   page.click('[data-page-link=settings]');page.get_by_role('button',name='View SOLUSDT chart',exact=True).click()
+   expect(page.locator('#symbol')).to_have_value('SOLUSDT')
+   assert len(writes)==write_count and writes[-1][1]['symbols']==saved_before
+   # Actual horizontal drag in both directions, including pointer capture across redraws.
+   page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.45;sy=box['y']+box['height']*.5
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx+90,sy,steps=6);page.mouse.up()
+   offset=page.evaluate('() => chartOffset');assert offset>0,offset
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx-50,sy,steps=6);page.mouse.up()
+   assert page.evaluate('() => chartOffset')<offset
+   page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   # Wheel zoom acts on the chart; vertical mouse dragging moves the price view.
+   page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.5;sy=box['y']+box['height']*.5
+   page.mouse.move(sx,sy);before=page.evaluate('() => visibleBars');page.mouse.wheel(0,-200)
+   expect(page.locator('#zoom')).not_to_have_value(str(before))
+   zoomed=page.evaluate('() => visibleBars');assert zoomed<before
+   page.mouse.wheel(0,200)
+   expect(page.locator('#zoom')).not_to_have_value(str(zoomed))
+   if page.locator('#latest').is_enabled():page.click('#latest')
+   page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.5;sy=box['y']+box['height']*.5
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx,sy+45,steps=6);page.mouse.up()
+   assert page.evaluate('() => chartPriceShift')>0
+   expect(page.locator('#latest')).to_be_enabled()
+   page.click('#resetChartView');expect(page.locator('#zoom')).to_have_value('70')
+   assert page.evaluate('() => chartPriceShift')==0
+   expect(page.locator('#latest')).to_be_disabled()
+   # Ruler is display-only: a drag shows signed price/percentage, intervals and time.
+   page.click('#measureChart');page.locator('#chart').scroll_into_view_if_needed()
+   box=page.locator('#chart').bounding_box();sx=box['x']+box['width']*.25;sy=box['y']+box['height']*.3
+   page.mouse.move(sx,sy);page.mouse.down();page.mouse.move(sx+80,sy-30,steps=6);page.mouse.up()
+   expect(page.locator('[data-measurement]')).to_have_count(1)
+   expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('[data-ruler-summary]')).to_contain_text('%')
+   finished=page.locator('#measurementReadout').text_content();page.mouse.move(sx+110,sy+20)
+   expect(page.locator('#measurementReadout')).to_have_text(finished)
+   expect(page.locator('#measurementReadout')).to_contain_text('Price move:')
+   expect(page.locator('#measurementReadout')).to_contain_text('candle intervals')
+   stats=page.evaluate('() => measurementStats({time:0,price:100},{time:120,price:105},[{time:0},{time:60},{time:120}])')
+   assert stats==dict(delta=5,percent=5,bars=2,seconds=120),stats
+   page.click('#clearMeasurement');expect(page.locator('[data-measurement]')).to_have_count(0)
+   page.click('#measureChart')
+   page.locator('#chart').click(position={'x':90,'y':80});expect(page.locator('#measurementReadout')).to_contain_text('First point set')
+   page.locator('#chart').click(position={'x':180,'y':120});expect(page.locator('#measurementReadout')).to_contain_text('Price move:')
+   page.click('#clearMeasurement')
+   expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   # Price-axis zoom changes only price span, not candle count or symbol settings.
+   page.locator('#chart').scroll_into_view_if_needed();box=page.locator('#chart').bounding_box()
+   ax=box['x']+box['width']-25;ay=box['y']+box['height']*.5
+   count=page.evaluate('() => visibleBars')
+   page.mouse.move(ax,ay);page.mouse.wheel(0,-160)
+   page.locator('#chart').hover(position={'x':box['width']-25,'y':box['height']*.5})
+   assert page.evaluate('() => chartPriceZoom')<1
+   assert page.evaluate('() => visibleBars')==count
+   page.mouse.move(ax,ay);page.mouse.down();page.mouse.move(ax,ay+40,steps=5);page.mouse.up()
+   assert page.evaluate('() => chartPriceZoom')<.85
+   page.mouse.dblclick(ax,ay);assert page.evaluate('() => chartPriceZoom')==1
+   page.uncheck('#autoChart');page.wait_for_function('() => !chartLoading')
+   before_refresh=len(chart_queries)
+   page.evaluate('async () => {chartPriceZoom=.8;chartPriceShift=2;chartOffset=0;await loadChart(true)}')
+   assert len(chart_queries)>before_refresh
+   assert page.evaluate('() => chartPriceZoom')==.8 and page.evaluate('() => chartPriceShift')==2
+   page.click('#autoPriceScale');page.check('#autoChart')
+   expect(page.locator('[data-extreme="Now"]')).to_contain_text('2,412.34')
+   expect(page.locator('#quoteStatus')).to_contain_text('Current price:')
+   expect(page.locator('[data-extreme="High"]')).to_contain_text('High')
+   expect(page.locator('[data-extreme="Low"]')).to_contain_text('Low')
+   assert page.locator('[data-time-tick]').count()==70
+   ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
+   assert all(b-a==60 for a,b in zip(ticks,ticks[1:]))
+   page.locator('#chart').click(position={'x':150,'y':120})
+   expect(page.locator('[data-crosshair-time]')).to_be_visible()
+   expect(page.locator('[data-crosshair-time]')).to_contain_text('EDT')
+   page.select_option('#tf','D');expect(page.locator('#title')).to_contain_text('1D')
+   expect(page.locator('[data-time-label]').first).to_contain_text('2026-')
+   # Chart timezone is independent of the browser and handles both DST changes.
+   assert page.evaluate("() => chartTime(Date.parse('2026-10-22T08:36:44Z')/1000)")=='2026-10-22 04:36 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-01-22T08:36:44Z')/1000)")=='2026-01-22 03:36 EST'
+   assert page.evaluate("() => chartTime(Date.parse('2026-03-08T06:59:00Z')/1000)")=='2026-03-08 01:59 EST'
+   assert page.evaluate("() => chartTime(Date.parse('2026-03-08T07:00:00Z')/1000)")=='2026-03-08 03:00 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-11-01T05:30:00Z')/1000)")=='2026-11-01 01:30 EDT'
+   assert page.evaluate("() => chartTime(Date.parse('2026-11-01T06:30:00Z')/1000)")=='2026-11-01 01:30 EST'
+   expect(page.locator('#historyStatus')).to_contain_text('New York')
+   expect(page.locator('#candleCountdown')).to_contain_text('New York display')
+
+   expect(page.locator('[data-time-tick]')).to_have_count(70)
+   expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
+   ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
+   assert all(b-a==86400 for a,b in zip(ticks,ticks[1:]))
+   for interval,label,duration in [('5','5m',300),('60','1h',3600),('240','4h',14400)]:
+    page.select_option('#tf',interval);expect(page.locator('#title')).to_contain_text(label)
+    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes)=>nodes.map(n=>Number(n.dataset.timeTick))')
+    assert all(b-a==duration for a,b in zip(ticks,ticks[1:]))
+    expect(page.locator('[data-sma50]')).to_have_count(1);expect(page.locator('[data-sma200]')).to_have_count(1)
+    expect(page.locator('#strategyTf')).to_have_value('1')
+   page.select_option('#tf','1');expect(page.locator('#title')).to_contain_text('1m')
+   # Display-only overlays use pre-viewport warmup and independent volume scale.
+   expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#ffffff')
+   expect(page.locator('[data-volume-bar]')).to_have_count(70)
+   expect(page.locator('[data-volume-ma]')).to_have_attribute('stroke','#81d4fa')
+   expect(page.locator('[data-extreme="Now"] rect').first).to_have_attribute('fill','#ffdf00')
+   expect(page.locator('[data-price-line="Current price"]')).to_have_attribute('stroke','#ffdf00')
+   average=page.evaluate('() => {const r=Array.from({length:25},(_,i)=>({time:i,close:i+1,volume:(i+1)*10}));return [displayAverage(r,7,"close").get(24),displayAverage(r,20,"volume").get(24),displayAverage(r,7,"close").has(5)]}')
+   assert average==[22,155,False],average
+   averages=page.evaluate('() => {const rows=Array.from({length:250},(_,i)=>({time:i,close:i+1}));return [displayAverage(rows,50,"close").get(249),displayAverage(rows,200,"close").get(249),displayAverage(rows,200,"close").has(198)]}')
+   assert averages==[225.5,150.5,False],averages
+   assert payloads['live']['config']['sma_enabled'] is False
+   expect(page.locator('[data-sma50]')).to_have_count(1)
+   expect(page.locator('[data-sma200]')).to_have_count(1)
+   # Quote/candle alignment: update only the forming candle and retain observed
+   # extrema; never change closed bars, volume, source arrays, or trade settings.
+   check=page.evaluate('''() => {
+    const now=Math.floor(Date.now()/1000),stamp=Math.floor(now/60)*60;
+    const rows=[{time:stamp-60,open:99,high:101,low:98,close:100,volume:7},{time:stamp,open:100,high:101,low:99,close:100,volume:3}];
+    const original=JSON.stringify(rows),context={symbol:'SOLUSDT',environment:'live',interval:'1',now:stamp+30};
+    const q={symbol:'SOLUSDT',environment:'live',price:103,observed_at:stamp+30};
+    const first=synchronizeFormingCandle(rows,q,context);
+    const second=synchronizeFormingCandle(rows,{...q,price:102},context,first.state);
+    return {unchanged:original===JSON.stringify(rows),closed:first.rows[0].close,close:second.rows[1].close,high:second.rows[1].high,volume:second.rows[1].volume,
+      historical:synchronizeFormingCandle(rows,q,{...context,now:stamp+60}).rows===rows,
+      wrongSymbol:synchronizeFormingCandle(rows,{...q,symbol:'ETHUSDT'},context).rows===rows,
+      stale:synchronizeFormingCandle(rows,{...q,observed_at:stamp},context).rows===rows};
+   }''')
+   assert check==dict(unchanged=True,closed=100,close=102,high=103,volume=3,historical=True,wrongSymbol=True,stale=True),check
+   geometry=page.evaluate('''() => {
+    const saved=chartRows,oldQuote=currentQuote,oldState=formingDisplayState;
+    const stamp=Math.floor(Date.now()/60000)*60;
+    chartRows=Array.from({length:30},(_,i)=>({time:stamp-(29-i)*60,open:100,high:101,low:99,close:100,volume:2}));
+    currentQuote={symbol:$('symbol').value,environment:mode,price:103,observed_at:Date.now()/1000};draw();
+    const tag=document.querySelector('[data-extreme="Now"]'),rect=tag.querySelector('rect'),high=document.querySelector('[data-extreme="High"] rect');
+    const result={close:Number(document.querySelector('[data-candle]:last-of-type')?.dataset.candleClose||[...document.querySelectorAll('[data-candle]')].at(-1).dataset.candleClose),
+      labelCenter:Number(rect.getAttribute('y'))+10,priceY:Number(tag.dataset.priceY),highCenter:Number(high.getAttribute('y'))+10};
+    chartRows=saved;currentQuote=oldQuote;formingDisplayState=oldState;draw();return result;
+   }''')
+   assert geometry['close']==103,geometry
+   assert abs(geometry['labelCenter']-geometry['priceY'])<.001,geometry
+   assert abs(geometry['labelCenter']-geometry['highCenter'])>=22,geometry
+   countdowns=page.evaluate('() => [candleCountdown(0,"1"),candleCountdown(59000,"1"),candleCountdown(60000,"1"),candleCountdown(86399000,"D"),candleCountdown(86400000,"D")]')
+   assert countdowns==['01:00','00:01','01:00','00:00:01','24:00:00'],countdowns
+   assert page.evaluate('() => [candleCountdown(0,"5"),candleCountdown(0,"60"),candleCountdown(0,"240")]')==['05:00','01:00:00','04:00:00']
+   expect(page.locator('[data-candle-countdown]')).to_be_visible()
+   timer=page.locator('[data-candle-countdown]').text_content()
+   expect(page.locator('[data-candle-countdown]')).not_to_have_text(timer,timeout=3000)
+   expect(page.locator('#candleCountdown')).to_contain_text('1m candle closes in')
+   rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
+   major=page.locator('[data-sr-key="long_resistance_major"]')
+   expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
+   assert ' V' not in major.get_attribute('d')
+   expect(page.locator('[data-sr-key="short_support_major"]')).to_have_attribute('stroke-dasharray','12 10')
+   page.click('#appearanceToggle');expect(page.locator('#chartAppearance')).to_be_visible()
+   assert page.locator('#appearanceFields > details.indicator-dropdown').count()==10
+   delta_preview[0]=True;page.click('#refresh')
+   expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
+   assert page.evaluate('referenceSignalStrategy')!='volume_delta_intrabar'
+   expect(page.locator('[data-signal-source="Volume Delta"]')).to_contain_text('▲')
+   page.get_by_text('Volume Delta signals',exact=True).click()
+   page.get_by_label('Show Volume Delta reference arrows',exact=True).uncheck();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
+   page.get_by_label('Show Volume Delta reference arrows',exact=True).check();expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(1)
+   delta_preview[0]=False;page.click('#refresh');expect(page.locator('[data-signal-source="Volume Delta"]')).to_have_count(0)
+   page.get_by_text('Volume Delta signals',exact=True).click()
+   page.get_by_text('Order Block boxes',exact=True).click();ob_preview[0]=True;page.click('#refresh')
+   expect(page.locator('[data-order-block-zone="demand"]')).to_have_count(1)
+   expect(page.locator('[data-order-block-zone="demand"]')).to_have_attribute('stroke','#2157f3')
+   expect(page.locator('[data-order-block-strength="demand"]')).to_contain_text('Strength: 3')
+   expect(page.locator('[data-order-block-zone="supply"]')).to_have_attribute('stroke','#ff5d00')
+   page.locator('#chart').screenshot(path='/tmp/thoth-order-block-boxes-fixture.png')
+   expect(page.locator('[data-signal-source^="Order Block"]')).to_have_count(0)
+   page.get_by_label('Bullish block color',exact=True).fill('#123abc')
+   expect(page.locator('[data-order-block-zone="demand"]')).to_have_attribute('stroke','#123abc')
+   page.get_by_label('Show Order Block boxes',exact=True).uncheck();expect(page.locator('[data-order-block-zone]')).to_have_count(0)
+   page.get_by_label('Show Order Block boxes',exact=True).check();expect(page.locator('[data-order-block-zone="demand"]')).to_have_count(1)
+   ob_preview[0]=False;page.click('#refresh');page.get_by_text('Order Block boxes',exact=True).click()
+   assert page.locator('#appearanceFields > details.indicator-dropdown[open]').count()==0
+   page.locator('#appearanceFields > details.indicator-dropdown').evaluate_all('(items)=>items.forEach(el=>el.open=true)')
+   candle=page.locator('[data-candle]').last
+   before_x=float(candle.get_attribute('x'))
+   page.get_by_label('Chart background',exact=True).fill('#f1f5f2')
+   expect(page.locator('#chart')).to_have_css('background-color','rgb(241, 245, 242)')
+   page.get_by_label('Show current price line and label',exact=True).uncheck()
+   expect(page.locator('[data-extreme="Now"]')).to_have_count(0)
+   expect(page.locator('[data-price-line="Current price"]')).to_have_count(0)
+   page.get_by_label('Show current price line and label',exact=True).check()
+   expect(page.locator('[data-extreme="Now"]')).to_have_count(1)
+   page.get_by_label('Chart background',exact=True).fill('#16202b')
+   page.get_by_label('Right spacing (bars)',exact=True).fill('48')
+   assert float(page.locator('[data-candle]').last.get_attribute('x'))<before_x
+   page.get_by_label('Volume with MA 20',exact=True).uncheck();expect(page.locator('[data-volume-bar]')).to_have_count(0)
+   page.get_by_label('Volume with MA 20',exact=True).check();expect(page.locator('[data-volume-bar]')).to_have_count(70)
+   for period,color in [(7,'#ffffff'),(50,'#81d4fa'),(200,'#2962ff')]:
+    expect(page.locator('[data-sma'+str(period)+']')).to_have_attribute('stroke',color)
+   page.get_by_label('SMA 50 color',exact=True).fill('#55bbdd')
+   expect(page.locator('[data-sma50]')).to_have_attribute('stroke','#55bbdd')
+   page.get_by_label('SMA 200 color',exact=True).fill('#3344cc')
+   expect(page.locator('[data-sma200]')).to_have_attribute('stroke','#3344cc')
+   page.get_by_label('SMA 7 color',exact=True).fill('#eeeeee')
+   expect(page.locator('[data-sma7]')).to_have_attribute('stroke','#eeeeee')
+   saved_colors=page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey))')
+   assert saved_colors['sma7']=='#eeeeee' and saved_colors['sma50']=='#55bbdd' and saved_colors['sma']=='#3344cc'
+   page.get_by_label('Bullish candle',exact=True).fill('#12abcd')
+   expect(page.locator('[data-candle="bull"]').first).to_have_attribute('fill','#12abcd')
+   page.get_by_label('S/R / SMA bullish arrow',exact=True).fill('#aabbcc')
+   expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   for color in ['#00ff00','#ff0000','#787b86']:
+    assert page.locator('[data-rsi-segment="'+color+'"]').count()>0
+   expect(page.locator('[data-rsi-cluster]')).to_have_count(0)
+   expect(page.locator('[data-rsi-segment]').first).to_have_attribute('stroke-width','3')
+   for value in [30,70]:expect(page.locator('[data-rsi-static-level="'+str(value)+'"]')).to_have_attribute('stroke','#81d4fa')
+   expected_levels={'static30_down':33,'static70_up':67,'static30_up':27,'static70_down':73,'ml_long_up':57,'ml_short_down':43,'ml_short_up':37,'ml_long_down':63}
+   expected_colors={'static30_down':'#e91e63','static70_up':'#26a69a','static30_up':'#4caf50','static70_down':'#ff5252','ml_long_up':'#00e676','ml_short_down':'#ffeb3b','ml_short_up':'#2962ff','ml_long_down':'#ff9800'}
+   for kind,level in expected_levels.items():
+    pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="'+kind+'"]').first
+    chart_marker=page.locator('[data-rsi-signal][data-rsi-kind="'+kind+'"]').first
+    expect(pane).to_have_attribute('data-rsi-value',str(level))
+    expect(chart_marker).to_have_attribute('fill',expected_colors[kind])
+    assert pane.get_attribute('x')==chart_marker.get_attribute('x')
+   pane=page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first
+   pane.hover()
+   # Quote polling replaces the SVG; verify one hover event's results atomically.
+   hover_geometry=page.evaluate("() => {const el=document.querySelector('[data-rsi-pane-signal][data-rsi-kind=ml_short_up]');const r=el.getBoundingClientRect(); el.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,clientX:r.x+r.width/2,clientY:r.y+r.height/2,pointerType:'mouse'})); const tip=document.querySelector('[data-signal-tooltip]');return {path:document.querySelector('[data-chart-crosshair]').getAttribute('d'),height:chartGeometry.H,tooltip:tip.textContent,visible:tip.getAttribute('visibility'),readout:document.querySelector('#rsiHoverReadout').textContent};}")
+   assert hover_geometry['visible']=='visible'
+   assert 'Bullish Signal (ML Short Up)' in hover_geometry['tooltip']
+   assert 'RSI at ' in hover_geometry['readout']
+   assert 'V'+str(int(hover_geometry['height']-55)) in hover_geometry['path'],hover_geometry
+   page.get_by_label('Color candles on S/R signals',exact=True).check()
+   assert page.locator('[data-sr-candle="Long"]').count()>0
+   page.get_by_label('Show S/R breakout arrows',exact=True).uncheck()
+   expect(page.locator('[data-signal-source="S/R"]')).to_have_count(0)
+   assert page.locator('[data-sr-candle="Long"]').count()>0
+   page.get_by_label('Show S/R breakout arrows',exact=True).check()
+   page.get_by_label('Color candles on S/R signals',exact=True).uncheck()
+   expect(page.locator('[data-sr-candle="Long"]')).to_have_count(0)
+   assert page.locator('[data-rsi-signal]').count()>0
+   page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=true')
+   page.get_by_label('RSI Long colour (curve and threshold)',exact=True).fill('#11ee55')
+   expect(page.locator('[data-rsi-line=ml_long]')).to_have_attribute('stroke','#11ee55')
+   assert page.locator('[data-rsi-segment="#11ee55"]').count()>0
+   expect(page.locator('[data-rsi-value-tag=ml_long]')).to_have_attribute('fill','#11ee55')
+   page.get_by_label('RSI Short colour (curve and threshold)',exact=True).fill('#ee2255')
+   expect(page.locator('[data-rsi-line=ml_short]')).to_have_attribute('stroke','#ee2255')
+   assert page.locator('[data-rsi-segment="#ee2255"]').count()>0
+   expect(page.locator('[data-rsi-value-tag=ml_short]')).to_have_attribute('fill','#ee2255')
+   page.get_by_label('RSI Long colour (curve and threshold)',exact=True).fill('#00ff00')
+   page.get_by_label('RSI Short colour (curve and threshold)',exact=True).fill('#ff0000')
+   raw_arrow_count=page.locator('[data-rsi-signal]').count()
+   page.get_by_label('Show only RSI crossings passing entry filters',exact=True).check()
+   assert page.locator('[data-rsi-signal]').count()<raw_arrow_count
+   page.get_by_label('Show only RSI crossings passing entry filters',exact=True).uncheck()
+   assert page.locator('[data-rsi-signal]').count()==raw_arrow_count
+   page.locator('[data-rsi-style="ml_short_up"]').evaluate('(el)=>el.open=true')
+   page.get_by_label('Bullish Signal (ML Short Up) chart color',exact=True).fill('#2244ff')
+   expect(page.locator('[data-rsi-signal][data-rsi-kind="ml_short_up"]').first).to_have_attribute('fill','#2244ff')
+   expect(page.locator('[data-rsi-pane-signal][data-rsi-kind="ml_short_up"]').first).to_have_attribute('fill','#2962ff')
+   stored_rsi=page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey)).rsiSignalStyles.ml_short_up')
+   assert stored_rsi['chartColor']=='#2244ff' and stored_rsi['paneColor']=='#2962ff'
+   page.get_by_label('Bullish Signal (ML Short Up) chart color',exact=True).fill('#2962ff')
+   page.locator('#rsiVisualSettings').evaluate('(el)=>el.open=false')
+   display_write_count=len(writes)
+   page.get_by_label('Show RSI signal arrows',exact=True).uncheck()
+   expect(page.locator('[data-rsi-signal]')).to_have_count(0)
+   expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   page.get_by_label('Show RSI signal arrows',exact=True).check()
+   page.get_by_label('Show RSI indicator pane',exact=True).uncheck()
+   expect(page.locator('[data-rsi-line=rsi]')).to_have_count(0)
+   assert page.locator('[data-rsi-signal]').count()>0
+   page.get_by_label('Show RSI indicator pane',exact=True).check()
+   assert len(writes)==display_write_count
+   expect(page.locator('#chartStatus')).to_contain_text('S/R reference arrows')
+   expect(page.locator('[data-signal="Long"]').first).to_have_attribute('fill','#aabbcc')
+   page.get_by_label('Long-term major Support',exact=True).fill('#33bb77')
+   expect(page.locator('[data-sr-key="long_support_major"]')).to_have_attribute('stroke','#33bb77')
+   page.get_by_label('Long-term major Show',exact=True).uncheck();expect(rays).to_have_count(6)
+   page.get_by_label('Long-term major Show',exact=True).check()
+   page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','true')
+   assert page.locator('#chartCard').bounding_box()['y']==0
+   page.screenshot(path=str(root/'docs/desktop-interactive-chart-fixture.png'))
+   page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','false')
+   page.click('#closeAppearance')
+   pane_write_count=len(writes);expanded_price_height=page.evaluate('() => chartGeometry.B-chartGeometry.T')
+   page.click('#toggleVolumePane');expect(page.locator('[data-volume-bar]')).to_have_count(0)
+   expect(page.locator('[data-volume-minimized]')).to_have_count(1)
+   expect(page.locator('#toggleVolumePane')).to_have_text('Expand Volume')
+   assert page.evaluate('() => chartGeometry.B-chartGeometry.T')>expanded_price_height
+   page.click('#toggleVolumePane');expect(page.locator('[data-volume-bar]')).to_have_count(70)
+   page.click('#toggleRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(0)
+   expect(page.locator('[data-rsi-minimized]')).to_have_count(1)
+   assert page.evaluate('() => chartGeometry.B-chartGeometry.T')>expanded_price_height
+   page.click('#toggleRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   page.click('#closeRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(0)
+   expect(page.locator('[data-rsi-minimized]')).to_have_count(0)
+   expect(page.locator('#showRSIPane')).to_be_visible()
+   assert page.evaluate('() => JSON.parse(localStorage.getItem(chartStyleKey)).showRSI') is False
+   page.click('#showRSIPane');expect(page.locator('[data-rsi-line=rsi]')).to_have_count(1)
+   assert len(writes)==pane_write_count
+   page.screenshot(path=str(root/'docs/desktop-watchlist-fixture.png'),full_page=True)
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('SOLUSDT');expect(page.locator('#liveDialog')).to_be_visible();page.click('#activateLive');expect(page.locator('#activationError')).to_contain_text('Type ENABLE LIVE ORDERS exactly');assert not activation;page.keyboard.press('Escape');expect(page.locator('#liveDialog')).not_to_be_visible()
+   # Poll update locks every mutation without discarding the form draft.
+   payloads['live']['entries']=True
+   expect(page.locator('#clearSymbols')).to_be_disabled(timeout=10000)
+   expect(page.locator('#selectAllCoins')).to_be_disabled()
+   expect(page.locator('#coins input').first).to_be_disabled()
+   payloads['live']['entries']=False
+   expect(page.locator('#clearSymbols')).to_be_enabled(timeout=10000)
+   page.set_viewport_size({'width':390,'height':844});page.reload()
+   assert page.evaluate('() => chartStyle.bull')=='#12abcd'
+   assert page.evaluate('() => chartStyle.background')=='#16202b'
+   page.click('#appearanceToggle');page.click('#resetAppearance')
+   assert page.evaluate('() => chartStyle.bull')=='#26a69a'
+   page.click('#closeAppearance')
+   expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   page.select_option('#symbol','ETHUSDT');expect(page.locator('#chartScope')).to_contain_text('not enabled for trading')
+   page.click('[data-page-link=settings]');page.click('#onlyChart');page.click('#saveSymbols');expect(page.locator('#savedSymbolList')).to_contain_text('ETHUSDT')
+   page.select_option('#strategyLogic','sma_cross');expect(page.locator('#strategyDescription')).to_contain_text('SMA 7')
+   for control in ['sma_enabled','sma_7_50_filter_enabled','sma_length']:
+    expect(page.locator('#'+control)).to_be_visible()
+   expect(page.locator('#sma_enabled').locator('..')).to_contain_text('S/R entry filter')
+   expect(page.locator('#sma_7_50_filter_enabled').locator('..')).to_contain_text('S/R entry filter')
+   for interval in ['5','60','240']:
+    page.select_option('#strategyTf',interval);page.click('#saveSymbols')
+    page.wait_for_function('(value)=>lv.config.timeframe===value',arg=interval)
+    assert writes[-1][1]['timeframe']==interval
+    expect(page.locator('#tf')).to_have_value('1')
+   page.select_option('#strategyTf','1')
+   page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
+   assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   page.check('#coin_pnl_trailing_enabled');page.fill('#coin_pnl_trailing_activation_dollars','0.5');page.fill('#coin_pnl_trailing_drop_dollars','0.025');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.coin_pnl_trailing_enabled && lv.config.coin_pnl_trailing_activation_dollars===0.5 && lv.config.coin_pnl_trailing_drop_dollars===0.025')
+   expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
+   page.uncheck('#coin_pnl_trailing_enabled');page.click('#saveSymbols')
+   page.wait_for_function('() => !lv.config.coin_pnl_trailing_enabled')
+   for new_strategy in ['sma_7_50','sr_sma_7_50']:
+    page.select_option('#strategyLogic',new_strategy)
+    expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','5')
+    expect(page.locator('#sma_exit_enabled')).to_be_enabled()
+    page.uncheck('#sma_exit_enabled');page.click('#saveSymbols')
+    page.wait_for_function('(name) => lv.config.strategy===name && !lv.config.sma_exit_enabled',arg=new_strategy)
+    assert writes[-1][1]['strategy']==new_strategy and writes[-1][1]['timeframe']=='5'
+    page.check('#sma_exit_enabled');page.click('#saveSymbols')
+    page.wait_for_function('() => lv.config.sma_exit_enabled')
+   page.select_option('#strategyLogic','sr_hourly_intrabar')
+   expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','60')
+   expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#major')).to_be_visible();expect(page.locator('#minor')).to_be_visible()
+   expect(page.locator('#strategyDescription')).to_contain_text('1-minute SMA exits')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_hourly_intrabar'")
+   assert writes[-1][1]['timeframe']=='60' and writes[-1][1]['sma_exit_enabled']
+   expect(page.locator('#tf')).to_have_value('1')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('S/R intrabar → Exit 1m');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','volume_delta_intrabar')
+   expect(page.locator('#volumeDeltaSettings')).to_be_visible()
+   expect(page.locator('#vd_sma_filter')).to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('NO SMA EXIT')
+   page.select_option('#strategyTf','5');page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='volume_delta_intrabar'")
+   assert writes[-1][1]['volume_delta']['sma_filter'] and not writes[-1][1]['sma_exit_enabled']
+   page.uncheck('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.volume_delta.sma_filter')
+   page.check('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => lv.config.volume_delta.sma_filter')
+   page.select_option('#strategyLogic','sr_rsi_volume_gate')
+   expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#vd_sma_filter')).to_be_checked();expect(page.locator('#vd_sma_filter')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#lossStreakScope')).to_have_value('per_coin');expect(page.locator('#lossStreakScope')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('opens Long OR Short')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_rsi_volume_gate'")
+   assert writes[-1][1]['timeframe']=='1' and writes[-1][1]['volume_delta']['sma_filter']
+   assert not writes[-1][1]['sma_exit_enabled'] and not writes[-1][1]['rsi']['volume_filter']
+   page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:2,primary_timeframe:'D'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('ARMED · 1m Volume Delta may enter Long or Short')
+   page.evaluate("() => {lv.entry_gates.ETHUSDT={phase:'cooldown',losses:3,cooldown_until:Date.now()/1000+3600};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('LOCKED · cooldown')
+   protected_fields=['daily_loss_pct','stop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','coin_pnl_trailing_enabled','daily_equity_trailing_enabled','three_day_equity_trailing_enabled','weekly_equity_trailing_enabled','consecutive_losses','pause_minutes']
+   before_ob_risk={key:payloads['live']['config'][key] for key in protected_fields}
+   page.select_option('#strategyLogic','order_block_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('240');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_be_enabled()
+   expect(page.locator('#orderBlockSettings')).not_to_be_visible();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#volumeDeltaSettings')).not_to_be_visible()
+   expect(page.locator('#sma_enabled')).not_to_be_checked();expect(page.locator('#sma_enabled')).to_be_disabled()
+   expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('DO NOT wait for close')
+   expect(page.locator('#strategyDescription')).to_contain_text('volume MA 20')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_intrabar'")
+   assert writes[-1][1]['timeframe']=='240' and not writes[-1][1]['order_block']['filter_breaks']
+   assert all(writes[-1][1]['order_block'][kind] for kind in ['bullish_formed','bearish_formed','supply_breakout','demand_breakdown'])
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_intrabar')
+   expect(page.locator('#rsiSettings')).not_to_be_visible();expect(page.locator('#strategyTf')).to_have_value('240')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block · 4h · Volume MA');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','order_block_sr_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('240');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#major')).to_be_visible();expect(page.locator('#major')).to_be_checked();expect(page.locator('#major')).to_be_disabled()
+   expect(page.locator('#minor')).to_be_visible();expect(page.locator('#minor')).to_be_checked();expect(page.locator('#minor')).to_be_disabled()
+   expect(page.locator('#sma_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
+   expect(page.locator('#strategyDescription')).to_contain_text('Order Block OR S/R Major and Minor independently')
+   expect(page.locator('#strategyDescription')).to_contain_text('BOTH branches require forming 4h Volume > MA 20')
+   expect(page.locator('#rsiSettings')).not_to_be_visible()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_sr_intrabar'")
+   assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['major'] and writes[-1][1]['minor']
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_intrabar')
+   expect(page.locator('#major')).to_be_checked();expect(page.locator('#minor')).to_be_checked()
+   expect(page.locator('#rsiSettings')).not_to_be_visible()
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 4h · Volume MA');page.keyboard.press('Escape')
+   # Separate TradFi list is draft-only; original Main selection survives saving/reload.
+   main_symbols=page.evaluate('formDraft.symbols.slice()')
+   page.select_option('#activeSymbolList','tradfi')
+   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   assert page.evaluate('lv.config.active_symbol_list')=='main'
+   page.fill('#search','UMC');expect(page.locator('#coins input')).to_have_count(1)
+   page.fill('#search','');page.click('#selectAllCoins')
+   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   page.select_option('#strategyLogic','order_block_sr_1h')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('BOTH branches require forming 1h Volume > MA 20')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_sr_1h'")
+   assert writes[-1][1]['saved_symbol_lists']['main']==main_symbols
+   assert writes[-1][1]['active_symbol_list']=='tradfi' and writes[-1][1]['timeframe']=='60'
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#activeSymbolList')).to_have_value('tradfi')
+   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h');page.keyboard.press('Escape')
+   page.select_option('#activeSymbolList','main')
+   assert page.evaluate('formDraft.symbols')==main_symbols
+   page.select_option('#strategyLogic','order_block_sr_intrabar');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.active_symbol_list==='main'")
+   page.select_option('#strategyLogic','sr_order_block_gate')
+   expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_length')).to_have_value('200');expect(page.locator('#sma_length')).to_be_disabled()
+   expect(page.locator('#ob_sma200_required')).to_be_checked();expect(page.locator('#ob_sma200_required')).to_be_disabled()
+   expect(page.locator('#orderBlockSettings')).to_be_visible();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#volumeDeltaSettings')).not_to_be_visible()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('NO RSI permission')
+   expect(page.locator('#strategyDescription')).to_contain_text('Supply breakout Long above')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_order_block_gate'")
+   assert writes[-1][1]['timeframe']=='5' and writes[-1][1]['order_block']['filter_breaks']
+   assert not writes[-1][1]['sma_enabled'] and not writes[-1][1]['sma_7_50_filter_enabled']
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_order_block_gate');expect(page.locator('#rsiSettings')).not_to_be_visible()
+   page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:0,primary_timeframe:'240'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('5m Order Block may enter Long or Short')
+   page.select_option('#strategyLogic','sma_7_50_intrabar')
+   expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyTf')).to_have_value('240')
+   expect(page.locator('#oppositeAction')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_have_value('reverse')
+   expect(page.locator('#sma_ob_exit_enabled')).to_be_visible()
+   expect(page.locator('#sma_ob_exit_enabled')).to_be_checked()
+   expect(page.locator('#strategyDescription')).to_contain_text('Same-direction blocks and ALL block breaks do nothing')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#rsiSettings')).to_be_hidden()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sma_7_50_intrabar'")
+   assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['opposite_action']=='reverse'
+   assert not writes[-1][1]['sma_exit_enabled'] and writes[-1][1]['sma_ob_exit_enabled']
+   page.uncheck('#sma_ob_exit_enabled');page.click('#saveSymbols')
+   page.wait_for_function("() => !lv.config.sma_ob_exit_enabled")
+   page.check('#sma_ob_exit_enabled');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.sma_ob_exit_enabled")
+   expect(page.locator('#weekly_equity_trailing_enabled')).not_to_be_checked()
+   expect(page.locator('#daily_equity_trailing_enabled')).not_to_be_checked()
+   expect(page.locator('#three_day_equity_trailing_enabled')).not_to_be_checked()
+   page.check('#weekly_equity_trailing_enabled');page.fill('#weekly_equity_trailing_drop_dollars','2.50')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.weekly_equity_trailing_enabled")
+   assert writes[-1][1]['weekly_equity_trailing_drop_dollars']==2.5
+   period_now=time.time()
+   payloads['live']['equity_trailing']={'weekly':dict(period_start=period_now-600,period_end=period_now+3600,peak='105',current='104.5',drop='2.5',remaining='2.0',stop_equity='102.5',triggered=False)}
+   page.evaluate("async()=>{updateAccount(await api('live'));renderRiskOverview()}")
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('TRACKING')
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('$105.00')
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('$102.50')
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('remaining')
+   payloads['live']['equity_trailing']['weekly']['triggered']=True
+   page.evaluate("async()=>{updateAccount(await api('live'));renderRiskOverview()}")
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('PAUSED UNTIL PERIOD END')
+   page.uncheck('#weekly_equity_trailing_enabled');page.click('#saveSymbols')
+   page.wait_for_function("() => !lv.config.weekly_equity_trailing_enabled")
+   expect(page.locator('[data-equity-period=weekly]')).to_contain_text('PAUSED UNTIL PERIOD END')
+   payloads['live']['equity_trailing']={}
+   page.evaluate("async()=>{updateAccount(await api('live'));renderRiskOverview()}")
+   expect(page.locator('#equityTrailingStatus')).to_be_hidden()
+   page.select_option('#strategyLogic','sr_volume_intrabar')
+   expect(page.locator('#strategyDescription')).to_contain_text('REQUIRED')
+   expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#sma_enabled')).not_to_be_checked()
+   expect(page.locator('#sma_enabled')).to_be_disabled()
+   expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
+   expect(page.locator('#rsiSettings')).to_be_hidden()
+   expect(page.locator('#sr_volume_period')).to_have_value('20')
+   expect(page.locator('#oppositeAction')).to_be_enabled()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_volume_intrabar'")
+   assert writes[-1][1]['sr_volume_period']==20 and not writes[-1][1]['sma_exit_enabled']
+   assert not writes[-1][1]['sma_enabled'] and not writes[-1][1]['sma_7_50_filter_enabled']
+   page.select_option('#strategyLogic','sr_inverse_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('240')
+   expect(page.locator('#strategyDescription')).to_contain_text('Bullish resistance breakout → SHORT')
+   expect(page.locator('#strategyDescription')).to_contain_text('actual SHORT exits when SMA 7 crosses BELOW SMA 50')
+   expect(page.locator('#strategyDescription')).to_contain_text('actual LONG exits when SMA 7 crosses ABOVE SMA 50')
+   expect(page.locator('#inverse_direction_confirmed')).to_be_visible()
+   page.check('#inverse_direction_confirmed')
+   expect(page.locator('#inverse_entry_delay_seconds')).to_be_visible()
+   page.fill('#inverse_entry_delay_seconds','60')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_inverse_intrabar'")
+   assert writes[-1][1]['inverse_entry_delay_seconds']==60
+   expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   page.select_option('#strategyTf','D');page.click('#saveSymbols');page.wait_for_function("() => lv.config.timeframe==='D'")
+   page.select_option('#strategyLogic','sr_rsi_daily')
+   expect(page.locator('#strategyTf')).to_have_value('D');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
+   for filter_id in ['sma_enabled','sma_7_50_filter_enabled','rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter']:
+    expect(page.locator('#'+filter_id)).not_to_be_checked();expect(page.locator('#'+filter_id)).to_be_disabled()
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('fixed');expect(page.locator('#rsi_calculation_mode')).to_be_disabled()
+   expect(page.locator('#rsi_signal_rules')).to_have_value('eight_crossings')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='sr_rsi_daily' && lv.config.timeframe==='D'")
+   assert writes[-1][1]['rsi']['calculation_mode']=='fixed' and writes[-1][1]['rsi']['signal_rules']=='eight_crossings'
+   expect(page.locator('#strategyDescription')).to_contain_text('Daily S/R breakout OR fixed RSI')
+   page.select_option('#strategyLogic','rsi_hourly_intrabar')
+   expect(page.locator('#strategyDescription')).to_contain_text('Selected RSI calculation version')
+   expect(page.locator('#strategyTf')).to_be_enabled();page.select_option('#strategyTf','60')
+   page.locator('#rsiSettings').evaluate('(el)=>el.open=true')
+   expect(page.locator('#rsi_ml_signals')).to_be_checked();expect(page.locator('#rsi_static_signals')).to_be_checked()
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('fixed')
+   expect(page.locator('#rsi_fixed_long')).to_have_value('56.68');expect(page.locator('#rsi_fixed_short')).to_have_value('42.38')
+   page.fill('#rsi_fixed_long','58');page.fill('#rsi_fixed_short','40');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.rsi.calculation_mode==='fixed' && lv.config.rsi.fixed_long===58 && lv.config.rsi.fixed_short===40")
+   page.fill('#rsi_fixed_long','56.68');page.fill('#rsi_fixed_short','42.38');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.rsi.fixed_long===56.68 && lv.config.rsi.fixed_short===42.38")
+   for interval in ['1','5','60','240','D']:
+    page.select_option('#strategyTf',interval);page.click('#saveSymbols')
+    page.wait_for_function('(value) => lv.config.timeframe===value',arg=interval)
+    assert writes[-1][1]['rsi']['calculation_mode']=='fixed' and writes[-1][1]['sma_exit_enabled']
+   page.select_option('#strategyTf','60')
+   page.select_option('#rsi_calculation_mode','corrected');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.rsi.calculation_mode==='corrected'")
+   for filter_id in ['rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter']:expect(page.locator('#'+filter_id)).not_to_be_checked()
+   page.select_option('#rsi_signal_rules','eight_crossings')
+   page.select_option('#rsi_calculation_mode','uploaded_pine')
+   page.fill('#rsi_max_data','50');page.uncheck('#rsi_volume_filter');page.click('#saveSymbols')
+   page.wait_for_function("() => lv.config.strategy==='rsi_hourly_intrabar' && lv.config.rsi.max_data===50")
+   assert not writes[-1][1]['rsi']['volume_filter']
+   assert writes[-1][1]['rsi']['calculation_mode']=='uploaded_pine'
+   assert writes[-1][1]['rsi']['signal_rules']=='eight_crossings'
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('uploaded_pine')
+   page.select_option('#strategyLogic','sma_cross')
+   expect(page.locator('#strategyTf')).to_be_enabled();expect(page.locator('#sma_exit_enabled')).to_be_enabled()
+   page.select_option('#strategyTf','1');page.click('#saveSymbols')
+   expect(page.locator('#take_profit_enabled')).not_to_be_checked()
+   page.check('#take_profit_enabled');page.fill('#take_profit_dollars','1.25');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.take_profit_enabled && lv.config.take_profit_dollars===1.25')
+   assert writes[-1][1]['take_profit_enabled'] and writes[-1][1]['take_profit_dollars']==1.25
+   page.uncheck('#take_profit_enabled');page.click('#saveSymbols')
+   expect(page.locator('#lossStreakScope')).to_have_value('per_coin')
+   expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
+   page.check('#pnl_trailing_enabled');page.fill('#pnl_trailing_activation_dollars','1');page.fill('#pnl_trailing_drop_dollars','0.10');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.pnl_trailing_enabled && lv.config.pnl_trailing_drop_dollars===0.1')
+   assert writes[-1][1]['pnl_trailing_activation_dollars']==1
+   payloads['live']['pnl_trailing']=dict(active=True,peak='1.50',threshold='1.40',current='1.45',triggered=False)
+   page.evaluate('(data) => {lv.pnl_trailing=data;render();}',payloads['live']['pnl_trailing'])
+   expect(page.locator('#pnlTrailingStatus')).to_have_attribute('data-phase','active')
+   expect(page.locator('#pnlTrailingStatus')).to_contain_text('TRAILING ACTIVE')
+   assert page.locator('#pnlTrailingStatus').evaluate("el=>[el,el.querySelector('strong'),el.querySelector('small')].every(node=>getComputedStyle(node).color===getComputedStyle(document.querySelector('#pnl')).color)&&getComputedStyle(el).borderTopColor===getComputedStyle(document.querySelector('#pnl')).color&&getComputedStyle(el).backgroundColor===getComputedStyle(document.querySelector('#pnl').closest('.card')).backgroundColor&&getComputedStyle(el.querySelector('.pnl-trailing-values strong')).fontWeight===getComputedStyle(document.querySelector('#pnl')).fontWeight")
+   expect(page.locator('#pnlTrailingStatus')).to_contain_text('Peak $1.50')
+   expect(page.locator('#pnlTrailingStatus')).to_contain_text('Close all at or below $1.40')
+   mobile_stats=page.locator('.account-stats').evaluate("el=>{const rect=q=>{const r=el.querySelector(q).getBoundingClientRect();return {x:r.x,y:r.y,width:r.width}};return {equity:rect('.account-equity'),loss:rect('.account-loss'),pnl:rect('.account-pnl'),peak:rect('.pnl-trailing-values>div:first-child'),threshold:rect('.pnl-trailing-values>div:last-child')}}")
+   assert abs(mobile_stats['equity']['y']-mobile_stats['loss']['y'])<1
+   assert mobile_stats['loss']['x']>mobile_stats['equity']['x']
+   assert mobile_stats['pnl']['y']>mobile_stats['equity']['y']
+   assert mobile_stats['pnl']['width']>mobile_stats['equity']['width']*1.9
+   assert abs(mobile_stats['peak']['y']-mobile_stats['threshold']['y'])<1
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+
+   page.uncheck('#pnl_trailing_enabled');page.click('#saveSymbols')
+   page.check('#trailing_enabled');page.fill('#trailing_activation_pct','12.5');page.fill('#trailing_distance_pct','0.8')
+   expect(page.locator('#trailingActivationBasis')).to_have_value('margin');expect(page.locator('#trailingBasis')).to_have_value('price')
+   page.click('#saveSymbols');page.wait_for_function('() => lv.config.trailing_enabled && lv.config.trailing_activation_pct===12.5')
+   assert writes[-1][1]['trailing_distance_pct']==.8
+   page.locator('#page-settings').screenshot(path=str(root/'docs/mobile-settings-fixture.png'))
+   page.click('[data-page-link=chart]')
+   page.locator('#chart').click(position={'x':130,'y':120});expect(page.locator('#candleInfo')).to_contain_text(' O ')
+   assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+   page.click('#chartSearch');page.fill('#chartSearchInput','ETHUSDT');page.keyboard.press('Enter')
+   expect(page.locator('#chartSearchDialog')).not_to_be_visible()
+   page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','true')
+   assert not page.evaluate('document.documentElement.scrollWidth > window.innerWidth')
+   assert page.locator('#chartCard').bounding_box()['y']==0
+   page.screenshot(path=str(root/'docs/mobile-interactive-chart-fixture.png'))
+   page.click('#maximizeChart')
+   # Real touch events exercise Android measurement without native page scrolling.
+   page.click('#measureChart');page.locator('#chart').scroll_into_view_if_needed()
+   expect(page.locator('#chart')).to_have_css('touch-action','none')
+   box=page.locator('#chart').bounding_box();geometry=page.evaluate('() => chartGeometry');tx=box['x']+box['width']*.2;ty=box['y']+box['height']*(geometry['T']+geometry['B'])/2/geometry['H']
+   touch=page.context.new_cdp_session(page);touch.send('Emulation.setTouchEmulationEnabled',{'enabled':True,'maxTouchPoints':1})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':tx,'y':ty}]})
+   for step in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':tx+step*10,'y':ty-step*4}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+   expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('[data-ruler-summary]')).to_contain_text('%')
+   expect(page.locator('#measurementReadout')).to_contain_text('candle intervals')
+   page.locator('#chartCard').screenshot(path=str(root/'docs/mobile-measurement-fixture.png'))
+   page.click('#clearMeasurement')
+   page.click('#measureChart');page.locator('#chart').click(position={'x':100,'y':80})
+   expect(page.locator('#measurementReadout')).to_contain_text('First point set')
+   page.click('#measureChart');expect(page.locator('#measureChart')).to_have_attribute('aria-pressed','false')
+   expect(page.locator('[data-measurement]')).to_have_count(0)
+   page.click('#resetChartView');page.locator('#chart').evaluate("el=>el.scrollIntoView({block:'center'})")
+   box=page.locator('#chart').bounding_box();tx=box['x']+box['width']*.3;ty=box['y']+box['height']*.4
+   scroll=page.evaluate('scrollY')
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':tx,'y':ty}]})
+   for i in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':tx+i*8,'y':ty+i*4}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+   assert page.evaluate('() => chartOffset')>0
+   assert page.evaluate('() => chartPriceShift')!=0
+   assert abs(page.evaluate('scrollY')-scroll)<2
+   touch.send('Emulation.setTouchEmulationEnabled',{'enabled':True,'maxTouchPoints':2})
+   before=page.evaluate('() => visibleBars');cx=box['x']+box['width']*.4
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':cx-25,'y':ty,'id':0},{'x':cx+25,'y':ty,'id':1}]})
+   queries=len(chart_queries);page.evaluate('async () => await loadChart(true)');assert len(chart_queries)==queries
+   for i in range(1,7):touch.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':cx-25-i*5,'y':ty,'id':0},{'x':cx+25+i*5,'y':ty,'id':1}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+   assert page.evaluate('() => visibleBars')<before
+   assert page.evaluate('() => chartTouches.size')==0
+   touch.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':cx-25,'y':ty,'id':0},{'x':cx+25,'y':ty,'id':1}]})
+   touch.send('Input.dispatchTouchEvent',{'type':'touchCancel','touchPoints':[]})
+   assert page.evaluate('() => chartTouches.size===0 && chartPinch===null')
+   page.click('#resetChartView')
+   # Display-only trailing overlays use the managed position's frozen settings.
+   overlay_position=dict(symbol=page.locator('#symbol').input_value(),side='Long',qty='.02',entry='2410',mark='2420',pnl=.2,stop='2415',stop_dollars=1,take_profit=dict(enabled=True,dollars=1,verified=True,exchange_price='2425'),trailing=dict(enabled=True,active=True,activation_price='2412',stop='2415'))
+   payloads['live']['positions']=[overlay_position]
+   page.evaluate('(position) => {lv.positions=[position];draw()}',overlay_position)
+   expect(page.locator('[data-price-line="Trailing exchange stop"]')).to_have_count(1)
+   expect(page.locator('[data-price-line="Trailing activated"]')).to_have_count(1)
+   page.locator('#chartCard').screenshot(path=str(root/'docs/mobile-trailing-fixture.png'))
+   expect(page.locator('[data-price-line="Exchange take profit"]')).to_have_count(1)
+   payloads['live']['positions']=[]
+   page.evaluate('() => {lv.positions=[];draw();}')
+   page.screenshot(path=str(root/'docs/mobile-watchlist-fixture.png'),full_page=True)
+   page.wait_for_function('() => !chartLoading');page.click('#loadOlderHistory');expect(page.locator('#historyStatus')).to_contain_text('2000 candles loaded',timeout=10000)
+   page.click('#oldest');expect(page.locator('#older')).to_be_disabled()
+   assert page.evaluate('() => chartRows.length')==2000
+   expect(page.locator('#historyStatus')).to_contain_text('Historical replay')
+   queries=len(chart_queries);page.evaluate('async () => await loadChart(true)');assert len(chart_queries)==queries
+   assert page.evaluate('() => chartLookback')==2000
+   page.click('#latest');expect(page.locator('#latest')).to_be_disabled()
+   expect(page.locator('#historyStatus')).to_contain_text('1000 candles loaded')
+   assert page.evaluate('() => chartLookback')==1000
+   page.click('[data-page-link=positions]');expect(page.locator('#page-positions')).to_be_visible();expect(page.locator('#page-chart')).not_to_be_visible()
+   page.evaluate("() => {lv.positions=[{symbol:'ETHUSDT',side:'Long',qty:'.02',entry:'2400',mark:'2400',pnl:0,opened_at:1792299900123}];render();}")
+   expect(page.locator('#positions time')).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
+   expect(page.locator('#positions time')).to_contain_text('EDT')
+   page.evaluate('() => {lv.positions=[];render();}')
+   page.click('[data-page-link=comparison]');expect(page.locator('#page-comparison')).to_be_visible()
+   expect(page.locator('#comparisonCycles')).to_contain_text('11 positions')
+   expect(page.locator('#comparisonCycles')).to_contain_text('Simulated gross result')
+   expect(page.locator('#comparisonCycles')).to_contain_text('Actual confirmed realized P&L')
+   expect(page.locator('#comparisonCycles')).to_contain_text('$1.25')
+   comparison_live_writes=len(writes)
+   page.fill('#observationMaximum','0.50');page.locator('#comparisonSettings button').click()
+   expect(page.locator('#comparisonStatus')).to_contain_text('Dynamic observation enabled')
+   assert comparison_writes[-1]['maximum']==.5
+   assert len(writes)==comparison_live_writes
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+   page.reload();expect(page.locator('#page-comparison')).to_be_visible()
+   page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
+   expect(page.locator('#historyRows')).to_contain_text('S/R Breakout')
+   expect(page.locator('#historyRows tr').first.locator('time').first).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
+   expect(page.locator('#historyRows tr').first.locator('time').first).to_contain_text('EDT')
+   expect(page.locator('#historyRows .reason-cell').filter(has_text='SMA 7/50 (EXIT)')).to_have_count(2)
+   expect(page.locator('#historyRows .reason-cell').filter(has_text='Combined Trailing Stop')).to_have_count(1)
+   expect(page.locator('#historyRows .reason-cell').first).to_have_attribute('title','SMA 7 crossed below SMA 50 (intrabar exit)')
+   expect(page.locator('#historyRows tr').nth(1).locator('td').first).to_have_text('—')
+
+   expect(page.locator('#historyRows tr.trade-win')).to_have_count(1)
+   expect(page.locator('#historyRows tr.trade-win')).to_contain_text('ETHUSDT')
+   expect(page.locator('#historyRows .pnl-win')).to_have_text('$0.24')
+   assert page.locator('#historyRows tr.trade-win td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(82, 196, 125, 0.15)'
+   expect(page.locator('#historyRows tr:not(.trade-win):not(.trade-loss)')).to_have_count(1)
+   expect(page.locator('#historyRows tr.trade-loss')).to_have_count(1)
+   expect(page.locator('#historyRows tr.trade-loss')).to_contain_text('BTCUSDT')
+   expect(page.locator('#historyRows .pnl-loss')).to_have_text('-$0.31')
+   assert page.locator('#historyRows tr.trade-loss td').first.evaluate('(el) => getComputedStyle(el).backgroundColor')=='rgba(255, 110, 110, 0.15)'
+   page.click('[data-page-link=alerts]');expect(page.locator('#signalAlertStatus')).to_contain_text('No saved signal alerts')
+   page.evaluate('floatingAlertNewest=0')
+   alert_items.append(dict(id=1,time=1792300000,observed_at=1792300000,symbol='JCTUSDT',strategy='sr_rsi_daily',signal='Long',reason='queued: Long; awaiting entry checks',diagnostic={'rsi_events':['ml_long_up'],'sr_levels':[]}))
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(1)
+   expect(page.locator('.signal-toast')).to_contain_text('JCTUSDT · Bullish / Long')
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(1)
+   alert_items[0]['reason']='Position filled; Bybit stop loss verified'
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_contain_text('stop loss verified')
+   expect(page.locator('.signal-toast')).to_have_count(1)
+   page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
+   expect(page.locator('#signalAlertRows')).to_contain_text('RSI over Long')
+   page.fill('#signalAlertSymbol','ETHUSDT');expect(page.locator('#signalAlertRows tr')).to_have_count(0)
+   page.fill('#signalAlertSymbol','');page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
+   page.get_by_role('button',name='Dismiss signal alert').click();expect(page.locator('.signal-toast')).to_have_count(0)
+   alert_items.append(dict(id=2,time=1792300001,observed_at=1792300001,symbol='ETHUSDT',strategy='sr_volume_intrabar',signal='Short',reason='queued: Short',entry_sources=['htf:240:sr:long_support_major']))
+   alert_items.append(dict(id=3,time=1792300002,observed_at=1792300002,symbol='BTCUSDT',strategy='sr_volume_intrabar',signal='Long',reason='queued: Long',entry_sources=['htf:D:sr:long_resistance_major']))
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(2)
+   expect(page.locator('#closeAllSignalAlerts')).to_be_visible()
+   page.click('#closeAllSignalAlerts');expect(page.locator('.signal-toast')).to_have_count(0)
+   expect(page.locator('#closeAllSignalAlerts')).to_be_hidden()
+   page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(0)
+   page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(3)
+   alert_items.clear()
+   page.click('[data-page-link=history]')
+   expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(0)
+   page.locator('#page-history').screenshot(path=str(root/'docs/mobile-history-fixture.png'))
+   history_many.extend(dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300000-i,pnl=.01,reason='Synthetic trade '+str(i),strategy='sr_breakout') for i in range(123))
+   page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(50)
+   page.get_by_role('button',name='History page 2',exact=True).click()
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('51–100 of 123')
+   expect(page.locator('#historyRows tr').first).to_contain_text('Synthetic trade 50')
+   page.fill('#historyPageNumber','3');page.click('#historyJump button')
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('101–123 of 123')
+   expect(page.locator('#historyRows tr')).to_have_count(23)
+   expect(page.get_by_role('button',name='History page 3',exact=True)).to_have_attribute('aria-current','page')
+   page.get_by_role('button',name='History page 1',exact=True).click()
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('1–50 of 123')
+   history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
+   expect(page.locator('#historyRows')).to_contain_text('S/R short-term minor support')
+   expect(page.locator('#historyRows')).to_contain_text('Source not recorded')
+
+   page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   entry_delay_items.append(dict(symbol='WLDUSDT',side='Buy',phase='closed',sources=['ob:bullish_formed'],details={'qualified_at':1793143000},timing={},measurements={'observation_gap_seconds':192.6,'volume_wait_seconds':120,'qualified_to_submit_seconds':5,'submit_to_fill_observed_seconds':7,'entry_move_pct':.2},realized_pnl=-.4))
+   expect(page.locator('#watchlistRows')).to_contain_text('WLDUSDT');expect(page.locator('#watchlistRows')).to_contain_text('192.6s')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.watchlistCopied=text}})")
+   page.click('#watchlistCopy');expect(page.locator('#watchlistStatus')).to_contain_text('copied')
+   assert '110126' in page.evaluate('window.watchlistCopied')
+   page.select_option('#watchlistScope','all');expect(page.locator('#watchlistStatus')).to_contain_text('All retained strategies')
+   page.click('#refreshEntryDelay');expect(page.locator('#entryDelayRows')).to_contain_text('WLDUSDT / Long')
+   expect(page.locator('#entryDelayRows')).to_contain_text('192.60s');expect(page.locator('#entryDelayRows')).to_contain_text('120.00s')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.entryDelayCopied=text}})")
+   page.click('#copyEntryDelay');expect(page.locator('#entryDelayStatus')).to_contain_text('Timing report copied')
+   assert 'WLDUSDT' in page.evaluate('window.entryDelayCopied')
+   page.click('#refreshFastMovers');expect(page.locator('#fastMoversRows')).to_contain_text('WLDUSDT')
+   expect(page.locator('#fastMoversRows')).to_contain_text('0.400')
+   entry_delay_items.clear()
+   expect(page.locator('#sourceAnalysis')).to_contain_text('S/R short-term minor support')
+   expect(page.locator('#sourceTimingAnalysis')).to_contain_text('S/R short-term minor support')
+   page.select_option('#analysisSource','sr:short_support_minor');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')
+   expect(page.locator('#sourceTimingAnalysis')).to_contain_text('limited sample')
+   page.select_option('#analysisSource','');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   expect(page.locator('#coinSourceAnalysis')).to_contain_text('BTCUSDT')
+   timing_writes=len(writes)
+   expect(page.locator('#timingCoverage')).to_contain_text('Opening time')
+   expect(page.locator('#timingCoverage')).to_contain_text('2 trades included · 1 excluded')
+   expect(page.locator('#timingHighlights article')).to_have_count(6)
+   expect(page.locator('#timingHighlights')).to_contain_text('09:00–09:59')
+   expect(page.locator('#timingHighlights')).to_contain_text('10:00–10:59')
+   expect(page.locator('#timingHours tr')).to_have_count(24)
+   expect(page.locator('#timingWeekdays tr')).to_have_count(7)
+   expect(page.locator('#timingHighlights')).to_contain_text('small sample')
+   page.select_option('#analysisTimeBasis','exit')
+   expect(page.locator('#timingCoverage')).to_contain_text('Closing time')
+   expect(page.locator('#timingCoverage')).to_contain_text('3 trades included · 0 excluded')
+   expect(page.locator('#timingHighlights')).to_contain_text('11:00–11:59')
+   page.select_option('#analysisTimeBasis','entry');expect(page.locator('#timingCoverage')).to_contain_text('Opening time')
+   analysis_many.extend(dict(symbol='ETHUSDT',strategy='sr_breakout',pnl=.01,opened_at=1792501200-i*86400,closed_at=1792501200-i*86400+60) for i in range(123))
+   page.click('#refreshAnalysis');expect(page.locator('#analysisStatus')).to_contain_text('123 confirmed')
+   expect(page.locator('#timingDates tr')).to_have_count(50)
+   page.click('#timingDatesNext');expect(page.locator('#timingDatesPage')).to_contain_text('51–100 of 123')
+   page.click('#timingDatesNext');expect(page.locator('#timingDates tr')).to_have_count(23)
+   expect(page.locator('#timingDatesPage')).to_contain_text('101–123 of 123')
+   analysis_many.clear();page.click('#refreshAnalysis');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   assert len(writes)==timing_writes
+   assert page.evaluate('() => document.documentElement.scrollWidth<=innerWidth')
+
+   expect(page.locator('#coinAnalysis')).to_contain_text('BTCUSDT');expect(page.locator('#strategyAnalysis')).to_contain_text('SMA 7/200')
+   page.fill('#analysisSymbol','ETHUSDT');expect(page.locator('#analysisStatus')).to_contain_text('1 confirmed')
+   expect(page.locator('#coinAnalysis tr.trade-win')).to_have_count(1)
+   expect(page.locator('#coinAnalysis tr')).to_have_count(1);expect(page.locator('#coinAnalysis')).to_contain_text('$0.24')
+   page.select_option('#analysisStrategy','sr_breakout');expect(page.locator('#analysisStatus')).to_contain_text('No recorded')
+   page.fill('#analysisSymbol','');page.select_option('#analysisStrategy','');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   page.locator('#page-analysis').screenshot(path=str(root/'docs/mobile-analysis-fixture.png'))
+   page.reload();expect(page.locator('#page-analysis')).to_be_visible()
+   page.click('[data-page-link=history]')
+   page.reload();expect(page.locator('#page-history')).to_be_visible()
+   page.click('[data-page-link=chart]')
+   expect(page.locator('#viewMode')).to_have_count(0)
+   expect(page.locator('#paperPanel')).to_have_count(0)
+   page.evaluate("() => localStorage.setItem('thoth.chart.appearance.v1',JSON.stringify({bull:'bad',signalSize:999,long_major:{width:0,style:'unsafe',support:'bad'}}))")
+   page.reload();expect(page.locator('#savedSymbolList')).to_contain_text('ETHUSDT')
+   assert page.evaluate('() => chartStyle.bull')=='#26a69a'
+   assert page.evaluate('() => chartStyle.long_major.width')==4
+   assert not errors,errors
+   assert not activation,activation
+   browser.close()
+  print('PASS: fixed-dollar daily budget display, per-coin cooldown countdown, 30 scrollable activities, live confirmation validation, separate Chart/Positions/History/Settings pages, bookmark reload, SMA strategy and close-only settings saves, retained trade display, desktop/mobile watchlist, separate saved/draft/chart symbols, saves, active-entry lock, mouse dragging in time/price, wheel zoom/reset, right price-axis zoom, visible High/Low, synchronized current price/candle, fixed price-label geometry, second-by-second candle countdown, paginated history, one-shot mouse/touch price/time ruler, yellow current price, right spacing, volume MA20 and white SMA7, minute/day ticks, save-to-chart synchronization, maximization, chart search, S/R ray styles, appearance persistence/reset, live-only controls, no JS errors/overflow, no activation requests')
+ finally:
+  server.terminate();server.wait(timeout=15);log.close()

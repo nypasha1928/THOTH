@@ -28,7 +28,7 @@ class TradFiTests(unittest.TestCase):
     def test_profile_and_independent_lists_preserve_existing_selection(self):
         old=Settings(symbols=['ETHUSDT','SOXLUSDT'])
         self.assertEqual(old.saved_symbol_lists['main'],['ETHUSDT','SOXLUSDT'])
-        self.assertEqual(len(old.saved_symbol_lists['tradfi']),46)
+        self.assertEqual(len(old.saved_symbol_lists['tradfi']),43)
         new=Settings(**{**old.model_dump(),'strategy':'order_block_sr_1h','timeframe':'D',
             'active_symbol_list':'tradfi','symbols':['SOXLUSDT'],'major':False,'minor':False,
             'daily_loss_pct':35,'coin_pnl_trailing_enabled':True,'weekly_equity_trailing_enabled':True})
