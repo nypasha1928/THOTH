@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from .tradfi import default_symbol_lists
 
 
 class RSISettings(BaseModel):
@@ -61,7 +62,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -113,20 +114,30 @@ class Settings(BaseModel):
     inverse_entry_delay_seconds: int = Field(default=60,ge=0,le=3600)
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
 
+    active_symbol_list: str = Field(default='main',pattern=r'^(main|tradfi)$')
+    saved_symbol_lists: dict[str,list[str]] = Field(default_factory=default_symbol_lists)
+
     @model_validator(mode='after')
     def valid_symbols(self):
         import re
+        if set(self.saved_symbol_lists)-{'main','tradfi'}:
+            raise ValueError('Unknown saved symbol list')
+        for name,values in self.saved_symbol_lists.items():
+            if len(values)>300 or len(set(values))!=len(values) or any(not re.fullmatch(r'[A-Z0-9]{1,30}USDT',s) for s in values):
+                raise ValueError('Invalid saved trading symbols')
+        # Existing installations migrate their current selection into Main.
+        self.saved_symbol_lists={**self.saved_symbol_lists,self.active_symbol_list:list(self.symbols)}
         if len(set(self.symbols)) != len(self.symbols):
             raise ValueError('Duplicate symbols')
         if any(not re.fullmatch(r'[A-Z0-9]{1,30}USDT', s) for s in self.symbols):
             raise ValueError('Expected Bybit USDT symbol names')
         if self.trailing_enabled and self.trailing_activation_pct>=(100 if self.trailing_activation_basis=='price' else self.leverage*100):
             raise ValueError('Trailing activation must allow a positive short activation price')
-        if self.strategy in ('order_block_intrabar','order_block_sr_intrabar'):
-            self.timeframe='240';self.sma_exit_enabled=False
+        if self.strategy in ('order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h'):
+            self.timeframe='60' if self.strategy=='order_block_sr_1h' else '240';self.sma_exit_enabled=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
             self.order_block=OrderBlockSettings(bullish_formed=True,bearish_formed=True,supply_breakout=True,demand_breakdown=True,filter_breaks=False)
-            if self.strategy=='order_block_sr_intrabar':self.major=True;self.minor=True;self.sr_volume_period=20
+            if self.strategy in ('order_block_sr_intrabar','order_block_sr_1h'):self.major=True;self.minor=True;self.sr_volume_period=20
         if self.strategy=='sma_7_50_intrabar':
             self.timeframe='240';self.sma_exit_enabled=False;self.opposite_action='reverse'
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False

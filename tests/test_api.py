@@ -70,6 +70,24 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
         self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
 
+    def test_tradfi_profile_and_saved_lists_survive_save_and_chart_view(self):
+        current=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**current,'strategy':'order_block_sr_1h','timeframe':'D',
+            'active_symbol_list':'tradfi','symbols':['SOXLUSDT'],'major':False,'minor':False})
+        self.assertEqual(response.status_code,200,response.text)
+        cfg=response.json()['config'];self.assertEqual(cfg['timeframe'],'60')
+        self.assertEqual(cfg['saved_symbol_lists']['main'],current['symbols'])
+        self.assertEqual(cfg['saved_symbol_lists']['tradfi'],['SOXLUSDT'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_1h').status_code,200)
+        from test_order_block_sr import ob_rows,NOW
+        from test_tradfi import hourly
+        for interval in ('60','D'):
+            with patch('thoth.app.candles',return_value=hourly(ob_rows(),NOW)),patch('time.time',return_value=NOW+20):
+                chart=self.client.get('/api/chart/SOXLUSDT',params={'interval':interval,'include_order_block':'true'})
+                self.assertEqual(chart.status_code,200,chart.text)
+                self.assertIn('1h Order Block OR',chart.json()['indicator_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'60')
+
     def test_combined_order_block_sr_profile_save_analysis_and_chart_are_independent(self):
         from test_order_block_sr import ob_rows,NOW
         response=self.client.put('/api/live/settings',json={'strategy':'order_block_sr_intrabar','timeframe':'D','major':False,'minor':False,'daily_loss_pct':35,'portfolio_loss_enabled':True,'portfolio_loss_pct':25})
@@ -440,8 +458,8 @@ class ApiTests(unittest.TestCase):
 
     def test_watchlist(self):
         entries = self.client.get('/api/watchlist').json()
-        self.assertEqual(len(entries), 234)
-        self.assertEqual(sum(item['selectable'] for item in entries), 224)
+        self.assertEqual(len(entries), 275)
+        self.assertEqual(sum(item['selectable'] for item in entries), 265)
 
 
 class LiveApiTests(unittest.TestCase):

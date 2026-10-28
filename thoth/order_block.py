@@ -14,14 +14,15 @@ LABELS={'bullish_formed':'Bullish Order Block formed','bearish_formed':'Bearish 
 SIDES={'bullish_formed':'Long','bearish_formed':'Short','supply_breakout':'Long','demand_breakdown':'Short'}
 
 
-def entry_volume(rows):
+def entry_volume(rows,interval='240'):
     """Mandatory standalone entry gate; raw box construction remains independent."""
     from .sr_volume import volume_pass
+    duration=interval_seconds(interval);label='1h' if interval=='60' else '4h'
     if len(rows)>=20:
         try:times=[float(row['time']) for row in rows[-20:]]
-        except (KeyError,ValueError,TypeError):raise ValueError('Invalid 4h volume history') from None
-        if any(current-previous!=14400 for previous,current in zip(times,times[1:])):
-            raise ValueError('Contiguous 4h volume history required')
+        except (KeyError,ValueError,TypeError):raise ValueError('Invalid '+label+' volume history') from None
+        if any(current-previous!=duration for previous,current in zip(times,times[1:])):
+            raise ValueError('Contiguous '+label+' volume history required')
     return volume_pass(rows,20)
 
 class OrderBlockState:
