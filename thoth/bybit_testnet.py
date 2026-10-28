@@ -83,7 +83,8 @@ class TestnetClient:
 
     def request(self, method, path, params, private=False):
         # Bounded retries for explicit read rejections only: rate limits, or a
-        # timestamp rejection with a verified HTTPS server clock. Never retry
+        # timestamp rejection with a verified HTTPS server clock, or Bybit's
+        # explicit 10016 server error. Never retry
         # writes or transport failures with an ambiguous order outcome.
         attempts=3 if method=='GET' else 1
         for attempt in range(attempts):
@@ -92,6 +93,9 @@ class TestnetClient:
                 if attempt+1==attempts:raise
                 if exc.code==10002 and private and attempt==0 and hasattr(exc,'server_time_ms'):
                     self.clock_offset_ms=exc.server_time_ms-exc.local_midpoint_ms
+                    continue
+                if exc.code==10016:
+                    time.sleep(.25*(attempt+1))
                     continue
                 if exc.code!=10006:raise
 
