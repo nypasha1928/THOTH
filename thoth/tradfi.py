@@ -7,3 +7,6 @@ def default_symbol_lists():
 
 # Additional operator-supplied stocks, ETFs, pre-IPO and commodities.
 TRADFI_SYMBOLS=list(dict.fromkeys(TRADFI_SYMBOLS+['SOXLUSDT', 'XAUUSDT', 'CLUSDT', 'KORUUSDT', 'SNDKUSDT', 'SKHYNIXUSDT', 'SKHYUSDT', 'SOXSUSDT', 'SNXXUSDT', 'OKTAUSDT', 'XAGUSDT', 'MUUSDT', 'SPCXUSDT', 'MSTRUSDT', 'TSLAUSDT', 'DRAMUSDT', 'UNITREEUSDT', 'QQQUSDT', 'SAMSUNGUSDT', 'BZUSDT']))
+
+# Operator excluded these three after incomplete hourly S/R history reports.
+TRADFI_SYMBOLS=[s for s in TRADFI_SYMBOLS if s not in {'EIDOUSDT','EQTUSDT','STMUSDT'}]
