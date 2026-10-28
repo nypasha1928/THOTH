@@ -85,7 +85,7 @@ function renderSettings(){
 }
 function symbolsLocked(){return selectedAccount().entries}
 function matchesSearch(x){return x.selectable&&inActiveSymbolCatalogue(x)&&x.original.toUpperCase().includes($('search').value.trim().toUpperCase())}
-function setDraftSymbols(symbols){if(symbolsLocked())return;formDraft.symbols=[...new Set(symbols)];dirty=true;renderWatchlist();renderScope()}
+function setDraftSymbols(symbols){if(symbolsLocked())return;const unique=[...new Set(symbols)];if(unique.length>300){$('symbolSaveMessage').textContent='Choose at most 300 symbols in one active list.';renderWatchlist();return}formDraft.symbols=unique;dirty=true;renderWatchlist();renderScope()}
 function renderScope(){
  const saved=current().settings.symbols;
  $('savedSymbols').textContent=mode.toUpperCase()+' · Saved trading symbols ('+saved.length+')';

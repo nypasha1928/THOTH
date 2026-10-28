@@ -28,7 +28,7 @@ class TradFiTests(unittest.TestCase):
     def test_profile_and_independent_lists_preserve_existing_selection(self):
         old=Settings(symbols=['ETHUSDT','SOXLUSDT'])
         self.assertEqual(old.saved_symbol_lists['main'],['ETHUSDT','SOXLUSDT'])
-        self.assertEqual(len(old.saved_symbol_lists['tradfi']),43)
+        self.assertEqual(len(old.saved_symbol_lists['tradfi']),294)
         new=Settings(**{**old.model_dump(),'strategy':'order_block_sr_1h','timeframe':'D',
             'active_symbol_list':'tradfi','symbols':['SOXLUSDT'],'major':False,'minor':False,
             'daily_loss_pct':35,'coin_pnl_trailing_enabled':True,'weekly_equity_trailing_enabled':True})
@@ -42,6 +42,33 @@ class TradFiTests(unittest.TestCase):
         self.assertEqual(Settings(strategy='order_block_sr_intrabar',timeframe='60').timeframe,'240')
         for lists in ({'bad':[]},{'tradfi':['SOXLUSDT','SOXLUSDT']},{'tradfi':['SOXLUSDT.P']}):
             with self.assertRaises(ValidationError):Settings(saved_symbol_lists=lists)
+
+    def test_expanded_catalogue_forex_new_labels_and_permanent_exclusions(self):
+        import json
+        self.assertEqual(len(TRADFI_SYMBOLS),294)
+        self.assertEqual(len(TRADFI_SYMBOLS),len(set(TRADFI_SYMBOLS)))
+        self.assertTrue({'EURUSDUSDT','GBPUSDUSDT','USDJPYUSDT','SECZUSDT','POLYMARKETUSDT','MAGSUSDT','CVNAUSDT','VUSDT'}.issubset(TRADFI_SYMBOLS))
+        self.assertFalse(any(s.endswith('NEW') for s in TRADFI_SYMBOLS))
+        self.assertFalse({'EIDOUSDT','EQTUSDT','STMUSDT'}&set(TRADFI_SYMBOLS))
+        catalogue=json.loads((Path(__file__).resolve().parents[1]/'watchlist.json').read_text())
+        stocks={r['symbol'] for r in catalogue if r.get('asset_group')=='tradfi' and r['selectable']}
+        self.assertEqual(stocks,set(TRADFI_SYMBOLS))
+        cfg=TestnetSettings(strategy='order_block_sr_1h',active_symbol_list='tradfi',symbols=list(TRADFI_SYMBOLS))
+        self.assertEqual(len(cfg.symbols),294);self.assertEqual(cfg.timeframe,'60')
+
+    def test_curated_leader_lists_are_distinct_and_cover_tradfi_categories(self):
+        import json
+        from thoth.market_leaders import report
+        data=report();catalogue=json.loads((Path(__file__).resolve().parents[1]/'watchlist.json').read_text())
+        known={r['symbol'] for r in catalogue if r['selectable']}
+        for group in ('main_leaders','tradfi_leaders'):
+            self.assertEqual(len(data[group]),50);self.assertEqual(len(set(data[group])),50)
+            self.assertTrue(set(data[group])<=known)
+            self.assertFalse({'EIDOUSDT','EQTUSDT','STMUSDT'}&set(data[group]))
+        self.assertEqual({key:len(value) for key,value in data['tradfi_groups'].items()},{'stocks':35,'etfs':8,'commodities':4,'forex':3})
+        cfg=Settings(active_symbol_list='tradfi_leaders',symbols=data['tradfi_leaders'])
+        self.assertEqual(cfg.saved_symbol_lists['tradfi_leaders'],data['tradfi_leaders'])
+        self.assertEqual(len(cfg.saved_symbol_lists['tradfi']),294)
 
     def test_old_installation_migrates_custom_main_symbols_without_replacement(self):
         import json
@@ -93,3 +120,26 @@ class TradFiTests(unittest.TestCase):
                         order=next(iter(exchange.orders.values()));exchange.fill(order['orderLinkId']);service.monitor()
                         owner=service.state['owned']['SOXLUSDT'];self.assertEqual(owner['strategy'],'order_block_sr_1h')
                         self.assertEqual(owner['entry_timeframe'],'60');self.assertEqual(owner['exit_timeframe'],'none')
+
+    def test_permanent_exclusions_clean_saved_state_and_do_not_delete_ownership(self):
+        import json
+        from thoth.tradfi import EXCLUDED_SYMBOLS
+        with tempfile.TemporaryDirectory() as tmp:
+            service=TestnetSupervisor(Path(tmp)/'live.sqlite')
+            state=service.load();state['config']['symbols']=['SOXLUSDT',*sorted(EXCLUDED_SYMBOLS)]
+            state['config']['saved_symbol_lists']={'main':['BTCUSDT','EIDOUSDT'],'tradfi':list(state['config']['symbols'])}
+            for name in ('pending_signals','reversals','entry_gates'):state[name]={'EIDOUSDT':{'fixture':True}}
+            state['owned']={'EIDOUSDT':{'fixture':'preserve managed position'}}
+            with service.db() as db:db.execute('UPDATE supervisor SET payload=? WHERE id=1',(json.dumps(state),))
+            cleaned=service.load();self.assertEqual(cleaned['config']['symbols'],['SOXLUSDT'])
+            self.assertEqual(cleaned['config']['saved_symbol_lists']['main'],['BTCUSDT'])
+            self.assertEqual(cleaned['config']['saved_symbol_lists']['tradfi'],['SOXLUSDT'])
+            self.assertIn('EIDOUSDT',cleaned['owned'])
+            for name in ('pending_signals','reversals','entry_gates'):self.assertEqual(cleaned[name],{})
+            cfg=TestnetSettings(**state['config']);self.assertEqual(cfg.symbols,['SOXLUSDT'])
+            service.state=cleaned;service.save()
+            with service.db() as db:persisted=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
+            self.assertEqual(persisted['config']['symbols'],['SOXLUSDT'])
+            # Even a stale caller cannot place an entry for a removed symbol.
+            service._entry('EIDOUSDT','Long',NOW,'fixture',cfg)
+            self.assertIsNone(service.client)

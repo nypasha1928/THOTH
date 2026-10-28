@@ -504,6 +504,8 @@ class Runner:
             return
         # Paused entries still require position management; no unnecessary network when empty.
         symbols = cfg.symbols if state['status'] == 'running' else [p['symbol'] for p in state['positions']]
+        from .tradfi import EXCLUDED_SYMBOLS
+        symbols=[s for s in symbols if s not in EXCLUDED_SYMBOLS]
         self.scan_cycle+=1
         observations, statuses = {}, {}
         sample_timings={}

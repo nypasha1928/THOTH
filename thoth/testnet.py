@@ -127,6 +127,12 @@ class TestnetSupervisor:
             state['config']['saved_symbol_lists']={**default_symbol_lists(),'main':list(state['config']['symbols'])}
             state['config']['active_symbol_list']='main'
         state['config']={**TestnetSettings().model_dump(),**state['config']}
+        from .tradfi import clean_selections,EXCLUDED_SYMBOLS
+        from .tradfi import default_symbol_lists
+        state['config']['saved_symbol_lists']={**default_symbol_lists(),**state['config']['saved_symbol_lists']}
+        clean_selections(state['config'])
+        for name in ('pending_signals','reversals','entry_gates'):
+            for symbol in EXCLUDED_SYMBOLS:state.get(name,{}).pop(symbol,None)
         for key,value in new_risk().items():state['risk'].setdefault(key,value)
         state.setdefault('daily_resume_intent',False)
         state.setdefault('flatten_reason',None)
@@ -194,7 +200,8 @@ class TestnetSupervisor:
         with self.lock:
             self.state=self.load()
             if self.state['entries']:raise ValueError('Pause '+self.label+' entries before editing settings')
-            if any(s not in cfg.symbols for s in self.state['owned']):raise ValueError('Close managed positions before removing their symbols')
+            from .tradfi import EXCLUDED_SYMBOLS
+            if any(s not in cfg.symbols and s not in EXCLUDED_SYMBOLS for s in self.state['owned']):raise ValueError('Close managed positions before removing their symbols')
             if cfg.strategy!=self.state['config']['strategy'] or cfg.timeframe!=self.state['config']['timeframe']:
                 if self.state['management'] and self.client is None:
                     raise ValueError('Recover account management before changing strategy or timeframe')
@@ -1047,6 +1054,8 @@ class TestnetSupervisor:
         return False
 
     def _entry(self,symbol,side,stamp,identity,cfg,context=None):
+        from .tradfi import EXCLUDED_SYMBOLS
+        if symbol in EXCLUDED_SYMBOLS:return
         checks_started_at=self.clock();check_timing={}
         if equity_locks(self.state['equity_trailing'],self.clock()):
             self._signal_decision(symbol,'skipped: equity trailing period pause active',{'time':stamp,'signal':side});return

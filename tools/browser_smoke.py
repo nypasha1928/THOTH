@@ -84,6 +84,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
    elif path=='live/trailing-comparison/settings' and method=='PUT':
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
+   elif path=='live/market-leaders':
+    from thoth.market_leaders import report
+    result=report()
    elif path=='live/watchlist-review':result=dict(items=[dict(symbol='WLDUSDT',trades=5,wins=3,losses=2,realized_pnl=.5,signal_events=8,skipped_events=2,rejected_orders=1,rejection_events=1,entry_check_failures=1,median_check_gap_seconds=192.6,median_qualified_to_submit_seconds=4,latest_speed=None,review_note='Review recorded rejection/check failure',rejection_codes={'110126':1})],selected=1,traded=1,closed_trades=5,realized_pnl=.5,scope=parse_qs(url.split('?',1)[1] if '?' in url else '').get('scope',['current'])[0],strategy='order_block_sr_intrabar',limitations='Retained records only; no automatic changes.')
    elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
    elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
@@ -204,10 +207,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=settings]');page.fill('#search','BTC');page.click('#selectVisible');expect(page.locator('#selectedSymbols button')).to_have_count(2)
    page.check('#selectedOnly');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','NO_SUCH_SYMBOL');expect(page.locator('#coins')).to_contain_text('No matching symbols')
-   page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable).length'))
-   page.click('#saveSymbols');page.wait_for_function('() => lv.config.symbols.length===watchlist.filter(x=>x.selectable).length')
-   assert set(writes[-1][1]['symbols'])=={x['symbol'] for x in payloads['watchlist'] if x['selectable']}
-   page.reload();page.click('[data-page-link=settings]');expect(page.locator('#selectedSymbols button')).to_have_count(len([x for x in payloads['watchlist'] if x['selectable']]))
+   page.click('#selectAllCoins');expect(page.locator('#selectedSymbols button')).to_have_count(page.evaluate('watchlist.filter(x=>x.selectable&&inActiveSymbolCatalogue(x)).length'))
+   page.click('#saveSymbols');page.wait_for_function('() => lv.config.symbols.length===watchlist.filter(x=>x.selectable&&inActiveSymbolCatalogue(x)).length')
+   assert set(writes[-1][1]['symbols'])==set(page.evaluate('watchlist.filter(x=>x.selectable&&inActiveSymbolCatalogue(x)).map(x=>x.symbol)'))
+   page.reload();page.click('[data-page-link=settings]');expect(page.locator('#selectedSymbols button')).to_have_count(len(writes[-1][1]['symbols']))
    page.click('[data-page-link=chart]');page.select_option('#symbol','SOLUSDT');page.click('[data-page-link=settings]')
    page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
    page.click('#onlyChart');page.fill('#search','');page.uncheck('#selectedOnly');page.click('#saveSymbols')
@@ -633,11 +636,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    # Separate TradFi list is draft-only; original Main selection survives saving/reload.
    main_symbols=page.evaluate('formDraft.symbols.slice()')
    page.select_option('#activeSymbolList','tradfi')
-   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   expect(page.locator('#selectedSymbols button')).to_have_count(294)
    assert page.evaluate('lv.config.active_symbol_list')=='main'
    page.fill('#search','UMC');expect(page.locator('#coins input')).to_have_count(1)
    page.fill('#search','');page.click('#selectAllCoins')
-   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   expect(page.locator('#selectedSymbols button')).to_have_count(294)
    page.select_option('#strategyLogic','order_block_sr_1h')
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#strategyDescription')).to_contain_text('BOTH branches require forming 1h Volume > MA 20')
@@ -646,8 +649,24 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['active_symbol_list']=='tradfi' and writes[-1][1]['timeframe']=='60'
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#activeSymbolList')).to_have_value('tradfi')
-   expect(page.locator('#selectedSymbols button')).to_have_count(43)
+   expect(page.locator('#selectedSymbols button')).to_have_count(294)
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h');page.keyboard.press('Escape')
+   # Curated leader drafts never overwrite the full lists or enable entries.
+   original_tradfi=page.evaluate('formDraft.symbols.slice()')
+   writes_before_leaders=len(writes)
+   page.select_option('#activeSymbolList','tradfi_leaders')
+   expect(page.locator('#selectedSymbols button')).to_have_count(50)
+   page.click('#clearSymbols');expect(page.locator('#selectedSymbols button')).to_have_count(0)
+   page.click('#loadMarketLeaders');expect(page.locator('#selectedSymbols button')).to_have_count(50)
+   expect(page.locator('#marketLeadersStatus')).to_contain_text('not a verified')
+   assert len(writes)==writes_before_leaders
+   assert set(page.evaluate('formDraft.symbols'))>=set(['EURUSDUSDT','GBPUSDUSDT','USDJPYUSDT','XAUUSDT'])
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.active_symbol_list==='tradfi_leaders'")
+   assert writes[-1][1]['saved_symbol_lists']['tradfi']==original_tradfi
+   page.reload();expect(page.locator('#activeSymbolList')).to_have_value('tradfi_leaders')
+   expect(page.locator('#selectedSymbols button')).to_have_count(50)
+   page.select_option('#activeSymbolList','main_leaders');expect(page.locator('#selectedSymbols button')).to_have_count(50)
+   expect(page.locator('#selectedSymbols')).to_contain_text('BTCUSDT')
    page.select_option('#activeSymbolList','main')
    assert page.evaluate('formDraft.symbols')==main_symbols
    page.select_option('#strategyLogic','order_block_sr_intrabar');page.click('#saveSymbols')
