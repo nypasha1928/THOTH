@@ -84,6 +84,24 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
         self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
 
+    def test_closed_normal_profile_saves_without_filters_and_chart_is_view_only(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'order_block_sr_1h_close','timeframe':'D','sma_exit_enabled':True,'sma_enabled':True})
+        self.assertEqual(response.status_code,200,response.text)
+        cfg=response.json()['config'];self.assertEqual(cfg['timeframe'],'60');self.assertFalse(cfg['sma_enabled'] or cfg['sma_exit_enabled'])
+        for key in ('stop_dollars','leverage','daily_loss_pct','pnl_trailing_enabled','saved_symbol_lists'):
+            self.assertEqual(cfg[key],before[key])
+        from test_order_block_sr import ob_rows,NOW
+        data=ob_rows();start=int(NOW)//86400*86400
+        daily=[{**r,'time':start-(len(data)-i-1)*86400} for i,r in enumerate(data)]
+        with patch('thoth.app.candles',return_value=daily),patch('time.time',return_value=NOW+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=D&include_order_block=true')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertIn('NORMAL entries',response.json()['indicator_status'])
+            self.assertIn('NO entry filters',response.json()['order_block_status'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_1h_close').status_code,200)
+        self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'60')
+
     def test_closed_inverted_profile_save_and_chart_view_are_separate(self):
         before=self.client.get('/api/live').json()['config']
         cfg={**before,'strategy':'order_block_sr_1h_inverted_close','timeframe':'D','sma_enabled':True,'sma_exit_enabled':True}
