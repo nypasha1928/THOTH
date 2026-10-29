@@ -84,6 +84,32 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
         self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
 
+    def test_hour_gate_preserves_risk_and_all_lists_with_main50_selected(self):
+        before=self.client.get('/api/live').json()['config']
+        leaders=self.client.get('/api/live/market-leaders').json()['main_leaders']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_hour_gate',
+            'timeframe':'D','opposite_action':'reverse','sma_enabled':True,'sma_exit_enabled':True,
+            'active_symbol_list':'main_leaders','symbols':leaders})
+        self.assertEqual(response.status_code,200,response.text)
+        cfg=response.json()['config'];self.assertEqual((cfg['timeframe'],cfg['opposite_action']),('1','close_only'))
+        self.assertEqual(len(cfg['symbols']),50);self.assertFalse(cfg['sma_enabled'] or cfg['sma_exit_enabled'])
+        for key in ('stop_dollars','leverage','daily_loss_pct','pnl_trailing_enabled','coin_pnl_trailing_enabled',
+                    'daily_equity_trailing_drop_dollars','three_day_equity_trailing_drop_dollars','weekly_equity_trailing_drop_dollars'):
+            self.assertEqual(cfg[key],before[key])
+        for name in ('main','tradfi','tradfi_leaders'):
+            self.assertEqual(cfg['saved_symbol_lists'][name],before['saved_symbol_lists'][name])
+        self.assertFalse(response.json()['entries'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=ob_sr_hour_gate').status_code,200)
+        from test_order_block_sr import ob_rows,NOW
+        data=ob_rows();start=int(NOW)//86400*86400
+        daily=[{**r,'time':start-(len(data)-i-1)*86400} for i,r in enumerate(data)]
+        with patch('thoth.app.candles',return_value=daily),patch('time.time',return_value=NOW+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=D&include_order_block=true')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertIn('opposite 1m signal closes only',response.json()['indicator_status'])
+            self.assertIn('NO entry filters',response.json()['order_block_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'1')
+
     def test_closed_normal_profile_saves_without_filters_and_chart_is_view_only(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'order_block_sr_1h_close','timeframe':'D','sma_exit_enabled':True,'sma_enabled':True})

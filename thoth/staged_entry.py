@@ -1,7 +1,8 @@
 """Per-coin higher-timeframe arming; no exchange operations."""
 STRATEGY='sr_rsi_volume_gate'
 ORDER_BLOCK_STRATEGY='sr_order_block_gate'
-STAGED_STRATEGIES=(STRATEGY,ORDER_BLOCK_STRATEGY)
+HOUR_GATE='ob_sr_hour_gate'
+STAGED_STRATEGIES=(STRATEGY,ORDER_BLOCK_STRATEGY,HOUR_GATE)
 
 
 def new_gate():
@@ -9,11 +10,11 @@ def new_gate():
         sources=[],losses=0,cooldown_until=None,arm_id=0,seen_primary=[])
 
 
-def apply(gate,primary,volume,now,*,enabled,position_open,primary_label='S/R or RSI',confirmation_label='Volume Delta',confirmation_timeframe='1'):
+def apply(gate,primary,volume,now,*,enabled,position_open,primary_label='S/R or RSI',confirmation_label='Volume Delta',confirmation_timeframe='1',primary_window='4h/Daily'):
     events=[]
     if gate['phase']=='cooldown' and now>=gate['cooldown_until']:
         gate['phase']='wait_fresh'
-        events.append('cooldown finished; waiting for a fresh 4h/Daily '+primary_label+' signal')
+        events.append('cooldown finished; waiting for a fresh '+primary_window+' '+primary_label+' signal')
     fresh=[]
     for event in sorted(primary,key=lambda item:(item['time'],item['timeframe'])):
         if event['id'] in gate['seen_primary']:continue

@@ -695,6 +695,23 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_close')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h · Bar Close');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','ob_sr_hour_gate')
+   expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_have_value('close_only');expect(page.locator('#oppositeAction')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('NEW 1m Order Block OR S/R')
+   expect(page.locator('#strategyDescription')).to_contain_text('closes ONLY, never reverses')
+   expect(page.locator('#strategyDescription')).to_contain_text('no entry filters')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   expect(page.locator('#sma_enabled')).not_to_be_checked();expect(page.locator('#sma_7_50_filter_enabled')).not_to_be_checked()
+   expect(page.locator('#rsiSettings')).not_to_be_visible();expect(page.locator('#orderBlockSettings')).not_to_be_visible()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='ob_sr_hour_gate'")
+   assert writes[-1][1]['timeframe']=='1' and writes[-1][1]['opposite_action']=='close_only'
+   assert not writes[-1][1]['order_block']['filter_breaks']
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_hour_gate')
+   page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:0,primary_timeframe:'60'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('1m Order Block / S/R may enter Long or Short')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('1h Close → 1m Entry / Exit');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','sr_order_block_gate')
    expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#sma_length')).to_have_value('200');expect(page.locator('#sma_length')).to_be_disabled()
