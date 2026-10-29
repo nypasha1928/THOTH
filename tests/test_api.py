@@ -115,17 +115,17 @@ class ApiTests(unittest.TestCase):
         before=self.client.get('/api/live').json()['config']
         cfg=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_hour_gate'}).json()['config']
         start=1793275200
-        levels={'long_support_major':dict(value=99,pivot_time=start-600),'short_resistance_minor':dict(value=101,pivot_time=start-600)}
+        levels={'long_support_major':dict(value=99,pivot_time=start-600),'short_resistance_major':dict(value=101,pivot_time=start-600)}
         rows=[dict(time=start-120,open=100,high=100,low=100,close=100,volume=0),
               dict(time=start-60,open=100,high=102,low=98,close=101,volume=0),
               dict(time=start,open=101,high=102,low=98,close=99,volume=0)]
-        old=[dict(time=r['time'],levels=levels,signal='Short',entry_sources=['sr:short_support_minor'],sma=None) for r in rows[:-1]]
+        old=[dict(time=r['time'],levels=levels,signal='Short',entry_sources=['sr:short_support_major'],sma=None) for r in rows[:-1]]
         with patch('thoth.app.candles',return_value=rows),patch('thoth.app.evaluate',return_value=old),patch('time.time',return_value=start+10):
             response=self.client.get('/api/chart/PAXGUSDT?interval=1')
         self.assertEqual(response.status_code,200,response.text)
         body=response.json();refs=body['sr_analysis']
         self.assertEqual(refs[-2]['signal'],'Long');self.assertIn('sr_bounce:long_support_major',refs[-2]['entry_sources'])
-        self.assertEqual(refs[-1]['signal'],'Short');self.assertIn('sr_rejection:short_resistance_minor',refs[-1]['entry_sources'])
+        self.assertEqual(refs[-1]['signal'],'Short');self.assertIn('sr_rejection:short_resistance_major',refs[-1]['entry_sources'])
         self.assertTrue(refs[-1]['provisional']);self.assertIn('Bounce/Rejection ONLY',body['sr_reference_status'])
         self.assertEqual(body['analysis'],refs)
         saved=self.client.get('/api/live').json()['config']
@@ -217,14 +217,14 @@ class ApiTests(unittest.TestCase):
         response=self.client.put('/api/live/settings',json={'strategy':'order_block_sr_intrabar','timeframe':'D','major':False,'minor':False,'daily_loss_pct':35,'portfolio_loss_enabled':True,'portfolio_loss_pct':25})
         self.assertEqual(response.status_code,200,response.text)
         saved=self.client.get('/api/live').json()['config']
-        self.assertEqual(saved['timeframe'],'240');self.assertTrue(saved['major'] and saved['minor'])
+        self.assertEqual(saved['timeframe'],'240');self.assertTrue(saved['major'] and not saved['minor'])
         self.assertFalse(saved['sma_enabled'] or saved['sma_exit_enabled'])
         self.assertEqual(saved['daily_loss_pct'],35);self.assertEqual(saved['portfolio_loss_pct'],25)
         self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_intrabar').status_code,200)
         with patch('thoth.app.candles',return_value=ob_rows()),patch('time.time',return_value=NOW):
             response=self.client.get('/api/chart/BTCUSDT?interval=240&include_order_block=true')
         self.assertEqual(response.status_code,200,response.text)
-        self.assertIn('Order Block OR Major/Minor S/R',response.json()['indicator_status'])
+        self.assertIn('Order Block OR Major S/R',response.json()['indicator_status'])
         self.assertIn('Volume > MA 20',response.json()['order_block_status'])
         self.assertEqual(self.client.get('/api/live').json()['config'],saved)
 
@@ -320,13 +320,13 @@ class ApiTests(unittest.TestCase):
                 data=response.json();signals=[bar for bar in data['sr_analysis'] if bar['signal']]
                 self.assertTrue(signals)
                 families={source.rsplit('_',1)[-1] for bar in signals for source in bar['entry_sources']}
-                self.assertEqual(families,{'major','minor'})
+                self.assertEqual(families,{'major'})
                 self.assertIn('without trading entry filters',data['sr_reference_status'])
         self.assertEqual(self.client.get('/api/live').json()['config'],before)
         self.assertFalse(self.client.get('/api/live').json()['entries'])
 
     def test_forming_sr_arrow_uses_confirmed_levels_and_is_display_only(self):
-        levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_minor':dict(value=99,pivot_time=0)}
+        levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_major':dict(value=99,pivot_time=0)}
         closed=dict(time=0,close=100,levels=levels,sma=None,signal=None)
         before=self.client.get('/api/live').json()['config']
         for price,side in ((102,'Long'),(98,'Short'),(100,None)):

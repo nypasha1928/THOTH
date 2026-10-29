@@ -111,7 +111,7 @@ def evaluate(rows, cfg, now=None):
         if i and rows[i-1]['time']+duration == row['time']:
             for key, level in levels.items():
                 if key.endswith('_major') and not cfg.major: continue
-                if key.endswith('_minor') and not cfg.minor: continue
+                if key.endswith('_minor'): continue
                 old = previous.get(key)
                 if old is None: continue
                 if 'resistance' in key and rows[i-1]['close'] <= old['value'] and row['close'] > level['value']:

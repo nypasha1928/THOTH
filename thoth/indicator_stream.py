@@ -106,7 +106,7 @@ class IndicatorState:
             prev_close=self.buffer[-2]['close']
             for key,level in levels.items():
                 if key.endswith('_major') and not cfg.major:continue
-                if key.endswith('_minor') and not cfg.minor:continue
+                if key.endswith('_minor'):continue
                 old=self.previous.get(key)
                 if not old:continue
                 if 'resistance' in key and prev_close<=old['value'] and row['close']>level['value']:bullish=True;crossed.append((key,'Long'))

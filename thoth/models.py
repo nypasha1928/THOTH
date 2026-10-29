@@ -105,7 +105,7 @@ class Settings(BaseModel):
     pivot_long: int = Field(default=21, ge=1, le=100)
     pivot_short: int = Field(default=5, ge=1, le=100)
     major: bool = True
-    minor: bool = True
+    minor: bool = False
     sma_7_50_filter_enabled: bool = False
     sma_enabled: bool = False
     sma_length: int = Field(default=200, ge=1, le=500)
@@ -141,7 +141,7 @@ class Settings(BaseModel):
             self.timeframe='60' if self.strategy in ('order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else '240';self.sma_exit_enabled=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
             self.order_block=OrderBlockSettings(bullish_formed=True,bearish_formed=True,supply_breakout=True,demand_breakdown=True,filter_breaks=False)
-            if self.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):self.major=True;self.minor=True;self.sr_volume_period=20
+            if self.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):self.major=True;self.minor=False;self.sr_volume_period=20
         if self.strategy=='sma_7_50_intrabar':
             self.timeframe='240';self.sma_exit_enabled=False;self.opposite_action='reverse'
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
@@ -151,11 +151,11 @@ class Settings(BaseModel):
         if self.minute_entry_window_minutes not in (5,10,15):raise ValueError('Minute entry window must be 5, 10 or 15 minutes')
         if self.strategy=='ob_sr_minute_hourly':
             self.timeframe='1';self.sma_exit_enabled=False;self.opposite_action='close_only'
-            self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=True
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=False
             self.order_block=OrderBlockSettings(filter_breaks=False)
         if self.strategy=='ob_sr_hour_gate':
             self.timeframe='1';self.sma_exit_enabled=False;self.opposite_action='close_only'
-            self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=True
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=False
             self.loss_streak_scope='per_coin'
             self.order_block=OrderBlockSettings(filter_breaks=False)
         if self.strategy=='sr_order_block_gate':
@@ -191,6 +191,9 @@ class Settings(BaseModel):
             self.sma_exit_enabled=True
         if self.strategy=='rsi_hourly_intrabar' and not (self.rsi.static_signals or self.rsi.ml_signals):
             raise ValueError('Enable at least one RSI entry signal family')
+        # Minor S/R is display-only in every strategy, including legacy saved settings.
+        if self.minor:self.major=True  # Migrate legacy minor-only configurations to majors.
+        self.minor=False
         if self.strategy in ('sr_breakout','sr_sma_7_50','sr_hourly_intrabar','sr_rsi_daily','sr_inverse_intrabar','sr_rsi_volume_gate','sr_order_block_gate','sr_volume_intrabar') and not (self.major or self.minor):
             raise ValueError('Enable at least one level family')
         return self

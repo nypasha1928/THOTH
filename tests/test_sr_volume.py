@@ -22,7 +22,7 @@ class SRVolumeTests(unittest.TestCase):
     def test_profile_only_volume_no_sma_exit_and_both_level_families(self):
         cfg=Settings(strategy=STRATEGY,sma_enabled=True,sma_7_50_filter_enabled=True,sma_exit_enabled=True)
         self.assertFalse(cfg.sma_enabled or cfg.sma_7_50_filter_enabled or cfg.sma_exit_enabled)
-        self.assertTrue(cfg.major and cfg.minor)
+        self.assertTrue(cfg.major and not cfg.minor)
         self.assertEqual(cfg.sr_volume_period,20)
         with self.assertRaises(ValueError):Settings(strategy=STRATEGY,major=False,minor=False)
 
@@ -35,7 +35,7 @@ class SRVolumeTests(unittest.TestCase):
                 return {'primary':{tf:[dict(time=int(now[0])//interval_seconds(tf)*interval_seconds(tf)-(19-i)*interval_seconds(tf),close=price[0],volume=vol[0] if i==19 else 100) for i in range(20)] for tf in ('240','D')}}
             def analysis(symbol,c,history,t,**kwargs):
                 start=int(t)//interval_seconds(c.timeframe)*interval_seconds(c.timeframe)
-                return [dict(time=start-interval_seconds(c.timeframe),levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_minor':dict(value=99,pivot_time=0)})],300
+                return [dict(time=start-interval_seconds(c.timeframe),levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_major':dict(value=99,pivot_time=0)})],300
             with patch.object(runner,'history',side_effect=lambda s,t,r:r),patch.object(runner,'analysis',side_effect=analysis),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch.object(runner,'rsi_preview',side_effect=AssertionError('No RSI')):
                 def step():
                     runner.scan_cycle+=1;result=runner.sr_volume_observation('BTCUSDT',cfg,packet(),now[0]);now[0]+=5;return result
@@ -46,7 +46,7 @@ class SRVolumeTests(unittest.TestCase):
                 self.assertIsNone(step()['signal']) # One qualified entry per level/candle.
                 price[0]=98
                 short=step();self.assertEqual(short['signal'],'Short')
-                self.assertEqual(set(short['entry_sources']),{'htf:240:sr:short_support_minor','htf:D:sr:short_support_minor'})
+                self.assertEqual(set(short['entry_sources']),{'htf:240:sr:short_support_major','htf:D:sr:short_support_major'})
                 self.assertTrue(all(r['passed'] for r in short['volume_checks'].values()))
                 now[0]=(int(now[0])//86400+1)*86400+20
                 price[0]=100;step();price[0]=102

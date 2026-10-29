@@ -33,7 +33,7 @@ def observe(tracker,rows,levels,cfg,now,max_gap):
     price=observation['mark']
     pending={key:level for key,level in pending.items()
         if key not in emitted and levels.get(key)==level and previous_levels.get(key)==level
-        and (cfg.major if key.endswith('_major') else cfg.minor)
+        and (cfg.major and key.endswith('_major'))
         and (price>float(level['value']) if 'resistance' in key else price<float(level['value']))}
     eligible=sorted(pending) if report['passed'] else []
     sides={'Long' if 'resistance' in key else 'Short' for key in eligible}

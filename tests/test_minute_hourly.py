@@ -32,7 +32,7 @@ class MinuteHourlyTests(unittest.TestCase):
     def sample(self,signals):
         self.now[0]+=5
         self.service.apply_signals(self.feed_cfg,{symbol:dict(time=self.now[0],mark=100,signal=side,
-            entry_sources=['ob:bullish_formed' if side=='Long' else 'sr:short_support_minor'],entry_context=dict(order_block_bar=int(self.now[0])//60*60)) for symbol,side in signals.items()})
+            entry_sources=['ob:bullish_formed' if side=='Long' else 'sr:short_support_major'],entry_context=dict(order_block_bar=int(self.now[0])//60*60)) for symbol,side in signals.items()})
 
     def fill_entry(self):
         order=next(o for o in self.exchange.orders.values() if not o['reduceOnly'] and o['orderStatus']=='New')
@@ -50,7 +50,7 @@ class MinuteHourlyTests(unittest.TestCase):
             sma_exit_enabled=True,major=False,minor=False,stop_dollars=.4,leverage=20,weekly_equity_trailing_enabled=True)
         self.assertEqual((cfg.timeframe,cfg.opposite_action),('1','close_only'))
         self.assertFalse(cfg.sma_enabled or cfg.sma_7_50_filter_enabled or cfg.sma_exit_enabled or cfg.order_block.filter_breaks)
-        self.assertTrue(cfg.major and cfg.minor and cfg.weekly_equity_trailing_enabled)
+        self.assertTrue(cfg.major and not cfg.minor and cfg.weekly_equity_trailing_enabled)
         self.assertEqual((cfg.stop_dollars,cfg.leverage),(.4,20));self.assertEqual(self.service.state['entry_gates'],{})
 
     def test_each_coin_once_and_total_hour_cap_survive_closes_restart_and_new_hour(self):
@@ -141,7 +141,7 @@ class MinuteHourlyTests(unittest.TestCase):
             return [dict(time=start-(199-i)*60,open=100,close=prices[symbol] if i==199 else 100,
                 high=max(101,prices[symbol]),low=min(99,prices[symbol]),volume=0) for i in range(200)][-limit:]
         def analysis(symbol,cfg,rows,now,**kwargs):
-            return [dict(time=int(now)//60*60-60,levels={'long_resistance_major':dict(value=103,pivot_time=0),'short_support_minor':dict(value=97,pivot_time=0)})],200
+            return [dict(time=int(now)//60*60-60,levels={'long_resistance_major':dict(value=103,pivot_time=0),'short_support_major':dict(value=97,pivot_time=0)})],200
         runner.analysis=analysis
         with patch.object(self.exchange,'candles',side_effect=candles),patch('thoth.runner.time.time',side_effect=lambda:self.now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):
             runner.cycle(paced=False);self.assertFalse(self.entries())

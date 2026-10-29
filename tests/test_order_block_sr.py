@@ -42,7 +42,7 @@ class CombinedOrderBlockSRTests(unittest.TestCase):
             pnl_trailing_enabled=True,pnl_trailing_activation_dollars=20,pnl_trailing_drop_dollars=1,
             daily_equity_trailing_enabled=True,daily_equity_trailing_drop_dollars=2,
             opposite_action='close_only',stop_dollars=1)
-        self.assertEqual(cfg.timeframe,'240');self.assertTrue(cfg.major and cfg.minor)
+        self.assertEqual(cfg.timeframe,'240');self.assertTrue(cfg.major and not cfg.minor)
         self.assertEqual(cfg.sr_volume_period,20);self.assertEqual(cfg.opposite_action,'close_only')
         self.assertFalse(cfg.sma_enabled or cfg.sma_7_50_filter_enabled or cfg.sma_exit_enabled or cfg.order_block.filter_breaks)
         self.assertEqual(cfg.daily_loss_pct,35);self.assertEqual(cfg.portfolio_loss_pct,25);self.assertTrue(cfg.portfolio_loss_enabled)
@@ -59,14 +59,14 @@ class CombinedOrderBlockSRTests(unittest.TestCase):
         agreeing=combine(long_ob,long_sr,NOW,100)
         self.assertEqual(agreeing['entry_sources'],['ob:bullish_formed','sr:long_resistance_major'])
         self.assertEqual(agreeing['signal'],'Long')
-        opposing=combine(long_ob,branch('Short','sr:short_support_minor'),NOW,100)
+        opposing=combine(long_ob,branch('Short','sr:short_support_major'),NOW,100)
         self.assertIsNone(opposing['signal']);self.assertEqual(opposing['entry_sources'],[])
         self.assertIn('conflicting',opposing['signal_diagnostic']['reason'])
         self.assertIsNone(combine(branch('Long','ob:bullish_formed',True,False),{},NOW,100)['signal'])
 
     def test_every_major_minor_sr_family_qualifies_only_after_volume_no_ob_required(self):
         for term in ('long','short'):
-            for family in ('major','minor'):
+            for family in ('major',):
                 for kind,side,value,price in (('resistance','Long',101,102),('support','Short',99,98)):
                     key=term+'_'+kind+'_'+family
                     with self.subTest(key=key),tempfile.TemporaryDirectory() as tmp:
@@ -99,7 +99,7 @@ class CombinedOrderBlockSRTests(unittest.TestCase):
                     return data[-limit:]
                 runner=Runner(feed,fetch=feed.fetch)
                 with patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):
-                    if branch=='sr':runner.analysis=levels_analysis('short_resistance_minor',101)
+                    if branch=='sr':runner.analysis=levels_analysis('short_resistance_major',101)
                     runner.cycle(paced=False);self.assertFalse(exchange.orders)
                     now[0]+=5;trigger[0]=True;runner.cycle(paced=False)
                     order=next(iter(exchange.orders.values()));self.assertEqual(order['side'],'Buy')
@@ -107,12 +107,12 @@ class CombinedOrderBlockSRTests(unittest.TestCase):
                     exchange.fill(order['orderLinkId']);service.monitor()
                     owner=service.state['owned']['BTCUSDT'];self.assertTrue(owner['protection_confirmed'])
                     self.assertEqual(owner['entry_timeframe'],'240');self.assertEqual(owner['exit_timeframe'],'none')
-                    self.assertIn('ob:bullish_formed' if branch=='ob' else 'sr:short_resistance_minor',owner['entry_sources'])
+                    self.assertIn('ob:bullish_formed' if branch=='ob' else 'sr:short_resistance_major',owner['entry_sources'])
                     self.assertEqual(service.state['entry_gates'],{})
                     service._close('BTCUSDT',exchange.active['BTCUSDT'],'Fixture close')
                     close=next(order for order in exchange.orders.values() if order['reduceOnly']);exchange.fill(close['orderLinkId']);service.monitor()
                     trade=service.history()['items'][0];self.assertEqual(trade['strategy'],STRATEGY)
-                    self.assertIn('Order Block' if branch=='ob' else 'minor',trade['entry_source_label'])
+                    self.assertIn('Order Block' if branch=='ob' else 'major',trade['entry_source_label'])
 
     def test_combined_profile_cannot_submit_if_volume_recheck_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

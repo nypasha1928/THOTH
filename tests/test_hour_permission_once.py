@@ -157,7 +157,7 @@ class ClosedMinuteDetectorTests(unittest.TestCase):
             with self.subTest(side=side),tempfile.TemporaryDirectory() as tmp:
                 cfg=Settings(strategy=HOUR_GATE);runner=Runner(SimpleNamespace(path=str(Path(tmp)/'live.sqlite')),confirmation_only=True)
                 start=NOW;rows=[dict(time=start-(59-i)*60,open=100,close=100,high=101,low=99,volume=0) for i in range(60)]
-                levels={('long_support_major' if side=='Long' else 'short_resistance_minor'):dict(value=99 if side=='Long' else 101,pivot_time=0)}
+                levels={('long_support_major' if side=='Long' else 'short_resistance_major'):dict(value=99 if side=='Long' else 101,pivot_time=0)}
                 rows[-1].update(close=101 if side=='Long' else 99,high=102,low=98)
                 def analysis(symbol,cfg,rows,now,**kwargs):
                     return [dict(time=int(now)//60*60-60,levels=levels,signal=None,entry_sources=[])],200

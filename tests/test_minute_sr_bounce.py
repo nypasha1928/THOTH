@@ -25,7 +25,7 @@ def level(key,value):
 class NativeBounceTests(unittest.TestCase):
     def test_all_native_support_and_resistance_families(self):
         for term in ('long','short'):
-            for grade in ('major','minor'):
+            for grade in ('major',):
                 support=term+'_support_'+grade;resistance=term+'_resistance_'+grade
                 result=evaluate(candle(),100,level(support,99),CFG)
                 self.assertEqual(result['signal'],'Long')
@@ -35,7 +35,7 @@ class NativeBounceTests(unittest.TestCase):
                 self.assertEqual(result['entry_sources'],['sr_rejection:'+resistance])
 
     def test_exact_touch_strict_close_and_previous_bar_close_not_open_or_previous_tick(self):
-        sup=level('long_support_major',99);res=level('short_resistance_minor',101)
+        sup=level('long_support_major',99);res=level('short_resistance_major',101)
         self.assertEqual(evaluate(candle(low=99),100,sup,CFG)['signal'],'Long')
         self.assertIsNone(evaluate(candle(close=99),100,sup,CFG)['signal'])
         self.assertIsNone(evaluate(candle(close=100),100,sup,CFG)['signal'])
@@ -99,7 +99,7 @@ class ClosedBounceExitTests(unittest.TestCase):
     def test_native_bounce_rejection_close_required_and_breakout_not_used(self):
         for side,key,value,row in [
             ('Long','long_support_major',99,candle(low=98,close=101)),
-            ('Short','short_resistance_minor',101,candle(high=102,close=99)),
+            ('Short','short_resistance_major',101,candle(high=102,close=99)),
             (None,'long_resistance_major',101,candle(close=102)),
         ]:
             with self.subTest(side=side),tempfile.TemporaryDirectory() as tmp:

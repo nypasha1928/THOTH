@@ -21,7 +21,7 @@ def observe_breakout(tracker,rows,levels,cfg,now,max_gap=MAX_OBSERVATION_GAP):
     candidates=[]
     for key,level in levels.items():
         if key.endswith('_major') and not cfg.major:continue
-        if key.endswith('_minor') and not cfg.minor:continue
+        if key.endswith('_minor'):continue
         value=float(level['value'])
         old=old_levels.get(key)
         # New/changed pivot levels must first be observed, not treated as a cross.

@@ -13,7 +13,7 @@ def combine(order_block,sr,now,mark,errors=None,timeframe='240',require_volume=T
     sources=list(dict.fromkeys(source for value in reports if signal and value.get('signal')==signal for source in value.get('entry_sources',[])))
     result=dict(time=now,mark=mark,signal=signal,entry_sources=sources,source_errors=errors or {},
         volume_checks={timeframe:volume} if require_volume else {},entry_context=dict(order_block_bar=int(now)//duration*duration) if signal else None,
-        volume_delta_status=label+' Order Block OR Major/Minor S/R; '+('mandatory Volume > MA 20; ' if require_volume else 'NO filters; ')+('conflicting signals skipped' if conflict else volume.get('reason','volume check unavailable') if require_volume else 'waiting for fresh 1m signals'))
+        volume_delta_status=label+' Order Block OR Major only S/R; '+('mandatory Volume > MA 20; ' if require_volume else 'NO filters; ')+('conflicting signals skipped' if conflict else volume.get('reason','volume check unavailable') if require_volume else 'waiting for fresh 1m signals'))
     if signal:
         from .entry_diagnostics import merged_qualification
         result['entry_diagnostics']=merged_qualification([value for value in reports if value.get('signal')==signal],now,mark)

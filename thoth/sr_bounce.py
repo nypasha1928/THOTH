@@ -13,7 +13,7 @@ def evaluate(row,previous_close,levels,cfg):
     sources=[];sides=set()
     for key,level in levels.items():
         if key.endswith('_major') and not cfg.major:continue
-        if key.endswith('_minor') and not cfg.minor:continue
+        if key.endswith('_minor'):continue
         value=float(level['value'])
         if not isfinite(value):continue
         if 'support' in key and low<=value and close>value and close>previous_close:

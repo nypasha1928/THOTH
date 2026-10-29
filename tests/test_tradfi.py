@@ -32,7 +32,7 @@ class TradFiTests(unittest.TestCase):
         new=Settings(**{**old.model_dump(),'strategy':'order_block_sr_1h','timeframe':'D',
             'active_symbol_list':'tradfi','symbols':['SOXLUSDT'],'major':False,'minor':False,
             'daily_loss_pct':35,'coin_pnl_trailing_enabled':True,'weekly_equity_trailing_enabled':True})
-        self.assertEqual(new.timeframe,'60');self.assertTrue(new.major and new.minor)
+        self.assertEqual(new.timeframe,'60');self.assertTrue(new.major and not new.minor)
         self.assertFalse(new.sma_exit_enabled or new.sma_enabled or new.sma_7_50_filter_enabled)
         self.assertTrue(new.coin_pnl_trailing_enabled and new.weekly_equity_trailing_enabled)
         self.assertEqual(new.daily_loss_pct,35)

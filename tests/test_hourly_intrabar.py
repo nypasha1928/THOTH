@@ -30,7 +30,7 @@ class IntrabarBreakoutTests(unittest.TestCase):
     def test_long_and_short_trigger_before_hour_close_without_duplicate_reentry(self):
         self.assertIsNone(self.sample(100)['signal'])
         self.assertEqual(self.sample(102,360015)['signal'],'Long')
-        self.assertEqual(len(self.tracker['fired']),2)  # Both families, one signal.
+        self.assertEqual(len(self.tracker['fired']),1)  # Minor levels never contribute.
         self.sample(100,360020)
         self.assertIsNone(self.sample(102,360025)['signal'])
         self.assertEqual(self.sample(98,360030)['signal'],'Short')
@@ -38,8 +38,8 @@ class IntrabarBreakoutTests(unittest.TestCase):
     def test_minor_only_and_major_only_are_respected(self):
         self.cfg.major=False
         self.sample(100)
-        self.assertEqual(self.sample(102,360015)['signal'],'Long')
-        self.assertEqual(self.tracker['fired'],['short_resistance_minor'])
+        self.assertIsNone(self.sample(102,360015)['signal'])
+        self.assertEqual(self.tracker['fired'],[])
         self.cfg.major=True;self.cfg.minor=False;self.tracker={}
         self.sample(100)
         self.assertEqual(self.sample(98,360015)['signal'],'Short')
@@ -70,7 +70,7 @@ class IntrabarBreakoutTests(unittest.TestCase):
     def test_strategy_retains_entry_timeframe_and_requires_minute_exit(self):
         cfg=Settings(strategy='sr_hourly_intrabar',timeframe='240',sma_exit_enabled=False)
         self.assertEqual(cfg.timeframe,'240');self.assertTrue(cfg.sma_exit_enabled)
-        self.assertTrue(cfg.major and cfg.minor)
+        self.assertTrue(cfg.major and not cfg.minor)
         with self.assertRaises(ValueError):Settings(strategy='sr_hourly_intrabar',major=False,minor=False)
 
     def test_tracker_and_consumed_cross_survive_runner_restart(self):

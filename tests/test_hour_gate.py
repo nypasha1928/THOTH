@@ -22,7 +22,7 @@ class HourGateTests(unittest.TestCase):
             stop_dollars=.4,leverage=20,consecutive_losses=2,weekly_equity_trailing_enabled=True,
             coin_pnl_trailing_enabled=True,coin_pnl_trailing_activation_dollars=5)
         self.assertEqual((cfg.timeframe,cfg.opposite_action,cfg.loss_streak_scope),('1','close_only','per_coin'))
-        self.assertTrue(cfg.major and cfg.minor and cfg.weekly_equity_trailing_enabled and cfg.coin_pnl_trailing_enabled)
+        self.assertTrue(cfg.major and not cfg.minor and cfg.weekly_equity_trailing_enabled and cfg.coin_pnl_trailing_enabled)
         self.assertFalse(cfg.sma_enabled or cfg.sma_7_50_filter_enabled or cfg.sma_exit_enabled or cfg.order_block.filter_breaks)
         self.assertEqual((cfg.stop_dollars,cfg.leverage,cfg.consecutive_losses),(.4,20,2))
 
@@ -49,7 +49,7 @@ class HourGateTests(unittest.TestCase):
                     self.assertIsNone(restarted.order_block_observation('BTCUSDT',cfg,data(True),now+15)['signal'])
 
     def test_fresh_minute_sr_major_minor_both_sides_with_zero_volume(self):
-        for family in ('major','minor'):
+        for family in ('major',):
             for side in ('Long','Short'):
                 with self.subTest(family=family,side=side),tempfile.TemporaryDirectory() as tmp:
                     cfg=Settings(strategy=HOUR_GATE,symbols=['BTCUSDT'])
@@ -105,7 +105,7 @@ class HourGateTests(unittest.TestCase):
                     return [dict(minute_bars.get(start-(199-i)*60,dict(time=start-(199-i)*60,open=100,close=100,high=100,low=100,volume=0))) for i in range(200)][-limit:]
                 def analysis(symbol,source,rows,stamp,**kwargs):
                     duration=3600 if source.timeframe=='60' else 60
-                    levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_minor':dict(value=97,pivot_time=0)}
+                    levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_major':dict(value=97,pivot_time=0)}
                     return [dict(time=int(stamp)//duration*duration-duration,signal=None,entry_sources=[],levels=levels)],200
                 main.analysis=analysis;minute.analysis=analysis
                 with patch.object(minute,'order_block_observation',return_value=dict(signal=None,entry_sources=[],order_block_conflict=False)),patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.runner.time.monotonic',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):

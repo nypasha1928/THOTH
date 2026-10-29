@@ -49,7 +49,7 @@ class SMA50Tests(unittest.TestCase):
             self.assertLessEqual(len(state.cross.closes),50)
             if strategy=='sr_sma_7_50':
                 self.assertTrue(any(b['signal'] and b['sr_signal'] is None for b in actual))
-                self.assertTrue(any(b['signal'] and b['sma_signal'] is None for b in actual))
+                self.assertTrue(all(not s.endswith('_minor') for b in actual for s in b.get('entry_sources',[])))
             with tempfile.TemporaryDirectory() as d:
                 runner=Runner(Engine(Path(d)/'test.sqlite'))
                 runner.analysis('ETHUSDT',cfg,rows[:100],6000)

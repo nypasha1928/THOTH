@@ -373,7 +373,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    timer=page.locator('[data-candle-countdown]').text_content()
    expect(page.locator('[data-candle-countdown]')).not_to_have_text(timer,timeout=3000)
    expect(page.locator('#candleCountdown')).to_contain_text('1m candle closes in')
-   rays=page.locator('[data-sr-key]');expect(rays).to_have_count(8)
+   rays=page.locator('[data-sr-key]');expect(rays).to_have_count(4)
    major=page.locator('[data-sr-key="long_resistance_major"]')
    expect(major).to_have_attribute('stroke','#b70909');expect(major).to_have_attribute('stroke-width','4')
    assert ' V' not in major.get_attribute('d')
@@ -499,7 +499,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-signal="Long"]').first).to_have_attribute('fill','#aabbcc')
    page.get_by_label('Long-term major Support',exact=True).fill('#33bb77')
    expect(page.locator('[data-sr-key="long_support_major"]')).to_have_attribute('stroke','#33bb77')
-   page.get_by_label('Long-term major Show',exact=True).uncheck();expect(rays).to_have_count(6)
+   page.get_by_label('Long-term major Show',exact=True).uncheck();expect(rays).to_have_count(2)
    page.get_by_label('Long-term major Show',exact=True).check()
    page.click('#maximizeChart');expect(page.locator('#maximizeChart')).to_have_attribute('aria-expanded','true')
    assert page.locator('#chartCard').bounding_box()['y']==0
@@ -621,16 +621,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#strategyLogic','order_block_sr_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('240');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#major')).to_be_visible();expect(page.locator('#major')).to_be_checked();expect(page.locator('#major')).to_be_disabled()
-   expect(page.locator('#minor')).to_be_visible();expect(page.locator('#minor')).to_be_checked();expect(page.locator('#minor')).to_be_disabled()
+   expect(page.locator('#minor')).to_be_visible();expect(page.locator('#minor')).not_to_be_checked();expect(page.locator('#minor')).to_be_disabled()
    expect(page.locator('#sma_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
    expect(page.locator('#strategyDescription')).to_contain_text('Order Block OR S/R Major and Minor independently')
    expect(page.locator('#strategyDescription')).to_contain_text('BOTH branches require forming 4h Volume > MA 20')
    expect(page.locator('#rsiSettings')).not_to_be_visible()
    page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_sr_intrabar'")
-   assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['major'] and writes[-1][1]['minor']
+   assert writes[-1][1]['timeframe']=='240' and writes[-1][1]['major'] and not writes[-1][1]['minor']
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_intrabar')
-   expect(page.locator('#major')).to_be_checked();expect(page.locator('#minor')).to_be_checked()
+   expect(page.locator('#major')).to_be_checked();expect(page.locator('#minor')).not_to_be_checked()
    expect(page.locator('#rsiSettings')).not_to_be_visible()
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 4h · Volume MA');page.keyboard.press('Escape')
    # Separate TradFi list is draft-only; original Main selection survives saving/reload.

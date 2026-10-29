@@ -27,7 +27,7 @@ def evaluate(closed,cfg,now,sr_result=None,sr_error=None):
     result=dict(time=now,mark=closed[-1]['close'],signal=signal,source_signal=original,entry_sources=sources,source_errors=errors,
         volume_checks={},closed_signal_bar=expected,
         entry_context=dict(closed_signal_bar=expected,primary_timeframe='60',source_signal=original) if signal else None,
-        volume_delta_status='1h CLOSED Order Block OR Major/Minor S/R; '+('INVERTED' if inverted else 'NORMAL')+' entries; NO volume filter; '+('conflicting signals skipped' if conflict else 'waiting for fresh closed candle'))
+        volume_delta_status='1h CLOSED Order Block OR Major only S/R; '+('INVERTED' if inverted else 'NORMAL')+' entries; NO volume filter; '+('conflicting signals skipped' if conflict else 'waiting for fresh closed candle'))
     if signal:result['volume_delta_status']+='; source '+original+' opens '+signal
     if conflict and not permission:result['signal_diagnostic']=dict(reason='conflicting closed Order Block / S/R signals',signal=None)
     return result
