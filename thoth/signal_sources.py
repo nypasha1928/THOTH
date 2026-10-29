@@ -25,11 +25,11 @@ def source_label(sources):
         if source.startswith('htf:'):
             _,frame,nested=source.split(':',2)
             labels.append({'1':'1-minute','60':'1-hour','240':'4-hour','D':'Daily'}.get(frame,frame)+' '+source_label([nested]))
-        elif source.startswith(('sr:','inverse_sr:')):
+        elif source.startswith(('sr:','inverse_sr:','sr_bounce:','sr_rejection:')):
             parts=source.split(':',1)[1].split('_')
             if len(parts)==3:
                 term,side,grade=parts
-                labels.append(('Inverse S/R ' if source.startswith('inverse_sr:') else 'S/R ')+{'long':'long-term','short':'short-term'}.get(term,term)+' '+grade+' '+side)
+                labels.append(('S/R Bounce · ' if source.startswith('sr_bounce:') else 'S/R Rejection · ' if source.startswith('sr_rejection:') else 'Inverse S/R ' if source.startswith('inverse_sr:') else 'S/R ')+{'long':'long-term','short':'short-term'}.get(term,term)+' '+grade+' '+side)
             else:labels.append(source)
         elif source.startswith('ob:'):
             from .order_block import LABELS
