@@ -55,16 +55,16 @@ class HourGateTests(unittest.TestCase):
                     cfg=Settings(strategy=HOUR_GATE,symbols=['BTCUSDT'])
                     runner=Runner(SimpleNamespace(path=str(Path(tmp)/'live.sqlite')),confirmation_only=True)
                     now=NOW+10;start=int(now)//60*60
-                    key=('long_resistance_' if side=='Long' else 'short_support_')+family
-                    levels={key:dict(value=101 if side=='Long' else 99,pivot_time=0)}
+                    key=('long_support_' if side=='Long' else 'short_resistance_')+family
+                    levels={key:dict(value=99 if side=='Long' else 101,pivot_time=0)}
                     runner.analysis=lambda *a,**k:([dict(time=start-60,levels=levels)],200)
-                    data=[dict(time=start-(59-i)*60,open=100,close=100,high=101,low=99,volume=0) for i in range(60)]
+                    data=[dict(time=start-(59-i)*60,open=100,close=100,high=100,low=100,volume=0) for i in range(60)]
                     runner.confirmation_symbol_cycles['BTCUSDT']=1
                     self.assertIsNone(runner.order_block_sr_branch('BTCUSDT',cfg,data,now)['signal'])
-                    data[-1]={**data[-1],'close':102 if side=='Long' else 98}
+                    data[-1]={**data[-1],'close':102 if side=='Long' else 98,'low':99 if side=='Long' else 98,'high':102 if side=='Long' else 101}
                     runner.confirmation_symbol_cycles['BTCUSDT']=2
                     out=runner.order_block_sr_branch('BTCUSDT',cfg,data,now+5)
-                    self.assertEqual(out['signal'],side);self.assertEqual(out['entry_sources'],['sr:'+key])
+                    self.assertEqual(out['signal'],side);self.assertEqual(out['entry_sources'],[('sr_bounce:' if side=='Long' else 'sr_rejection:')+key])
                     runner.confirmation_symbol_cycles['BTCUSDT']=3
                     self.assertIsNone(runner.order_block_sr_branch('BTCUSDT',cfg,data,now+10)['signal'])
 
@@ -90,7 +90,7 @@ class HourGateTests(unittest.TestCase):
     def test_real_workers_hour_arms_minute_chooses_opposite_side_and_exit_closes_only(self):
         for pause_exit in (False,True):
             with self.subTest(pause_exit=pause_exit),tempfile.TemporaryDirectory() as tmp:
-                now=[NOW-5];price=[100.];closed_side=[None];exchange=Exchange(lambda:now[0]);calls=[]
+                now=[NOW-5];price=[100.];minute_bars={};exchange=Exchange(lambda:now[0]);calls=[]
                 service=TestnetSupervisor(Path(tmp)/'live.sqlite',enabled=True,password_configured=True,
                     client_factory=lambda *a,**k:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
                 cfg=TestnetSettings(strategy=HOUR_GATE,symbols=['BTCUSDT'],dedicated_account=True,daily_loss_pct=90)
@@ -100,31 +100,34 @@ class HourGateTests(unittest.TestCase):
                     calls.append((interval,limit))
                     if interval=='60':return history()[-limit:]
                     self.assertEqual(interval,'1');start=int(now[0])//60*60
-                    return [dict(time=start-(199-i)*60,open=100,close=price[0] if i==199 else 100,
-                        high=max(101,price[0]) if i==199 else 101,low=min(99,price[0]) if i==199 else 99,volume=0) for i in range(200)][-limit:]
+                    current=minute_bars.setdefault(start,dict(time=start,open=100,close=100,high=100,low=100,volume=0))
+                    current.update(close=price[0],high=max(current['high'],price[0]),low=min(current['low'],price[0]))
+                    return [dict(minute_bars.get(start-(199-i)*60,dict(time=start-(199-i)*60,open=100,close=100,high=100,low=100,volume=0))) for i in range(200)][-limit:]
                 def analysis(symbol,source,rows,stamp,**kwargs):
                     duration=3600 if source.timeframe=='60' else 60
-                    levels={'long_resistance_major':dict(value=103,pivot_time=0),'short_support_minor':dict(value=97,pivot_time=0)}
-                    return [dict(time=int(stamp)//duration*duration-duration,signal=closed_side[0] if duration==60 else None,entry_sources=['sr:long_resistance_major'] if closed_side[0] else [],levels=levels)],200
+                    levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_minor':dict(value=97,pivot_time=0)}
+                    return [dict(time=int(stamp)//duration*duration-duration,signal=None,entry_sources=[],levels=levels)],200
                 main.analysis=analysis;minute.analysis=analysis
-                with patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.runner.time.monotonic',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):
+                with patch.object(minute,'order_block_observation',return_value=dict(signal=None,entry_sources=[],order_block_conflict=False)),patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.runner.time.monotonic',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):
                     main.cycle(paced=False);self.assertFalse(exchange.orders)
                     now[0]=NOW+1;main.cycle(paced=False)
                     self.assertEqual(service.state['entry_gates']['BTCUSDT']['phase'],'armed');self.assertFalse(exchange.orders)
                     self.assertEqual({i for i,_ in calls},{'60'})
                     now[0]+=1;minute.cycle();self.assertFalse(exchange.orders) # minute baseline
-                    now[0]+=5;price[0]=96;minute.cycle()
+                    now[0]+=5;price[0]=102;minute.cycle();self.assertFalse(exchange.orders) # breakout is NOT an S/R entry
+                    now[0]+=5;price[0]=99;minute.cycle() # resistance rejection, below previous close
                     order=next(iter(exchange.orders.values()));self.assertEqual(order['side'],'Sell')
                     exchange.fill(order['orderLinkId']);service.monitor()
                     owner=service.state['owned']['BTCUSDT'];self.assertTrue(owner['protection_confirmed'])
                     self.assertEqual(owner['exit_timeframe'],'1')
                     self.assertTrue(any(s.startswith('htf:60:') for s in owner['entry_sources']))
-                    self.assertIn('htf:1:sr:short_support_minor',owner['entry_sources'])
+                    self.assertIn('htf:1:sr_rejection:long_resistance_major',owner['entry_sources'])
                     if pause_exit:
                         service.pause();service.state['entry_gates']['BTCUSDT'].update(phase='cooldown',cooldown_until=now[0]+60);service.save()
-                    now[0]+=5;price[0]=104;minute.cycle()
+                    now[0]+=5;price[0]=96;minute.cycle()
+                    now[0]+=5;price[0]=101;minute.cycle() # native support bounce is forming, not a closed exit
                     self.assertFalse([o for o in exchange.orders.values() if o['reduceOnly']])
-                    now[0]=int(now[0])//60*60+61;closed_side[0]='Long';minute.cycle()
+                    now[0]=int(now[0])//60*60+61;minute.cycle()
                     closes=[o for o in exchange.orders.values() if o['reduceOnly']]
                     self.assertEqual(len(closes),1,service.state['events'][-6:]);self.assertFalse(service.state['reversals'])
                     exchange.fill(closes[0]['orderLinkId']);service.monitor()

@@ -737,6 +737,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.evaluate("signalAlertSources({entry_sources:['htf:D:ob:bearish_formed']})")=='Daily Bearish Order Block formed'
    expect(page.locator('#strategyDescription')).to_contain_text('One entry CONSUMES its hourly permission')
    expect(page.locator('#strategyDescription')).to_contain_text('CLOSED 1m candle')
+   expect(page.locator('#strategyDescription')).to_contain_text('uploaded Pine Bounce/Rejection rules')
+   expect(page.locator('#strategyDescription')).to_contain_text('previous candle close')
+   expect(page.locator('#strategyDescription')).to_contain_text('Hourly S/R breakouts and all Order Block rules stay unchanged')
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:1:sr_bounce:long_support_major']})")=='1-minute S/R Bounce · long-term major support'
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:1:sr_rejection:short_resistance_minor']})")=='1-minute S/R Rejection · short-term minor resistance'
+
 
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('1h Close → 1m Entry / Exit');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','sr_order_block_gate')

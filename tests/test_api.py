@@ -111,6 +111,26 @@ class ApiTests(unittest.TestCase):
             self.assertIn('NO entry filters',response.json()['order_block_status'])
         self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'1')
 
+    def test_hour_gate_minute_chart_displays_bounce_rejection_using_native_previous_close(self):
+        before=self.client.get('/api/live').json()['config']
+        cfg=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_hour_gate'}).json()['config']
+        start=1793275200
+        levels={'long_support_major':dict(value=99,pivot_time=start-600),'short_resistance_minor':dict(value=101,pivot_time=start-600)}
+        rows=[dict(time=start-120,open=100,high=100,low=100,close=100,volume=0),
+              dict(time=start-60,open=100,high=102,low=98,close=101,volume=0),
+              dict(time=start,open=101,high=102,low=98,close=99,volume=0)]
+        old=[dict(time=r['time'],levels=levels,signal='Short',entry_sources=['sr:short_support_minor'],sma=None) for r in rows[:-1]]
+        with patch('thoth.app.candles',return_value=rows),patch('thoth.app.evaluate',return_value=old),patch('time.time',return_value=start+10):
+            response=self.client.get('/api/chart/PAXGUSDT?interval=1')
+        self.assertEqual(response.status_code,200,response.text)
+        body=response.json();refs=body['sr_analysis']
+        self.assertEqual(refs[-2]['signal'],'Long');self.assertIn('sr_bounce:long_support_major',refs[-2]['entry_sources'])
+        self.assertEqual(refs[-1]['signal'],'Short');self.assertIn('sr_rejection:short_resistance_minor',refs[-1]['entry_sources'])
+        self.assertTrue(refs[-1]['provisional']);self.assertIn('Bounce/Rejection ONLY',body['sr_reference_status'])
+        self.assertEqual(body['analysis'],refs)
+        saved=self.client.get('/api/live').json()['config']
+        self.assertEqual(saved,cfg);self.assertFalse(self.client.get('/api/live').json()['entries'])
+
     def test_hour_gate_preserves_risk_and_all_lists_with_main50_selected(self):
         before=self.client.get('/api/live').json()['config']
         leaders=self.client.get('/api/live/market-leaders').json()['main_leaders']

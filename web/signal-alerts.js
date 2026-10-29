@@ -25,7 +25,7 @@ function signalAlertSources(item){
   if(source.startsWith('volume_delta:'))return ({bullish_strong:'Volume Delta Strong Bullish (Up)',bullish_weak:'Volume Delta Weak Bullish (Up-)',bullish_all:'Volume Delta All Bullish',bearish_strong:'Volume Delta Strong Bearish (Down)',bearish_weak:'Volume Delta Weak Bearish (Down+)',bearish_all:'Volume Delta All Bearish'})[source.split(':')[1]]||source;
   if(source.startsWith('rsi:'))return names[source.slice(4)]||source;
   if(source.startsWith('sma:'))return 'SMA '+source.slice(4).replace('_','/')+' crossover';
-  const [prefix,key]=source.split(':');if(['sr','inverse_sr'].includes(prefix)&&key){const [term,side,grade]=key.split('_');return (prefix==='inverse_sr'?'Inverse S/R ':'S/R ')+(term==='long'?'long-term':'short-term')+' '+grade+' '+side+(prefix==='inverse_sr'&&item.source_signal?' · '+item.source_signal+' signal → '+item.signal+' position':'');}
+  const [prefix,key]=source.split(':');if(['sr','inverse_sr','sr_bounce','sr_rejection'].includes(prefix)&&key){const [term,side,grade]=key.split('_');return (prefix==='sr_bounce'?'S/R Bounce · ':prefix==='sr_rejection'?'S/R Rejection · ':prefix==='inverse_sr'?'Inverse S/R ':'S/R ')+(term==='long'?'long-term':'short-term')+' '+grade+' '+side+(prefix==='inverse_sr'&&item.source_signal?' · '+item.source_signal+' signal → '+item.signal+' position':'');}
   return source;
  });
  const parts=recorded.length?recorded:[...(d.rsi_events||[]).map(k=>names[k]||k),...(d.sr_levels||[]).map(k=>'S/R '+k.replaceAll('_',' '))];
