@@ -197,8 +197,10 @@ class DailyCombinationTests(unittest.TestCase):
                     runner.cycle(paced=False);self.assertIsNone(received['BTCUSDT']['signal'])
                     rows[-1].update(open=price,close=price,high=price+1,low=price-1);now[0]+=5
                     runner.cycle(paced=False)
-                    self.assertEqual(received['BTCUSDT']['signal'],side)
-                    self.assertEqual(received['BTCUSDT'][source+'_signal'],side)
+                    # This fixture's bearish S/R crossing is minor-only and is now excluded.
+                    expected=None if source=='sr' and side=='Short' else side
+                    self.assertEqual(received['BTCUSDT']['signal'],expected)
+                    self.assertEqual(received['BTCUSDT'][source+'_signal'],expected)
                     self.assertIsNone(received['BTCUSDT']['sr_signal' if source=='rsi' else 'rsi_signal'])
                     self.assertEqual(received['BTCUSDT']['entry_timeframe'],'D')
                     self.assertEqual(received['BTCUSDT']['exit_timeframe'],'1')

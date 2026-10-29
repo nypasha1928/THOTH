@@ -28,7 +28,7 @@ class InverseSRTests(unittest.TestCase):
                     service.configure(cfg);service.activate(service.confirmation)
                     adapter=FeedAdapter(service);runner=Runner(adapter)
                     plain=Settings(**{k:v for k,v in cfg.model_dump().items() if k in Settings.model_fields})
-                    result=[dict(time=start-duration,levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_minor':dict(value=99,pivot_time=0)})]
+                    result=[dict(time=start-duration,levels={'long_resistance_major':dict(value=101,pivot_time=0),'short_support_major':dict(value=99,pivot_time=0)})]
                     first=runner.intrabar_observation('BTCUSDT',plain,[dict(time=start,close=100)],result,now[0])
                     adapter.market_cycle(plain.model_dump(),{'BTCUSDT':first});self.assertFalse(exchange.orders)
                     now[0]+=5

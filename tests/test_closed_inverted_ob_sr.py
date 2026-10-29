@@ -22,7 +22,7 @@ def history(bear=False):
 
 
 def sr_result(side=None):
-    return dict(time=NOW-3600,signal=side,conflict=False,entry_sources=['sr:long_resistance_major'] if side=='Long' else ['sr:short_support_minor'] if side else [])
+    return dict(time=NOW-3600,signal=side,conflict=False,entry_sources=['sr:long_resistance_major'] if side=='Long' else ['sr:short_support_major'] if side else [])
 
 
 class ClosedInvertedTests(unittest.TestCase):
@@ -30,7 +30,7 @@ class ClosedInvertedTests(unittest.TestCase):
         cfg=Settings(strategy=STRATEGY,timeframe='D',sma_enabled=True,sma_7_50_filter_enabled=True,sma_exit_enabled=True,
             major=False,minor=False,opposite_action='close_only',stop_dollars=.4,daily_loss_pct=35,coin_pnl_trailing_enabled=True,
             order_block={'filter_breaks':True,'bullish_formed':False})
-        self.assertEqual(cfg.timeframe,'60');self.assertTrue(cfg.major and cfg.minor)
+        self.assertEqual(cfg.timeframe,'60');self.assertTrue(cfg.major and not cfg.minor)
         self.assertFalse(cfg.sma_enabled or cfg.sma_7_50_filter_enabled or cfg.sma_exit_enabled or cfg.order_block.filter_breaks)
         self.assertTrue(cfg.order_block.bullish_formed and cfg.order_block.bearish_formed and cfg.order_block.supply_breakout and cfg.order_block.demand_breakdown)
         self.assertEqual(cfg.opposite_action,'close_only');self.assertEqual(cfg.stop_dollars,.4);self.assertEqual(cfg.daily_loss_pct,35)
@@ -58,7 +58,7 @@ class ClosedInvertedTests(unittest.TestCase):
     def test_sr_major_minor_both_directions_invert_without_ob_requirement(self):
         cfg=Settings(strategy=STRATEGY)
         quiet=[{**r,'open':100,'close':100,'high':101,'low':99} for r in history()]
-        for family in ('major','minor'):
+        for family in ('major',):
             for source,actual in [('Long','Short'),('Short','Long')]:
                 key='sr:long_resistance_'+family if source=='Long' else 'sr:short_support_'+family
                 result=evaluate(quiet,cfg,NOW,{**sr_result(source),'entry_sources':[key]})

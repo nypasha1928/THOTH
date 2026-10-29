@@ -18,7 +18,7 @@ class ClosedNormalTests(unittest.TestCase):
     def test_fixed_hourly_unfiltered_profile_retains_risk_and_opposite_action(self):
         cfg=Settings(strategy=NORMAL_STRATEGY,timeframe='D',sma_enabled=True,sma_exit_enabled=True,sma_7_50_filter_enabled=True,
             opposite_action='close_only',major=False,minor=False,stop_dollars=.4,daily_loss_pct=35,pnl_trailing_enabled=True,weekly_equity_trailing_enabled=True)
-        self.assertEqual(cfg.timeframe,'60');self.assertTrue(cfg.major and cfg.minor)
+        self.assertEqual(cfg.timeframe,'60');self.assertTrue(cfg.major and not cfg.minor)
         self.assertFalse(cfg.sma_enabled or cfg.sma_7_50_filter_enabled or cfg.sma_exit_enabled or cfg.order_block.filter_breaks)
         self.assertEqual(cfg.opposite_action,'close_only');self.assertEqual(cfg.stop_dollars,.4)
         self.assertTrue(cfg.pnl_trailing_enabled and cfg.weekly_equity_trailing_enabled)
@@ -35,7 +35,7 @@ class ClosedNormalTests(unittest.TestCase):
                 self.assertNotEqual(evaluate(history(),inverted,NOW,sr_result())['signal'],side)
                 self.assertEqual(result['volume_checks'],{})
         quiet=[{**r,'open':100,'close':100,'high':101,'low':99} for r in history()]
-        for family in ('major','minor'):
+        for family in ('major',):
             for side in ('Long','Short'):
                 key='sr:long_resistance_'+family if side=='Long' else 'sr:short_support_'+family
                 self.assertEqual(evaluate(quiet,normal,NOW,{**sr_result(side),'entry_sources':[key]})['signal'],side)
