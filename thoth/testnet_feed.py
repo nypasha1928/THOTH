@@ -53,6 +53,9 @@ class FeedAdapter:
         return [symbol for symbol in state['config']['symbols']
             if state.get('entry_gates',{}).get(symbol,{}).get('phase')=='armed' or (state['config']['strategy']==HOUR_GATE and symbol in state['owned'])]
 
+    def minute_hour_position_open(self,symbol):
+        return symbol in self.supervisor.load()['owned']
+
     def staged_permission_epoch(self,symbol):
         return self.supervisor.load().get('entry_gates',{}).get(symbol,{}).get('arm_id',0)
 
@@ -61,7 +64,7 @@ class FeedAdapter:
         if not self.supervisor.client:raise ValueError('Account is not connected')
         limit=60
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
-        if cfg.strategy in (HOUR_GATE,ORDER_BLOCK_STRATEGY,'order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
+        if cfg.strategy in (HOUR_GATE,ORDER_BLOCK_STRATEGY,'order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
             interval='5' if cfg.strategy==ORDER_BLOCK_STRATEGY else cfg.timeframe;limit=1000
             path=Path(self.path).with_suffix('.candles.sqlite')
             if path.exists():
@@ -70,7 +73,7 @@ class FeedAdapter:
                     with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
                         row=db.execute('SELECT stamp FROM order_block_checkpoints WHERE symbol=? AND strategy=?',(symbol,strategy_fingerprint(cfg))).fetchone()
                         count=db.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND interval=?",(symbol,interval)).fetchone()[0]
-                    if row and count>=(200 if cfg.strategy==ORDER_BLOCK_STRATEGY else max(14,2*cfg.pivot_long+1) if cfg.strategy in (HOUR_GATE,'order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 14):
+                    if row and count>=(200 if cfg.strategy==ORDER_BLOCK_STRATEGY else max(14,2*cfg.pivot_long+1) if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 14):
                         from .timeframes import interval_seconds
                         limit=min(1000,max(60,int((self.supervisor.clock()-row[0])//interval_seconds(interval))+3))
                 except sqlite3.OperationalError:pass
@@ -97,7 +100,7 @@ class FeedAdapter:
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
         if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
             return self.supervisor.client.candles(symbol,'60',limit=self.staged_history_limit(symbol,'60'))
-        if cfg.strategy in ('order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h'):return self.staged_minute_inputs(symbol,cfg.timeframe)
+        if cfg.strategy in ('order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h'):return self.staged_minute_inputs(symbol,cfg.timeframe)
         if cfg.strategy=='sr_volume_intrabar':
             primary={}
             for timeframe in ('240','D'):
