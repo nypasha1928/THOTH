@@ -43,6 +43,7 @@ def measure(details,timing,side,stop):
         if end is not None and start is not None:
             if end<start:skew=True
             else:result[name]=end-start
+    difference('bar_close_to_qualification_seconds',details.get('qualified_at'),details.get('signal_bar_closed_at'))
     difference('observation_gap_seconds',details.get('qualified_at'),details.get('previous_observed_at'))
     seen=[number(value.get('first_seen_at')) for value in details.get('sources',{}).values()]
     seen=[value for value in seen if value is not None]

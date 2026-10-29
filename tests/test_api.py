@@ -84,6 +84,25 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
         self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
 
+    def test_closed_inverted_profile_save_and_chart_view_are_separate(self):
+        before=self.client.get('/api/live').json()['config']
+        cfg={**before,'strategy':'order_block_sr_1h_inverted_close','timeframe':'D','sma_enabled':True,'sma_exit_enabled':True}
+        response=self.client.put('/api/live/settings',json=cfg);self.assertEqual(response.status_code,200,response.text)
+        saved=response.json()['config'];self.assertEqual(saved['timeframe'],'60');self.assertFalse(saved['sma_exit_enabled'] or saved['sma_enabled'])
+        for key in ('stop_dollars','daily_loss_pct','leverage','pnl_trailing_enabled','coin_pnl_trailing_enabled'):
+            self.assertEqual(saved[key],before[key])
+        from test_order_block_sr import ob_rows,NOW
+        from test_tradfi import hourly
+        day_start=int(NOW)//86400*86400
+        data=ob_rows();daily=[{**row,'time':day_start-(len(data)-i-1)*86400} for i,row in enumerate(data)]
+        with patch('thoth.app.candles',return_value=daily),patch('time.time',return_value=NOW+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=D&include_order_block=true')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertIn('NO volume filter',response.json()['indicator_status'])
+            self.assertIn('NO entry filters',response.json()['order_block_status'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_1h_inverted_close').status_code,200)
+        self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'60')
+
     def test_tradfi_profile_and_saved_lists_survive_save_and_chart_view(self):
         current=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**current,'strategy':'order_block_sr_1h','timeframe':'D',
