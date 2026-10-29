@@ -133,7 +133,7 @@ class ApiTests(unittest.TestCase):
         with patch('thoth.app.candles',return_value=daily),patch('time.time',return_value=NOW+20):
             response=self.client.get('/api/chart/BTCUSDT?interval=D&include_order_block=true')
             self.assertEqual(response.status_code,200,response.text)
-            self.assertIn('opposite 1m signal closes only',response.json()['indicator_status'])
+            self.assertIn('opposite CLOSED 1m signal closes only',response.json()['indicator_status'])
             self.assertIn('NO entry filters',response.json()['order_block_status'])
         self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'1')
 

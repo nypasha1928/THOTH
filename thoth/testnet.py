@@ -506,7 +506,10 @@ class TestnetSupervisor:
             if result(gate,pnl,self.clock(),cfg.consecutive_losses,cfg.pause_minutes):
                 self.state['pending_signals'].pop(symbol,None);self.state['reversals'].pop(symbol,None)
                 self.event(symbol+': two-stage gate locked after '+str(gate['losses'])+' consecutive losses; cooldown '+str(cfg.pause_minutes)+' minutes, then a NEW '+('CLOSED 1h Order Block / S/R' if cfg.strategy==HOUR_GATE else '4h/Daily')+' signal is required')
-            elif pnl>0:self.event(symbol+': profitable closure; two-stage loss count reset to zero, confirmation remains armed')
+            elif pnl>0:self.event(symbol+': profitable closure; two-stage loss count reset to zero; '+('waiting for NEW CLOSED 1h permission' if cfg.strategy==HOUR_GATE else 'confirmation remains armed'))
+            if cfg.strategy==HOUR_GATE and gate['phase']!='cooldown':
+                self._consume_hour_permission(symbol,gate)
+                self.event(symbol+': position closed; hourly permission consumed; a NEW CLOSED 1h Order Block or S/R signal is required')
         coin_pause=self.state['risk'].get('symbols',{}).get(symbol,{}).get('pause_until')
         if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
             self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
@@ -954,17 +957,50 @@ class TestnetSupervisor:
         if not self.state['entries']:reasons.append('new entries disabled')
         return '; '.join(reasons)
 
+    def _hour_permission_used(self,symbol,gate):
+        armed=gate.get('armed_at')
+        if armed is None or not self.journal:return False
+        with self.journal.db() as db:
+            rows=db.execute("SELECT instrument,result FROM execution WHERE json_extract(payload,'$.symbol')=? AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_strategy')=? AND phase!='rejected'",(symbol,HOUR_GATE)).fetchall()
+        for instrument,result in rows:
+            instrument=json.loads(instrument);result=json.loads(result)
+            stamp=instrument.get('thoth_permission_armed_at')
+            if stamp is None:stamp=(instrument.get('thoth_entry_diagnostics') or {}).get('permission_armed_at')
+            if stamp is not None:
+                if stamp==armed:return True
+                continue
+            # Older journal entries predate arm metadata. Their submission time
+            # still proves whether this saved permission already placed a trade.
+            submitted=(result.get('entry_timing') or {}).get('submit_started_at')
+            if submitted is not None and submitted>=armed:return True
+        return False
+
+    def _consume_hour_permission(self,symbol,gate):
+        bar=gate.get('permission_closed_bar')
+        if bar is None:bar=int(gate['armed_at'])//3600*3600-3600
+        gate.update(phase='consumed',permission_closed_bar=bar,
+            consumed_closed_bar=max(bar,gate.get('consumed_closed_bar',-1)))
+        self.state['pending_signals'].pop(symbol,None);self.state['reversals'].pop(symbol,None)
+
     def _staged_observation(self,symbol,observation,cfg):
         from .staged_entry import new_gate,apply
         gate=self.state.setdefault('entry_gates',{}).setdefault(symbol,new_gate())
+        if cfg.strategy==HOUR_GATE and gate['phase']=='armed' and self._hour_permission_used(symbol,gate):
+            self._consume_hour_permission(symbol,gate)
+            self.event(symbol+': CLOSED 1h permission already used; waiting for a NEW closed-hour signal after this position')
         enabled=bool(self.state['entries'] and self.state['status']=='running' and not self.state['flatten_reason']
             and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,cfg,self.clock()))
         volume=dict(signal=observation.get('volume_signal'),time=observation['time'],entry_sources=observation.get('volume_sources',[]))
         confirmation,events=apply(gate,observation.get('primary_events',[]),volume,self.clock(),enabled=enabled,
             position_open=symbol in self.state['owned'],primary_label='Order Block or S/R' if cfg.strategy==HOUR_GATE else 'S/R' if cfg.strategy==ORDER_BLOCK_STRATEGY else 'S/R or RSI',
-            confirmation_label='Order Block or S/R' if cfg.strategy==HOUR_GATE else 'Order Block' if cfg.strategy==ORDER_BLOCK_STRATEGY else 'Volume Delta',confirmation_timeframe=cfg.timeframe,primary_window='CLOSED 1h' if cfg.strategy==HOUR_GATE else '4h/Daily')
-        if cfg.strategy==HOUR_GATE and symbol in self.state['owned'] and volume['signal'] in ('Long','Short'):
-            confirmation=dict(signal=volume['signal'],entry_sources=volume['entry_sources'],entry_context=None)
+            confirmation_label='Order Block or S/R' if cfg.strategy==HOUR_GATE else 'Order Block' if cfg.strategy==ORDER_BLOCK_STRATEGY else 'Volume Delta',confirmation_timeframe=cfg.timeframe,primary_window='CLOSED 1h' if cfg.strategy==HOUR_GATE else '4h/Daily',single_use=cfg.strategy==HOUR_GATE)
+        if cfg.strategy==HOUR_GATE and symbol in self.state['owned']:
+            confirmation=None
+            owner=self.state['owned'][symbol];bar=observation.get('closed_exit_bar')
+            if (observation.get('exit_signal') in ('Long','Short') and bar==int(self.clock())//60*60-60
+                    and bar+60>owner['opened_ms']/1000):
+                confirmation=dict(signal=observation['exit_signal'],entry_sources=observation.get('exit_sources',[]),entry_context=None)
+            observation={**observation,'signal_diagnostic':None}
         for message in events:
             self._signal_decision(symbol,'two-stage gate: '+message,dict(time=observation['time'],signal=None,entry_sources=gate['sources']))
         if confirmation and cfg.strategy==HOUR_GATE and observation.get('entry_diagnostics'):
@@ -1006,14 +1042,14 @@ class TestnetSupervisor:
                 if owner:
                     if owner['side']==side:
                         self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
-                    reason='Opposite 1m Order Block / S/R signal' if current.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
+                    reason='Opposite CLOSED 1m Order Block / S/R signal' if current.strategy==HOUR_GATE else 'Opposite 1m Order Block / S/R signal' if current.strategy=='ob_sr_minute_hourly' else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
                         self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
-                    self._signal_decision(symbol,'opposite signal: '+('reversal queued' if symbol in self.state['reversals'] else 'exit requested; '+(self._reversal_block_reason(symbol) or 'close-only setting')),observation)
+                    self._signal_decision(symbol,('opposite CLOSED 1m signal: ' if current.strategy==HOUR_GATE else 'opposite signal: ')+('reversal queued' if symbol in self.state['reversals'] else 'exit requested; '+(self._reversal_block_reason(symbol) or 'close-only setting')),observation)
                     self.save()  # Retain exit obligation if a position read fails.
                     try:
                         p=self.positions().get(symbol)
@@ -1099,6 +1135,8 @@ class TestnetSupervisor:
             self._signal_decision(symbol,'skipped: one entry per coin per 4-hour candle already used',{'time':stamp,'signal':side});return
         if cfg.strategy in STAGED_STRATEGIES:
             gate=self.state.get('entry_gates',{}).get(symbol,{})
+            if cfg.strategy==HOUR_GATE and gate.get('phase')=='armed' and self._hour_permission_used(symbol,gate):
+                self._consume_hour_permission(symbol,gate)
             if gate.get('phase')!='armed' or not context or context.get('arm_id')!=gate.get('arm_id'):
                 self._signal_decision(symbol,'skipped: two-stage gate is not armed for this signal',dict(time=stamp,signal=side));return
         if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') and int(stamp)//60!=int(self.clock())//60:
@@ -1182,8 +1220,16 @@ class TestnetSupervisor:
                 self.state['minute_hour_entries']={s:w for s,w in self.state.get('minute_hour_entries',{}).items() if w==window}
                 self.state['minute_hour_entries'][symbol]=window
                 self.save()  # Reserve before submission; an uncertain result retains the slot.
+            if cfg.strategy==HOUR_GATE:
+                gate=self.state['entry_gates'][symbol]
+                metadata['thoth_permission_armed_at']=gate['armed_at']
+                metadata['thoth_permission_arm_id']=gate['arm_id']
+                self._consume_hour_permission(symbol,gate)
+                metadata['thoth_permission_closed_bar']=gate['permission_closed_bar']
+                self.save()  # Single-use permission reserved before submission/any crash.
             record=self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='rejected':
+                if cfg.strategy==HOUR_GATE:self.state['entry_gates'][symbol]['phase']='armed'
                 if cfg.strategy=='ob_sr_minute_hourly':self.state.get('minute_hour_entries',{}).pop(symbol,None)
                 if cfg.strategy=='sr_volume_intrabar':self.state.get('sr_volume_entry_windows',{}).pop(symbol,None)
                 code=record.get('result',{}).get('exchange_code')
