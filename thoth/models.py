@@ -62,7 +62,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|ob_sr_hour_gate|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -147,6 +147,11 @@ class Settings(BaseModel):
         if self.strategy=='sr_volume_intrabar':
             self.timeframe='240';self.sma_exit_enabled=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
+        if self.strategy=='ob_sr_hour_gate':
+            self.timeframe='1';self.sma_exit_enabled=False;self.opposite_action='close_only'
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=True
+            self.loss_streak_scope='per_coin'
+            self.order_block=OrderBlockSettings(filter_breaks=False)
         if self.strategy=='sr_order_block_gate':
             self.sma_length=200
             self.timeframe='5';self.sma_exit_enabled=False;self.loss_streak_scope='per_coin'

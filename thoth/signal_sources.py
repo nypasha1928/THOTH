@@ -24,7 +24,7 @@ def source_label(sources):
     for source in sorted(set(sources or [])):
         if source.startswith('htf:'):
             _,frame,nested=source.split(':',2)
-            labels.append({'240':'4-hour','D':'Daily'}.get(frame,frame)+' '+source_label([nested]))
+            labels.append({'1':'1-minute','60':'1-hour','240':'4-hour','D':'Daily'}.get(frame,frame)+' '+source_label([nested]))
         elif source.startswith(('sr:','inverse_sr:')):
             parts=source.split(':',1)[1].split('_')
             if len(parts)==3:

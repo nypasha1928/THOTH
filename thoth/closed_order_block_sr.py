@@ -19,14 +19,15 @@ def evaluate(closed,cfg,now,sr_result=None,sr_error=None):
     if not reports:raise ValueError('Closed Order Block and S/R histories unavailable')
     sides={r['signal'] for r in reports if r.get('signal') in ('Long','Short')}
     conflict=len(sides)>1 or any(r.get('conflict') for r in reports)
-    original=next(iter(sides)) if len(sides)==1 and not conflict else None
+    permission=cfg.strategy=='ob_sr_hour_gate'
+    original=(sorted(sides)[0] if sides else None) if permission else next(iter(sides)) if len(sides)==1 and not conflict else None
     inverted=cfg.strategy==STRATEGY
     signal=(('Short' if original=='Long' else 'Long') if inverted else original) if original else None
-    sources=list(dict.fromkeys(s for r in reports if original and r.get('signal')==original for s in r.get('entry_sources',[])))
+    sources=list(dict.fromkeys(s for r in reports if original and (permission or r.get('signal')==original) for s in r.get('entry_sources',[])))
     result=dict(time=now,mark=closed[-1]['close'],signal=signal,source_signal=original,entry_sources=sources,source_errors=errors,
         volume_checks={},closed_signal_bar=expected,
         entry_context=dict(closed_signal_bar=expected,primary_timeframe='60',source_signal=original) if signal else None,
         volume_delta_status='1h CLOSED Order Block OR Major/Minor S/R; '+('INVERTED' if inverted else 'NORMAL')+' entries; NO volume filter; '+('conflicting signals skipped' if conflict else 'waiting for fresh closed candle'))
     if signal:result['volume_delta_status']+='; source '+original+' opens '+signal
-    if conflict:result['signal_diagnostic']=dict(reason='conflicting closed Order Block / S/R signals',signal=None)
+    if conflict and not permission:result['signal_diagnostic']=dict(reason='conflicting closed Order Block / S/R signals',signal=None)
     return result

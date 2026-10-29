@@ -1,5 +1,5 @@
 """Reuse causal market replay on testnet prices, with a separate account engine."""
-from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY
+from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE
 from .models import Settings,TestnetSettings
 import sqlite3
 from pathlib import Path
@@ -51,14 +51,17 @@ class FeedAdapter:
         state=self.supervisor.load()
         if state['config']['strategy'] not in STAGED_STRATEGIES or not state['management']:return []
         return [symbol for symbol in state['config']['symbols']
-            if state.get('entry_gates',{}).get(symbol,{}).get('phase')=='armed']
+            if state.get('entry_gates',{}).get(symbol,{}).get('phase')=='armed' or (state['config']['strategy']==HOUR_GATE and symbol in state['owned'])]
+
+    def staged_permission_epoch(self,symbol):
+        return self.supervisor.load().get('entry_gates',{}).get(symbol,{}).get('arm_id',0)
 
     def staged_minute_inputs(self,symbol,interval='1'):
         """Read only when the runner is ready to evaluate this coin, not in prefetch."""
         if not self.supervisor.client:raise ValueError('Account is not connected')
         limit=60
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
-        if cfg.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
+        if cfg.strategy in (HOUR_GATE,ORDER_BLOCK_STRATEGY,'order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
             interval='5' if cfg.strategy==ORDER_BLOCK_STRATEGY else cfg.timeframe;limit=1000
             path=Path(self.path).with_suffix('.candles.sqlite')
             if path.exists():
@@ -67,7 +70,7 @@ class FeedAdapter:
                     with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
                         row=db.execute('SELECT stamp FROM order_block_checkpoints WHERE symbol=? AND strategy=?',(symbol,strategy_fingerprint(cfg))).fetchone()
                         count=db.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND interval=?",(symbol,interval)).fetchone()[0]
-                    if row and count>=(200 if cfg.strategy==ORDER_BLOCK_STRATEGY else max(14,2*cfg.pivot_long+1) if cfg.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 14):
+                    if row and count>=(200 if cfg.strategy==ORDER_BLOCK_STRATEGY else max(14,2*cfg.pivot_long+1) if cfg.strategy in (HOUR_GATE,'order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 14):
                         from .timeframes import interval_seconds
                         limit=min(1000,max(60,int((self.supervisor.clock()-row[0])//interval_seconds(interval))+3))
                 except sqlite3.OperationalError:pass
@@ -103,11 +106,11 @@ class FeedAdapter:
             return dict(primary=primary)
         if cfg.strategy in STAGED_STRATEGIES:
             gate=self.supervisor.load().get('entry_gates',{}).get(symbol,{})
-            armed=gate.get('phase')=='armed'
+            armed=gate.get('phase')=='armed' or (cfg.strategy==HOUR_GATE and symbol in self.supervisor.load()['owned'])
             packet=dict(primary={},minute_on_demand=armed,minute_not_needed=not armed,refresh_primary=True)
-            needs_primary=gate.get('phase')!='armed' and self.supervisor.clock()>=(gate.get('cooldown_until') or 0)
+            needs_primary=gate.get('phase')!='armed' and (cfg.strategy==HOUR_GATE or self.supervisor.clock()>=(gate.get('cooldown_until') or 0))
             if needs_primary:
-                for timeframe in ('240','D'):
+                for timeframe in (('60',) if cfg.strategy==HOUR_GATE else ('240','D')):
                     try:packet['primary'][timeframe]=self.staged_primary_inputs(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
