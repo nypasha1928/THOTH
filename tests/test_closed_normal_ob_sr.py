@@ -61,6 +61,8 @@ class ClosedNormalTests(unittest.TestCase):
                     with patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):
                         runner.cycle(paced=False);self.assertFalse(exchange.orders)
                         now[0]=NOW+1;runner.cycle(paced=False)
+                        self.assertTrue(runner.health['symbols']['BTCUSDT']['sampling']['continuous'])
+                        self.assertEqual(runner.health['symbols']['BTCUSDT']['sampling']['limit'],3600.)
                         self.assertTrue(exchange.orders,(runner.health,service.state['events'][-3:]))
                         order=next(iter(exchange.orders.values()));self.assertEqual(order['side'],'Sell' if bearish else 'Buy')
                         self.assertTrue(all(interval=='60' for interval,_ in calls))

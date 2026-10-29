@@ -363,11 +363,16 @@ class Runner:
         with sqlite3.connect(self.history_path) as db:
             row=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(row[0]) if row else {}
-        budget=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
+        # Completed candles are immutable; consecutive scans may exceed the
+        # intrabar five-minute cap. Still require the same session/cycle and
+        # no more than one hour between observations. Adjacency below prevents
+        # missed-hour catch-up; the final entry guard checks latest closed bar.
+        budget=3600.
         continuous=(tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle)
             and 0<now-tracker.get('observed_at',0)<=budget)
         if tracker.get('closed_bar')==latest and continuous:
             result={**tracker['report'],'time':now,'signal':None,'entry_sources':[],'entry_context':None,'signal_diagnostic':None}
+            result['volume_delta_status']=result['volume_delta_status'].split('; recovery baseline',1)[0].split('; source ',1)[0]
         else:
             source=cfg.model_copy(update=dict(strategy='sr_breakout',timeframe='60',major=True,minor=True,sma_enabled=False,sma_7_50_filter_enabled=False))
             sr_error=None;sr=None
@@ -386,6 +391,7 @@ class Runner:
                 result['entry_diagnostics']=qualification(result['entry_sources'],seen,now,closed[-1]['close'],tracker.get('observed_at'))
                 result['entry_diagnostics']['signal_bar_closed_at']=latest+3600
                 result['entry_diagnostics']['price_basis']='closed_signal_candle_close'
+        result['sampling']=dict(continuous=bool(continuous),gap=now-tracker['observed_at'] if tracker.get('observed_at') is not None else None,limit=budget,closed_bar=latest)
         tracker.update(closed_bar=latest,observed_at=now,session=self.observation_session,scan_cycle=self.scan_cycle,report=result)
         with sqlite3.connect(self.history_path) as db:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
@@ -558,6 +564,8 @@ class Runner:
             observations[symbol]=observation
             statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,
                 signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}),volume_checks=observation.get('volume_checks',{}))
+            if cfg.strategy in ('order_block_sr_1h_close','order_block_sr_1h_inverted_close'):
+                statuses[symbol]['sampling']=observation.get('sampling',{})
             if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
         if cfg.strategy in STAGED_STRATEGIES:
             self.health={**self._health,'status':'scanning','scan_started':time.time()}
