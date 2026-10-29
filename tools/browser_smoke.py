@@ -683,6 +683,18 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_inverted_close')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Inverted · Bar Close');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','order_block_sr_1h_close')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('bullish/Long source opens LONG')
+   expect(page.locator('#strategyDescription')).to_contain_text('bearish/Short source opens SHORT')
+   expect(page.locator('#strategyDescription')).to_contain_text('NO entry filters')
+   expect(page.locator('#strategyDescription')).to_contain_text('CLOSED candles only')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_enabled')).not_to_be_checked()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_sr_1h_close'")
+   assert writes[-1][1]['timeframe']=='60' and not writes[-1][1]['order_block']['filter_breaks']
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_close')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h · Bar Close');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','sr_order_block_gate')
    expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#sma_length')).to_have_value('200');expect(page.locator('#sma_length')).to_be_disabled()
