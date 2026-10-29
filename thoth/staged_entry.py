@@ -10,7 +10,7 @@ def new_gate():
         sources=[],losses=0,cooldown_until=None,arm_id=0,seen_primary=[])
 
 
-def apply(gate,primary,volume,now,*,enabled,position_open,primary_label='S/R or RSI',confirmation_label='Volume Delta',confirmation_timeframe='1',primary_window='4h/Daily'):
+def apply(gate,primary,volume,now,*,enabled,position_open,primary_label='S/R or RSI',confirmation_label='Volume Delta',confirmation_timeframe='1',primary_window='4h/Daily',single_use=False):
     events=[]
     if gate['phase']=='cooldown' and now>=gate['cooldown_until']:
         gate['phase']='wait_fresh'
@@ -26,6 +26,9 @@ def apply(gate,primary,volume,now,*,enabled,position_open,primary_label='S/R or 
         if gate['phase']=='cooldown':continue
         if gate.get('cooldown_until') is not None and event.get('window_start',0)<gate['cooldown_until']:
             events.append('higher-timeframe signal skipped: observation window began before cooldown ended');continue
+        if single_use:
+            bar=event.get('closed_bar',event.get('window_start',0)-3600)
+            if position_open or bar<=gate.get('consumed_closed_bar',-1):continue
         fresh.append(event)
     if fresh:
         earliest=min(event['time'] for event in fresh)
@@ -37,8 +40,9 @@ def apply(gate,primary,volume,now,*,enabled,position_open,primary_label='S/R or 
         directions={item['signal'] for item in candidates}
         gate.update(phase='armed',direction='Any',reference_direction=event['signal'] if len(directions)==1 else 'Both',armed_at=now,
             primary_timeframe='+'.join(frames),sources=sources,arm_id=gate['arm_id']+1)
+        if single_use:gate['permission_closed_bar']=event.get('closed_bar',event.get('window_start',0)-3600)
         if was_locked:gate['losses']=0
-        events.append(('unlocked and ' if was_locked else '')+'armed by '+gate['primary_timeframe']+' '+primary_label+'; waiting for a NEW bullish OR bearish '+confirmation_timeframe+'m '+confirmation_label+' signal')
+        events.append(('unlocked and ' if was_locked else '')+'armed by '+('CLOSED 1h' if single_use else gate['primary_timeframe'])+' '+primary_label+'; waiting for a NEW bullish OR bearish '+confirmation_timeframe+'m '+confirmation_label+' signal')
     confirmation=None
     if (enabled or position_open) and gate['phase']=='armed' and volume.get('signal') in ('Long','Short') and volume['time']>gate['armed_at']:
         confirmation=dict(signal=volume['signal'],entry_sources=gate['sources']+volume.get('entry_sources',[]),

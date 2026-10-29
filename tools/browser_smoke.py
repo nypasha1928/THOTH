@@ -728,6 +728,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_hour_gate')
    page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:0,primary_timeframe:'60'}};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('1m Order Block / S/R may enter Long or Short')
+   page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'consumed',losses:1,primary_timeframe:'60'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('Permission USED')
+   expect(page.locator('#entryGateList')).to_contain_text('NEW CLOSED 1h')
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:1:sr:short_resistance_major']})")=='1-minute S/R short-term major resistance'
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:240:ob:bearish_formed']})")=='4-hour Bearish Order Block formed'
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:D:ob:bearish_formed']})")=='Daily Bearish Order Block formed'
+   expect(page.locator('#strategyDescription')).to_contain_text('One entry CONSUMES its hourly permission')
+   expect(page.locator('#strategyDescription')).to_contain_text('CLOSED 1m candle')
+
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('1h Close → 1m Entry / Exit');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','sr_order_block_gate')
    expect(page.locator('#strategyTf')).to_have_value('5');expect(page.locator('#strategyTf')).to_be_disabled()

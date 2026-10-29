@@ -75,7 +75,7 @@ class HourGateTests(unittest.TestCase):
             runner=Runner(engine,confirmation_only=True);runner.confirmation_symbol_cycles['BTCUSDT']=4
             runner.confirmation_epochs['BTCUSDT']=1
             epoch[0]=2
-            with patch.object(runner,'fresh_staged_minute',return_value=([],NOW)),patch.object(runner,'combined_order_block_sr_observation',return_value=dict(signal=None)):
+            with patch.object(runner,'fresh_staged_minute',return_value=([],NOW)),patch.object(runner,'combined_order_block_sr_observation',return_value=dict(signal=None)),patch.object(runner,'closed_minute_exit_observation',return_value={}):
                 runner.hour_gate_observation('BTCUSDT',cfg,dict(minute_on_demand=True),NOW)
             self.assertEqual(runner.confirmation_symbol_cycles['BTCUSDT'],6)
             self.assertEqual(runner.confirmation_epochs['BTCUSDT'],2)
@@ -90,7 +90,7 @@ class HourGateTests(unittest.TestCase):
     def test_real_workers_hour_arms_minute_chooses_opposite_side_and_exit_closes_only(self):
         for pause_exit in (False,True):
             with self.subTest(pause_exit=pause_exit),tempfile.TemporaryDirectory() as tmp:
-                now=[NOW-5];price=[100.];exchange=Exchange(lambda:now[0]);calls=[]
+                now=[NOW-5];price=[100.];closed_side=[None];exchange=Exchange(lambda:now[0]);calls=[]
                 service=TestnetSupervisor(Path(tmp)/'live.sqlite',enabled=True,password_configured=True,
                     client_factory=lambda *a,**k:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
                 cfg=TestnetSettings(strategy=HOUR_GATE,symbols=['BTCUSDT'],dedicated_account=True,daily_loss_pct=90)
@@ -105,7 +105,7 @@ class HourGateTests(unittest.TestCase):
                 def analysis(symbol,source,rows,stamp,**kwargs):
                     duration=3600 if source.timeframe=='60' else 60
                     levels={'long_resistance_major':dict(value=103,pivot_time=0),'short_support_minor':dict(value=97,pivot_time=0)}
-                    return [dict(time=int(stamp)//duration*duration-duration,signal=None,entry_sources=[],levels=levels)],200
+                    return [dict(time=int(stamp)//duration*duration-duration,signal=closed_side[0] if duration==60 else None,entry_sources=['sr:long_resistance_major'] if closed_side[0] else [],levels=levels)],200
                 main.analysis=analysis;minute.analysis=analysis
                 with patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.runner.time.monotonic',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No SMA exit')):
                     main.cycle(paced=False);self.assertFalse(exchange.orders)
@@ -123,12 +123,14 @@ class HourGateTests(unittest.TestCase):
                     if pause_exit:
                         service.pause();service.state['entry_gates']['BTCUSDT'].update(phase='cooldown',cooldown_until=now[0]+60);service.save()
                     now[0]+=5;price[0]=104;minute.cycle()
+                    self.assertFalse([o for o in exchange.orders.values() if o['reduceOnly']])
+                    now[0]=int(now[0])//60*60+61;closed_side[0]='Long';minute.cycle()
                     closes=[o for o in exchange.orders.values() if o['reduceOnly']]
                     self.assertEqual(len(closes),1,service.state['events'][-6:]);self.assertFalse(service.state['reversals'])
                     exchange.fill(closes[0]['orderLinkId']);service.monitor()
                     self.assertEqual(len([o for o in exchange.orders.values() if not o['reduceOnly']]),1)
                     trade=service.history()['items'][0]
-                    self.assertEqual(trade['reason'],'Opposite 1m Order Block / S/R signal')
+                    self.assertEqual(trade['reason'],'Opposite CLOSED 1m Order Block / S/R signal')
                     self.assertIn('1-hour',trade['entry_source_label']);self.assertIn('1-minute',trade['entry_source_label'])
                     self.assertFalse(any(n==20 for _,n in calls))
 

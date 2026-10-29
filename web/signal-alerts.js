@@ -20,7 +20,7 @@ function bindSignalAlerts(){
 function signalAlertSources(item){
  const d=item.diagnostic||{},names={static30_up:'RSI over 30',static30_down:'RSI below 30',static70_up:'RSI over 70',static70_down:'RSI below 70',ml_long_up:'RSI over Long',ml_long_down:'RSI below Long',ml_short_up:'RSI over Short',ml_short_down:'RSI below Short'};
  const recorded=(item.entry_sources||[]).map(source=>{
-  if(source.startsWith('htf:')){const [,frame,...parts]=source.split(':');return (frame==='240'?'4-hour':'Daily')+' '+signalAlertSources({entry_sources:[parts.join(':')]});}
+  if(source.startsWith('htf:')){const [,frame,...parts]=source.split(':');return ({'1':'1-minute','5':'5-minute','60':'1-hour','240':'4-hour','D':'Daily'}[frame]||frame)+' '+signalAlertSources({entry_sources:[parts.join(':')]});}
   if(source.startsWith('ob:'))return ({bullish_formed:'Bullish Order Block formed',bearish_formed:'Bearish Order Block formed',supply_breakout:'Breakout Above Supply',demand_breakdown:'Breakdown Below Demand'})[source.slice(3)]||source;
   if(source.startsWith('volume_delta:'))return ({bullish_strong:'Volume Delta Strong Bullish (Up)',bullish_weak:'Volume Delta Weak Bullish (Up-)',bullish_all:'Volume Delta All Bullish',bearish_strong:'Volume Delta Strong Bearish (Down)',bearish_weak:'Volume Delta Weak Bearish (Down+)',bearish_all:'Volume Delta All Bearish'})[source.split(':')[1]]||source;
   if(source.startsWith('rsi:'))return names[source.slice(4)]||source;
