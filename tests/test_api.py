@@ -84,6 +84,33 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
         self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
 
+    def test_direct_minute_hourly_profile_save_risk_and_view_independence(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_minute_hourly',
+            'timeframe':'D','opposite_action':'reverse','sma_enabled':True,'sma_exit_enabled':True})
+        self.assertEqual(response.status_code,200,response.text)
+        cfg=response.json()['config'];self.assertEqual((cfg['timeframe'],cfg['opposite_action']),('1','close_only'))
+        self.assertFalse(cfg['sma_enabled'] or cfg['sma_exit_enabled'] or cfg['order_block']['filter_breaks'])
+        self.assertEqual(cfg['minute_entry_window_minutes'],5)
+        for minutes in (5,10,15):
+            updated=self.client.put('/api/live/settings',json={**cfg,'minute_entry_window_minutes':minutes})
+            self.assertEqual(updated.status_code,200);self.assertEqual(updated.json()['config']['minute_entry_window_minutes'],minutes)
+        self.assertEqual(self.client.put('/api/live/settings',json={**cfg,'minute_entry_window_minutes':7}).status_code,422)
+        for key in ('stop_dollars','leverage','consecutive_losses','loss_streak_scope','daily_loss_pct',
+                    'pnl_trailing_enabled','weekly_equity_trailing_enabled','saved_symbol_lists'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertFalse(response.json()['entries']);self.assertTrue(response.json()['hourly_entry_slot']['enabled'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=ob_sr_minute_hourly').status_code,200)
+        from test_order_block_sr import ob_rows,NOW
+        data=ob_rows();start=int(NOW)//86400*86400
+        daily=[{**r,'time':start-(len(data)-i-1)*86400} for i,r in enumerate(data)]
+        with patch('thoth.app.candles',return_value=daily),patch('time.time',return_value=NOW+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=D&include_order_block=true')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertIn('total entries capped by Maximum Positions',response.json()['indicator_status'])
+            self.assertIn('NO entry filters',response.json()['order_block_status'])
+        self.assertEqual(self.client.get('/api/live').json()['config']['timeframe'],'1')
+
     def test_hour_gate_preserves_risk_and_all_lists_with_main50_selected(self):
         before=self.client.get('/api/live').json()['config']
         leaders=self.client.get('/api/live/market-leaders').json()['main_leaders']

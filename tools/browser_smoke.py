@@ -695,6 +695,23 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_close')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h · Bar Close');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','ob_sr_minute_hourly')
+   expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_have_value('close_only');expect(page.locator('#oppositeAction')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('Maximum Positions also caps TOTAL new entries')
+   expect(page.locator('#minuteEntryWindow')).to_be_visible();expect(page.locator('#minuteEntryWindow')).to_have_value('5');page.select_option('#minuteEntryWindow','10')
+   expect(page.locator('#strategyDescription')).to_contain_text('No higher-timeframe permission')
+   expect(page.locator('#strategyDescription')).to_contain_text('NO bar-close wait and NO entry filters')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='ob_sr_minute_hourly'")
+   assert writes[-1][1]['timeframe']=='1' and writes[-1][1]['opposite_action']=='close_only'
+   assert writes[-1][1]['minute_entry_window_minutes']==10
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_minute_hourly');expect(page.locator('#minuteEntryWindow')).to_have_value('10')
+   page.evaluate("() => {lv.reason='';lv.hourly_entry_slot={enabled:true,used_count:lv.config.max_positions,limit:lv.config.max_positions,entry_window_open:true};render()}")
+   expect(page.locator('#status')).to_contain_text('Hourly entry limit reached')
+   expect(page.locator('#status')).to_contain_text('opposite 1m exits remain active')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('1m · Once per Hour');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','ob_sr_hour_gate')
    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#oppositeAction')).to_have_value('close_only');expect(page.locator('#oppositeAction')).to_be_disabled()

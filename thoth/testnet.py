@@ -166,6 +166,12 @@ class TestnetSupervisor:
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'order_block_exit_blocks':s.get('order_block_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'monitor_failures':s.get('monitor_failures',[]),
             'last_portfolio_stop':s.get('last_portfolio_stop'),
+            'hourly_entry_slot':dict(enabled=s['config']['strategy']=='ob_sr_minute_hourly',
+                used_count=len(self._minute_hour_symbols(s)) if s['config']['strategy']=='ob_sr_minute_hourly' else 0,
+                limit=s['config']['max_positions'],entry_window_minutes=s['config'].get('minute_entry_window_minutes',5),
+                entry_window_open=self.clock()%3600<s['config'].get('minute_entry_window_minutes',5)*60,
+                window_ends_at=int(self.clock())//3600*3600+s['config'].get('minute_entry_window_minutes',5)*60,
+                resets_at=(int(self.clock())//3600+1)*3600),
             'server_time':self.clock(),
             'closing':bool(s.get('flatten_reason')),'environment':self.environment,'enabled_on_server':self.enabled,'live_supported':self.environment=='live',
             'risk':{k:s['risk'][k] for k in ('day','baseline','baseline_ms','peak','peak_ms','last_sample','loss_allowance','loss_used','remaining','remaining_pct','stop_equity','loss_pct','streak','pause_until','symbols','daily_stop','baseline_required','portfolio_stop')},
@@ -640,7 +646,7 @@ class TestnetSupervisor:
         self.save();return True
 
     def _manage_sma_exit(self,symbol,owner,p,cfg):
-        if owner.get('strategy') in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES):return
+        if owner.get('strategy') in ('ob_sr_minute_hourly','sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES):return
         if (not cfg.sma_exit_enabled and owner.get('strategy') not in HOURLY_MINUTE_STRATEGIES) or owner['close_link']:return
         tracker=owner.setdefault('sma_exit',{})
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
@@ -1000,7 +1006,7 @@ class TestnetSupervisor:
                 if owner:
                     if owner['side']==side:
                         self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
-                    reason='Opposite 1m Order Block / S/R signal' if current.strategy==HOUR_GATE else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
+                    reason='Opposite 1m Order Block / S/R signal' if current.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
@@ -1014,6 +1020,9 @@ class TestnetSupervisor:
                         if p:self._close(symbol,p,reason)
                     except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
+                hour_block=self._minute_hour_block_reason(symbol,current)
+                if hour_block:
+                    self._signal_decision(symbol,'skipped: '+hour_block,observation);continue
                 if self._sr_volume_window_used(symbol,current):
                     self._signal_decision(symbol,'skipped: one entry per coin per 4-hour candle already used',observation);continue
                 if self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
@@ -1040,6 +1049,26 @@ class TestnetSupervisor:
         self.event(symbol+': fresh SMA exit data verified; coin entry block cleared')
         self.save();return True
 
+    def _minute_hour_symbols(self,state=None):
+        """Durable reservations plus accepted/uncertain intents in this UTC hour."""
+        state=self.state if state is None else state
+        start=int(self.clock())//3600*3600
+        symbols={symbol for symbol,window in state.get('minute_hour_entries',{}).items() if window==start}
+        if self.journal:
+            with self.journal.db() as db:
+                symbols.update(row[0] for row in db.execute("SELECT DISTINCT json_extract(payload,'$.symbol') FROM execution WHERE phase!='rejected' AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_minute_hour_window')=?",(start,)))
+        return symbols
+
+    def _minute_hour_block_reason(self,symbol,cfg):
+        if cfg.strategy!='ob_sr_minute_hourly':return None
+        start=int(self.clock())//3600*3600
+        if self.clock()>=start+cfg.minute_entry_window_minutes*60:
+            return 'hourly entry window closed; waiting for a NEW signal in the next hour'
+        used=self._minute_hour_symbols()
+        if symbol in used:return 'this coin already entered in this UTC hour'
+        if len(used)>=cfg.max_positions:return 'hourly total entry limit reached ('+str(cfg.max_positions)+'); exits remain active'
+        return None
+
     def _sr_volume_window_used(self,symbol,cfg):
         if cfg.strategy!='sr_volume_intrabar':return False
         start=int(self.clock())//14400*14400
@@ -1061,6 +1090,9 @@ class TestnetSupervisor:
         from .tradfi import EXCLUDED_SYMBOLS
         if symbol in EXCLUDED_SYMBOLS:return
         checks_started_at=self.clock();check_timing={}
+        hour_block=self._minute_hour_block_reason(symbol,cfg)
+        if hour_block:
+            self._signal_decision(symbol,'skipped: '+hour_block,dict(time=stamp,signal=side));return
         if equity_locks(self.state['equity_trailing'],self.clock()):
             self._signal_decision(symbol,'skipped: equity trailing period pause active',{'time':stamp,'signal':side});return
         if self._sr_volume_window_used(symbol,cfg):
@@ -1069,7 +1101,7 @@ class TestnetSupervisor:
             gate=self.state.get('entry_gates',{}).get(symbol,{})
             if gate.get('phase')!='armed' or not context or context.get('arm_id')!=gate.get('arm_id'):
                 self._signal_decision(symbol,'skipped: two-stage gate is not armed for this signal',dict(time=stamp,signal=side));return
-        if cfg.strategy==HOUR_GATE and int(stamp)//60!=int(self.clock())//60:
+        if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') and int(stamp)//60!=int(self.clock())//60:
             self._signal_decision(symbol,'skipped: 1m entry signal candle expired',dict(time=stamp,signal=side));return
         if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):return
         if symbol in self.state['blocked_symbols']:return
@@ -1132,7 +1164,7 @@ class TestnetSupervisor:
             with self.db() as db:entry_sources=recorded_source_map(db,payload['orderLinkId']).get(payload['orderLinkId'],[])
             if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
                 entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
-            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':'1' if cfg.strategy==HOUR_GATE else (context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'1' if cfg.strategy==HOUR_GATE else 'none' if cfg.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else (context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else 'none' if cfg.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             metadata['thoth_entry_diagnostics']={**((context or {}).get('entry_diagnostics') or {}),
                 'checks_started_at':checks_started_at,'checks_completed_at':self.clock(),**check_timing}
             if cfg.strategy=='sr_volume_intrabar':
@@ -1140,13 +1172,24 @@ class TestnetSupervisor:
                 metadata['thoth_sr_volume_window']=window
                 self.state.setdefault('sr_volume_entry_windows',{})[symbol]=window
                 self.save()  # Reserve durably before any submission; an ambiguous outcome keeps the limit.
+            if cfg.strategy=='ob_sr_minute_hourly':
+                if int(stamp)//60!=int(self.clock())//60 or self.clock()-stamp>30:
+                    raise ValueError('Fresh 1m entry expired during entry checks')
+                window=int(self.clock())//3600*3600
+                metadata['thoth_minute_hour_window']=window
+                reason=self._minute_hour_block_reason(symbol,cfg)
+                if reason:raise ValueError(reason)
+                self.state['minute_hour_entries']={s:w for s,w in self.state.get('minute_hour_entries',{}).items() if w==window}
+                self.state['minute_hour_entries'][symbol]=window
+                self.save()  # Reserve before submission; an uncertain result retains the slot.
             record=self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='rejected':
+                if cfg.strategy=='ob_sr_minute_hourly':self.state.get('minute_hour_entries',{}).pop(symbol,None)
                 if cfg.strategy=='sr_volume_intrabar':self.state.get('sr_volume_entry_windows',{}).pop(symbol,None)
                 code=record.get('result',{}).get('exchange_code')
                 self.event(symbol+': entry rejected by Bybit'+(' (code '+str(code)+')' if code is not None else '')+'; skipped this coin, other coins continue')
                 self.save();return
-            self.event(symbol+(': CLOSED 1h permission / intrabar 1m Order Block or S/R' if cfg.strategy==HOUR_GATE else ': 1h CLOSED NORMAL Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_close' else ': 1h CLOSED INVERTED Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_inverted_close' else ': '+('1h' if cfg.timeframe=='60' else '4h')+' Order Block / S/R volume-qualified signal' if cfg.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else ': 4h Order Block intrabar signal' if cfg.strategy=='order_block_intrabar' else ': 4h SMA 7/50 intrabar crossover' if cfg.strategy=='sma_7_50_intrabar' else ': S/R volume MA breakout' if cfg.strategy=='sr_volume_intrabar' else ': Two-stage Order Block confirmation' if cfg.strategy==ORDER_BLOCK_STRATEGY else ': Two-stage Volume Delta confirmation' if cfg.strategy in STAGED_STRATEGIES else ': Volume Delta signal' if cfg.strategy=='volume_delta_intrabar' else ': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': Intrabar 1m Order Block / S/R hourly-limited entry' if cfg.strategy=='ob_sr_minute_hourly' else ': CLOSED 1h permission / intrabar 1m Order Block or S/R' if cfg.strategy==HOUR_GATE else ': 1h CLOSED NORMAL Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_close' else ': 1h CLOSED INVERTED Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_inverted_close' else ': '+('1h' if cfg.timeframe=='60' else '4h')+' Order Block / S/R volume-qualified signal' if cfg.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else ': 4h Order Block intrabar signal' if cfg.strategy=='order_block_intrabar' else ': 4h SMA 7/50 intrabar crossover' if cfg.strategy=='sma_7_50_intrabar' else ': S/R volume MA breakout' if cfg.strategy=='sr_volume_intrabar' else ': Two-stage Order Block confirmation' if cfg.strategy==ORDER_BLOCK_STRATEGY else ': Two-stage Volume Delta confirmation' if cfg.strategy in STAGED_STRATEGIES else ': Volume Delta signal' if cfg.strategy=='volume_delta_intrabar' else ': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:
             self._signal_decision(symbol,'entry skipped: '+str(exc),{'time':stamp,'signal':side})
         except AmbiguousOrder:
