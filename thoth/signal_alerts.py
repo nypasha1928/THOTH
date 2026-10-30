@@ -43,12 +43,16 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
     if execution.exists() and links:
         with sqlite3.connect(f'file:{execution}?mode=ro',uri=True) as db:
             placeholders=','.join('?' for _ in links)
-            for link,phase,result in db.execute('SELECT link,phase,result FROM execution WHERE link IN ('+placeholders+')',tuple(links)):
+            for link,phase,result,instrument in db.execute('SELECT link,phase,result,instrument FROM execution WHERE link IN ('+placeholders+')',tuple(links)):
                 for item in candidates.values():
                     if item.get('alert_key')!=link:continue
                     item['execution_phase']=phase
                     item['reason']=PHASES.get(phase,'Execution state: '+phase)
-                    code=json.loads(result).get('exchange_code')
+                    execution_result=json.loads(result)
+                    from .signal_stretch import with_fill
+                    metrics=json.loads(instrument).get('thoth_signal_stretch') or item.get('signal_stretch')
+                    if metrics:item['signal_stretch']=with_fill(metrics,execution_result.get('entry_timing',{}))
+                    code=execution_result.get('exchange_code')
                     if code is not None:item['reason']+=' (code '+str(code)+')'
     for item in candidates.values():
         key=item.get('alert_key');owner=state.get('owned',{}).get(item['symbol'],{})

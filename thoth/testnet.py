@@ -178,7 +178,7 @@ class TestnetSupervisor:
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason',''),'protection_error':r['result'].get('protection_error')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
-        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources')
+        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources','signal_stretch')
         record={key:trade[key] for key in allowed if key in trade}
         if link.startswith('legacy:') and 'strategy' not in record:record['strategy']='sr_breakout'
         with self.db() as db:
@@ -444,7 +444,10 @@ class TestnetSupervisor:
         if not entry.is_finite() or entry<=0:return
         leverage=dec((p or {}).get('leverage') or self.state['config']['leverage'])
         self.journal.record_timing(record['link'],fill_price=entry,filled_qty=filled,fill_confirmed_at=self.clock(),exchange_created_at=int(order['createdTime'])/1000)
-        self.state['owned'][symbol]=dict(link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
+        from .signal_stretch import with_fill
+        stretch=with_fill(record.get('instrument',{}).get('thoth_signal_stretch'),
+            {**record.get('result',{}).get('entry_timing',{}),'fill_price':entry,'fill_confirmed_at':self.clock()})
+        self.state['owned'][symbol]=dict(signal_stretch=stretch,link=record['link'],side=record['payload']['side'],qty=str(filled),entry=str(entry),
             stop_dollars=record['stop_dollars'],margin=str(entry*filled/leverage),opened_ms=int(order['createdTime']),
             close_link=None,close_attempt=0,reason=None,
             entry_sources=record.get('instrument',{}).get('thoth_entry_sources',[]),
@@ -514,7 +517,7 @@ class TestnetSupervisor:
         if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
             self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
         trade=dict(link=owner['link'],symbol=symbol,side='Long' if owner['side']=='Buy' else 'Short',entry=float(owner['entry']),qty=float(owner['qty']),opened_at=owner['opened_ms']/1000,
-            entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
+            signal_stretch=owner.get('signal_stretch'),entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
         self._record_trade(owner['link'],trade)
         self.state['closures']=(self.state['closures']+[trade])[-200:]
         # Mark entry terminal so startup does not treat old fills as pending ownership.
@@ -936,6 +939,7 @@ class TestnetSupervisor:
         alert_key='thoth-'+hashlib.sha256((identity+':'+symbol+':'+str(stamp)).encode()).hexdigest()[:28]
         details=dict(alert_key=alert_key,time=self.clock(),symbol=symbol,reason=reason,
             strategy=self.state['config']['strategy'],signal=observation.get('signal'),
+            signal_stretch=(observation.get('entry_context') or {}).get('signal_stretch'),
             entry_diagnostics=(observation.get('entry_context') or {}).get('entry_diagnostics'),
             observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'),source_signal=observation.get('source_signal'),entry_sources=observation.get('entry_sources',[]))
         with self.db() as db:
@@ -1203,6 +1207,7 @@ class TestnetSupervisor:
             if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
                 entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
             metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else (context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else 'none' if cfg.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            if (context or {}).get('signal_stretch'):metadata['thoth_signal_stretch']=context['signal_stretch']
             metadata['thoth_entry_diagnostics']={**((context or {}).get('entry_diagnostics') or {}),
                 'checks_started_at':checks_started_at,'checks_completed_at':self.clock(),**check_timing}
             if cfg.strategy=='sr_volume_intrabar':

@@ -9,7 +9,7 @@ STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','mino
 
 def source_fingerprint():
     h=hashlib.sha256()
-    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/sma_intrabar.py','thoth/intrabar_entry.py','thoth/sr_volume.py','thoth/sr_bounce.py','thoth/inverse_entry_delay.py','thoth/volume_delta.py','thoth/staged_entry.py','thoth/order_block.py','thoth/order_block_sr.py','thoth/closed_order_block_sr.py','thoth/entry_diagnostics.py','thoth/order_block_exit.py','reference/order_block_salem_uploaded.pine','thoth/rsi.py','thoth/daily_sr_rsi.py','reference/volume_delta_vwap_uploaded.pine','reference/ml_rsi_900_uploaded.pine','thoth/timeframes.py','reference/support_resistance.pine'):
+    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/sma_intrabar.py','thoth/intrabar_entry.py','thoth/sr_volume.py','thoth/sr_bounce.py','thoth/inverse_entry_delay.py','thoth/volume_delta.py','thoth/staged_entry.py','thoth/order_block.py','thoth/order_block_sr.py','thoth/closed_order_block_sr.py','thoth/entry_diagnostics.py','thoth/signal_stretch.py','thoth/order_block_exit.py','reference/order_block_salem_uploaded.pine','thoth/rsi.py','thoth/daily_sr_rsi.py','reference/volume_delta_vwap_uploaded.pine','reference/ml_rsi_900_uploaded.pine','thoth/timeframes.py','reference/support_resistance.pine'):
         path=ROOT/relative
         h.update(relative.encode());h.update(path.read_bytes())
     return h.hexdigest()
