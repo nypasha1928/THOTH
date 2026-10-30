@@ -7,7 +7,7 @@ def evaluate(closed,cfg,now,sr_result=None,sr_error=None):
     from .order_block import reference
     expected=int(now)//3600*3600-3600
     if not closed or closed[-1]['time']!=expected:raise ValueError('Latest closed 1h candle unavailable')
-    errors={};reports=[]
+    errors={};reports=[];ob=None
     try:
         ob=reference(closed,cfg.order_block,now,interval='60',formation_filter=False)[-1]
         if not ob['ready']:raise ValueError('Closed Order Block history warming up')
@@ -28,6 +28,10 @@ def evaluate(closed,cfg,now,sr_result=None,sr_error=None):
         volume_checks={},closed_signal_bar=expected,
         entry_context=dict(closed_signal_bar=expected,primary_timeframe='60',source_signal=original) if signal else None,
         volume_delta_status='1h CLOSED Order Block OR Major only S/R; '+('INVERTED' if inverted else 'NORMAL')+' entries; NO volume filter; '+('conflicting signals skipped' if conflict else 'waiting for fresh closed candle'))
+    if signal and cfg.strategy==NORMAL_STRATEGY:
+        from .signal_stretch import snapshot
+        metrics=snapshot(closed,signal,sources,sr_result,ob,now)
+        if metrics:result['entry_context']['signal_stretch']=metrics
     if signal:result['volume_delta_status']+='; source '+original+' opens '+signal
     if conflict and not permission:result['signal_diagnostic']=dict(reason='conflicting closed Order Block / S/R signals',signal=None)
     return result

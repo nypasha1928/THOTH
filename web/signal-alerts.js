@@ -1,13 +1,26 @@
+// Measurements only: no exhaustion score, filter, or trading action.
+function stretchNumber(value,digits=2){return value!=null&&Number.isFinite(Number(value))?Number(value).toFixed(digits):'Not recorded'}
+function stretchValue(value,unit='',digits=2){return value==null?'Not recorded':stretchNumber(value,digits)+unit}
+function signalStretchSummary(m){if(!m)return 'Not recorded';return 'Range '+stretchValue(m.range_atr14,'× ATR14')+' · opposing wick '+stretchValue(m.opposing_wick_pct,'%',1)+' · close→fill '+(m.close_to_fill_pct==null?'not recorded':(m.close_to_fill_pct>=0?'+':'')+stretchNumber(m.close_to_fill_pct,3)+'%')}
+function signalStretchText(m){
+ if(!m)return 'Not recorded';
+ const lines=[signalStretchSummary(m),'1h signal candle · '+m.atr_basis,'ATR14: '+stretchNumber(m.atr14,8),'Close→qualification: '+stretchValue(m.qualification_after_close_seconds,'s',1),'Close→fill observed: '+stretchValue(m.close_to_fill_observed_seconds,'s',1),'Close→fill: positive = worse entry; negative = better entry. Fill time is when THOTH observed the fill.'];
+ for(const r of m.references||[])lines.push(r.label+' · '+r.kind.replaceAll('_',' ')+' '+Number(r.price).toPrecision(8)+' · close distance '+stretchNumber(r.close_distance_pct,3)+'% · entry distance '+stretchValue(r.entry_distance_pct,'%',3));
+ lines.push('Reference distances: positive = beyond boundary in signal direction; negative = inside. Formation edges are not breakout levels. Missing measurements are not zero. These measurements do not predict exhaustion.');
+ return lines.join('\n');
+}
+function signalStretchCell(m){const cell=document.createElement('div');cell.className='signal-stretch';if(!m){cell.textContent='Not recorded';return cell}const details=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('p');summary.textContent=signalStretchSummary(m);text.textContent=signalStretchText(m);text.style.whiteSpace='pre-line';details.append(summary,text);cell.append(details);return cell}
+
 // Saved signal-status updates. Alerts are observations, not order/fill receipts.
 let signalAlertOffset=0,signalAlertTotal=0,signalAlertRequest=0,signalAlertBusy=false;
 let signalAlertNewest=null,signalAlertAudio=null;
 function signalAlertsMarkup(){return `<section class="card"><h2>Signal alerts</h2>
-<p class="note">Saved signal-status updates for your selected trading strategy and coins, including skipped signals during managed pauses. Linked signals show their latest known outcome; queued does not mean filled. Historical chart arrows are not backfilled. Latest 5,000 updates retained.</p>
+<p class="note">Saved signal-status updates for your selected trading strategy and coins, including skipped signals during managed pauses. Linked signals show their latest known outcome; queued does not mean filled. Historical chart arrows are not backfilled. Latest 5,000 updates retained. New standalone 1h Bar Close entries include candle stretch and entry distance measurements; these do not predict exhaustion or change trading.</p>
 <label>Coin<input id="signalAlertSymbol" type="search" placeholder="All coins or JCTUSDT" aria-label="Signal alert coin"></label>
 <div class="row"><button id="refreshSignalAlerts" type="button">Refresh alerts</button><label><input id="signalAlertSound" type="checkbox"> Sound for new updates</label></div>
 <p class="note">Sound works while THOTH is open and visible and the browser permits audio. This is not phone push notification delivery.</p>
 <p id="signalAlertStatus" role="status" aria-live="polite"></p>
-<div class="table-scroll"><table><thead><tr><th>Observed (New York)</th><th>Coin</th><th>Direction</th><th>Source / crossing</th><th>Strategy</th><th>Status</th></tr></thead><tbody id="signalAlertRows"></tbody></table></div>
+<div class="table-scroll"><table><thead><tr><th>Observed (New York)</th><th>Coin</th><th>Direction</th><th>Source / crossing</th><th>Strategy</th><th>Status</th><th>Signal candle / entry distance</th></tr></thead><tbody id="signalAlertRows"></tbody></table></div>
 <div class="row"><button id="signalAlertsPrevious" type="button">← Newer</button><span id="signalAlertsPage"></span><button id="signalAlertsNext" type="button">Older →</button></div></section>`}
 function bindSignalAlerts(){
  $('refreshSignalAlerts').onclick=()=>{signalAlertOffset=0;loadSignalAlerts()};
@@ -54,6 +67,7 @@ async function loadSignalAlerts(){
   for(const item of data.items){
    const row=document.createElement('tr'),time=document.createElement('td');time.append(tradeTimestamp(item.observed_at??item.time));row.append(time);
    for(const value of [item.symbol,signalAlertDirection(item),signalAlertSources(item),strategyName(item.strategy),item.reason]){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}
+   const metrics=document.createElement('td');metrics.append(signalStretchCell(item.signal_stretch));row.append(metrics);
    $('signalAlertRows').append(row);
   }
   $('signalAlertStatus').textContent=data.total?data.total+' saved signal alerts · latest updates first · refreshes every 5 seconds on the latest page':'No saved signal alerts yet. New detections and decisions will appear here.';
@@ -83,7 +97,7 @@ async function pollFloatingSignalAlerts(){
   const newest=data.items.length?Math.max(...data.items.map(item=>item.update_id??item.id)):null;
   for(const item of [...data.items,...(data.updates||[])]){
    const box=cards.find(box=>box.dataset.alertId===String(item.id));
-   if(box)box.querySelector('p').textContent=signalAlertSources(item)+' · '+item.reason;
+   if(box)box.querySelector('p').textContent=signalAlertSources(item)+' · '+item.reason+(item.signal_stretch?' · '+signalStretchSummary(item.signal_stretch):'');
   }
   if(floatingAlertNewest===null){floatingAlertNewest=newest??0;return}
   const fresh=data.items.filter(item=>(item.update_id??item.id)>floatingAlertNewest);
@@ -98,7 +112,7 @@ async function pollFloatingSignalAlerts(){
    const box=document.createElement('div');box.className='signal-toast';box.dataset.alertId=String(item.id);
    const dismiss=()=>{dismissedSignalAlerts.add(String(item.id));box.remove()};
    const title=document.createElement('strong');title.textContent=item.symbol+' · '+signalAlertDirection(item);
-   const text=document.createElement('p');text.textContent=signalAlertSources(item)+' · '+item.reason;
+   const text=document.createElement('p');text.textContent=signalAlertSources(item)+' · '+item.reason+(item.signal_stretch?' · '+signalStretchSummary(item.signal_stretch):'');
    const link=document.createElement('a');link.href='#alerts';link.textContent='View signal alerts';link.onclick=dismiss;
    const close=document.createElement('button');close.type='button';close.textContent='×';close.setAttribute('aria-label','Dismiss signal alert');close.onclick=dismiss;
    box.append(title,close,text,link);stack.append(box);

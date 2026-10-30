@@ -59,6 +59,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_rows.append(dict(time=stamp,open=2400,high=2402,low=2398,close=2401,volume=50))
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
+  stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
@@ -90,7 +91,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path=='live/watchlist-review':result=dict(items=[dict(symbol='WLDUSDT',trades=5,wins=3,losses=2,realized_pnl=.5,signal_events=8,skipped_events=2,rejected_orders=1,rejection_events=1,entry_check_failures=1,median_check_gap_seconds=192.6,median_qualified_to_submit_seconds=4,latest_speed=None,review_note='Review recorded rejection/check failure',rejection_codes={'110126':1})],selected=1,traded=1,closed_trades=5,realized_pnl=.5,scope=parse_qs(url.split('?',1)[1] if '?' in url else '').get('scope',['current'])[0],strategy='order_block_sr_intrabar',limitations='Retained records only; no automatic changes.')
    elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
    elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
-   elif path=='live/history':
+   elif path in ('live/history','live/history/export'):
     result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
     if history_many:
      params=parse_qs(url.split('?',1)[1] if '?' in url else '')
@@ -1017,13 +1018,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.fill('#signalAlertSymbol','');page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
    page.get_by_role('button',name='Dismiss signal alert').click();expect(page.locator('.signal-toast')).to_have_count(0)
    alert_items.append(dict(id=2,time=1792300001,observed_at=1792300001,symbol='ETHUSDT',strategy='sr_volume_intrabar',signal='Short',reason='queued: Short',entry_sources=['htf:240:sr:long_support_major']))
-   alert_items.append(dict(id=3,time=1792300002,observed_at=1792300002,symbol='BTCUSDT',strategy='sr_volume_intrabar',signal='Long',reason='queued: Long',entry_sources=['htf:D:sr:long_resistance_major']))
+   alert_items.append(dict(id=3,time=1792300002,observed_at=1792300002,symbol='BTCUSDT',strategy='order_block_sr_1h_close',signal='Long',reason='queued: Long',entry_sources=['sr:long_resistance_major'],signal_stretch=stretch_fixture))
    page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(2)
    expect(page.locator('#closeAllSignalAlerts')).to_be_visible()
    page.click('#closeAllSignalAlerts');expect(page.locator('.signal-toast')).to_have_count(0)
    expect(page.locator('#closeAllSignalAlerts')).to_be_hidden()
    page.evaluate('pollFloatingSignalAlerts()');expect(page.locator('.signal-toast')).to_have_count(0)
    page.click('#refreshSignalAlerts');expect(page.locator('#signalAlertRows tr')).to_have_count(3)
+   expect(page.locator('#signalAlertRows')).to_contain_text('Range 1.80× ATR14')
+   expect(page.locator('#signalAlertRows')).to_contain_text('close→fill +0.125%')
+   page.locator('#signalAlertRows .signal-stretch summary').click()
+   expect(page.locator('#signalAlertRows')).to_contain_text('entry distance 0.625%')
    alert_items.clear()
    page.click('[data-page-link=history]')
    expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(0)
@@ -1042,6 +1047,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
    expect(page.locator('#historyRows')).to_contain_text('S/R short-term minor support')
    expect(page.locator('#historyRows')).to_contain_text('Source not recorded')
+   history_many.append(dict(symbol='ETHUSDT',side='Long',entry=2415,qty=.02,closed_at=1792300000,pnl=.24,reason='Fixture close',strategy='order_block_sr_1h_close',signal_stretch=stretch_fixture))
+   page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(1)
+   expect(page.locator('#historyRows')).to_contain_text('Range 1.80× ATR14')
+   page.locator('#historyRows .signal-stretch summary').click()
+   expect(page.locator('#historyRows')).to_contain_text('Close→fill observed: 9.0s')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.stretchCopied=text}})")
+   page.click('#historyCopyAll');expect(page.locator('#historyCopyStatus')).to_contain_text('Copied all 1')
+   assert 'entry distance 0.625%' in page.evaluate('window.stretchCopied')
+   history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    entry_delay_items.append(dict(symbol='WLDUSDT',side='Buy',phase='closed',sources=['ob:bullish_formed'],details={'qualified_at':1793143000},timing={},measurements={'observation_gap_seconds':192.6,'volume_wait_seconds':120,'qualified_to_submit_seconds':5,'submit_to_fill_observed_seconds':7,'entry_move_pct':.2},realized_pnl=-.4))
