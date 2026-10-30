@@ -120,3 +120,19 @@ async function pollFloatingSignalAlerts(){
  }catch{/* Read failures never change trading state; Alerts page shows fetch errors. */}
  finally{floatingAlertBusy=false}
 }
+
+function blockStrengthText(m,minimum=null,sources=[]){
+ const refs=(m?.references||[]).filter(r=>r.source?.startsWith('ob:'));
+ if(!refs.length){const recorded=[...(sources||[]),...(m?.references||[]).map(r=>r.source)];return recorded.length&&!recorded.some(s=>s?.includes('ob:'))?'Not applicable: no Order Block entry source':'Not recorded: full Order Block boundaries unavailable'}
+ const trial=minimum!=null&&Number.isFinite(minimum)&&minimum>=0;
+ const lines=[trial?'Trial minimum: '+minimum+' ATR14':'No trial minimum selected'];
+ for(const r of refs){
+  const ratio=r.block_width_atr14;
+  const known=ratio!=null&&Number.isFinite(Number(ratio))&&Number(ratio)>=0&&r.block_high!=null&&r.block_low!=null;
+  lines.push((r.label||r.source)+' · '+(known?'width '+Number(ratio).toFixed(3)+' ATR14 · raw '+Number(r.block_width).toPrecision(8)+' · high '+r.block_high+' / low '+r.block_low+(trial?' · '+(ratio>=minimum?'PASS':'BELOW MINIMUM'):' · choose a minimum to compare'):'Not recorded: both boundaries and ATR14 required'));
+ }
+ if([...(sources||[]),...(m?.references||[]).map(r=>r.source)].some(s=>s?.startsWith('sr:')))lines.push('Major S/R also contributed; an OB failure alone does not rule out the trade.');
+ lines.push('Ratios are displayed rounded; comparisons use full precision. Width check only, not a full strategy replay or a prediction of profit. Break events use the zone width at signal time; original formation strength may differ. Live trading unchanged.');
+ return lines.join('\n');
+}
+function blockStrengthCell(m,minimum,sources){const node=document.createElement('div');node.style.whiteSpace='pre-line';node.textContent=blockStrengthText(m,minimum,sources);return node}

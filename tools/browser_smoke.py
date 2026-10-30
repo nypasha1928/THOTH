@@ -60,6 +60,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    old_bars.append(dict(time=stamp,levels={},signal=None,sma=2400));old_sma.append(dict(time=stamp,value=2400))
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
+  stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
@@ -1045,16 +1046,30 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.get_by_role('button',name='History page 1',exact=True).click()
    expect(page.locator('#tradeHistoryStatus')).to_contain_text('1–50 of 123')
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
+   expect(page.locator('#historyRows .ob-strength-comparison').first).to_contain_text('Not recorded')
    expect(page.locator('#historyRows')).to_contain_text('S/R short-term minor support')
    expect(page.locator('#historyRows')).to_contain_text('Source not recorded')
    history_many.append(dict(symbol='ETHUSDT',side='Long',entry=2415,qty=.02,closed_at=1792300000,pnl=.24,reason='Fixture close',strategy='order_block_sr_1h_close',signal_stretch=stretch_fixture))
    page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(1)
    expect(page.locator('#historyRows')).to_contain_text('Range 1.80× ATR14')
+   expect(page.locator('#historyOBMinimum')).to_have_value('0.25')
+   expect(page.locator('#historyRows .ob-strength-comparison')).to_contain_text('width 0.250 ATR14')
+   expect(page.locator('#historyRows .ob-strength-comparison')).to_contain_text('PASS')
+   count_before_strength=len(writes)
+   page.fill('#historyOBMinimum','0.26')
+   expect(page.locator('#historyRows .ob-strength-comparison')).to_contain_text('BELOW MINIMUM')
+   expect(page.locator('#historyRows .ob-strength-comparison')).to_contain_text('S/R also contributed')
+   page.fill('#historyOBMinimum','')
+   expect(page.locator('#historyRows .ob-strength-comparison')).to_contain_text('No trial minimum selected')
+   page.fill('#historyOBMinimum','0.25')
+   assert len(writes)==count_before_strength
    page.locator('#historyRows .signal-stretch summary').click()
    expect(page.locator('#historyRows')).to_contain_text('Close→fill observed: 9.0s')
    page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.stretchCopied=text}})")
    page.click('#historyCopyAll');expect(page.locator('#historyCopyStatus')).to_contain_text('Copied all 1')
    assert 'entry distance 0.625%' in page.evaluate('window.stretchCopied')
+   assert 'Trial minimum: 0.25 ATR14' in page.evaluate('window.stretchCopied')
+   assert 'width 0.250 ATR14' in page.evaluate('window.stretchCopied')
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')

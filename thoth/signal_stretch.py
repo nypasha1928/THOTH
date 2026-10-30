@@ -25,26 +25,33 @@ def _snapshot(rows,side,sources,sr=None,ob=None,qualified_at=None):
     span=hi-lo;direction=1 if side=='Long' else -1
     references=[]
     from .signal_sources import source_label
-    def add(source,price,kind,stamp=None):
+    def add(source,price,kind,stamp=None,zone=None):
         price=number(price)
         if price is None or price<=0:return
         references.append(dict(source=source,label=source_label([source]),kind=kind,price=price,pivot_time=stamp,
             close_distance_pct=direction*(close-price)/price*100))
+        if zone:
+            high=number(zone.get('high'));low=number(zone.get('low'))
+            if high is not None and low is not None and 0<low<=high:
+                width=high-low
+                references[-1].update(block_high=high,block_low=low,block_width=width,
+                    block_width_atr14=width/atr if atr is not None and atr>0 else None,
+                    block_width_basis='zone boundaries at signal time')
     for source in sources:
         if source.startswith('sr:'):
             level=(sr or {}).get('levels',{}).get(source[3:])
             if level:add(source,level['value'],'broken_sr_level',level.get('pivot_time'))
         elif source=='ob:supply_breakout':
-            for zone in (ob or {}).get('broken_supply',[]):add(source,zone.get('high'),'broken_supply_high',zone.get('time'))
+            for zone in (ob or {}).get('broken_supply',[]):add(source,zone.get('high'),'broken_supply_high',zone.get('time'),zone)
         elif source=='ob:demand_breakdown':
-            for zone in (ob or {}).get('broken_demand',[]):add(source,zone.get('low'),'broken_demand_low',zone.get('time'))
+            for zone in (ob or {}).get('broken_demand',[]):add(source,zone.get('low'),'broken_demand_low',zone.get('time'),zone)
         elif source in ('ob:bullish_formed','ob:bearish_formed'):
             zones=(ob or {}).get('zones',{}).get('demand' if source.endswith('bullish_formed') else 'supply',[])
             if zones:
                 zone=zones[0]
-                add(source,zone.get('high' if source.endswith('bullish_formed') else 'low'),'formed_block_edge',zone.get('time'))
+                add(source,zone.get('high' if source.endswith('bullish_formed') else 'low'),'formed_block_edge',zone.get('time'),zone)
     closed_at=candle['time']+3600;qualified=number(qualified_at)
-    return dict(version=1,timeframe='60',bar=candle['time'],closed_at=closed_at,side=side,ohlc=values,
+    return dict(version=2,timeframe='60',bar=candle['time'],closed_at=closed_at,side=side,ohlc=values,
         atr14=atr,atr_basis='Wilder ATR14 including signal candle',range=span,range_atr14=span/atr if atr and atr>0 else None,
         opposing_wick_pct=(hi-max(op,close) if side=='Long' else min(op,close)-lo)/span*100 if span>0 else None,
         qualification_after_close_seconds=qualified-closed_at if qualified is not None and qualified>=closed_at else None,
