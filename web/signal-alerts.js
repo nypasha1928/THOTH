@@ -135,4 +135,13 @@ function blockStrengthText(m,minimum=null,sources=[]){
  lines.push('Ratios are displayed rounded; comparisons use full precision. Width check only, not a full strategy replay or a prediction of profit. Break events use the zone width at signal time; original formation strength may differ. Live trading unchanged.');
  return lines.join('\n');
 }
-function blockStrengthCell(m,minimum,sources){const node=document.createElement('div');node.style.whiteSpace='pre-line';node.textContent=blockStrengthText(m,minimum,sources);return node}
+function blockStrengthCell(m,minimum,sources){
+ const details=document.createElement('details'),summary=document.createElement('summary'),text=document.createElement('p');
+ const report=blockStrengthText(m,minimum,sources),refs=(m?.references||[]).filter(r=>r.source?.startsWith('ob:'));
+ const measured=refs.filter(r=>r.block_width_atr14!=null&&Number.isFinite(Number(r.block_width_atr14))&&Number(r.block_width_atr14)>=0&&r.block_high!=null&&r.block_low!=null);
+ const trial=minimum!=null&&Number.isFinite(minimum)&&minimum>=0;
+ if(!measured.length)summary.textContent=report.startsWith('Not applicable')?'Not applicable':'Not recorded';
+ else if(measured.length===1&&refs.length===1)summary.textContent=Number(measured[0].block_width_atr14).toFixed(3)+' ATR · '+(trial?(measured[0].block_width_atr14>=minimum?'PASS':'BELOW MINIMUM'):'no trial cutoff');
+ else {const passed=measured.filter(r=>r.block_width_atr14>=minimum).length;summary.textContent=trial?passed+' pass / '+(measured.length-passed)+' below minimum':measured.length+' block measurements';if(refs.length>measured.length)summary.textContent+=' · '+(refs.length-measured.length)+' not recorded';}
+ text.textContent=report;text.style.whiteSpace='pre-line';text.style.maxWidth='40ch';details.append(summary,text);return details;
+}
