@@ -75,6 +75,10 @@ class ClosedNormalTests(unittest.TestCase):
                         exchange.fill(order['orderLinkId']);service.monitor()
                         owner=service.state['owned']['BTCUSDT'];self.assertTrue(owner['protection_confirmed'])
                         self.assertIsNotNone(owner['signal_stretch']['close_to_fill_pct'])
+                        if branch=='ob':
+                            block_refs=[r for r in owner['signal_stretch']['references'] if r['source'].startswith('ob:')]
+                            self.assertTrue(block_refs)
+                            self.assertTrue(all(r.get('block_width_atr14') is not None for r in block_refs))
                         alert=next(a for a in read_alerts(service.path)['items'] if a.get('alert_key')==order['orderLinkId'])
                         self.assertIsNotNone(alert['signal_stretch']['close_to_fill_pct'])
                         self.assertEqual(owner['strategy'],NORMAL_STRATEGY);self.assertEqual(owner['exit_timeframe'],'none')

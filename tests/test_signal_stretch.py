@@ -59,3 +59,28 @@ class SignalStretchTests(unittest.TestCase):
         self.assertIsNone(snapshot(gap,'Long',[])['atr14'])
         # Equality is a measured zero, not unknown.
         self.assertEqual(with_fill(m,dict(fill_price=100))['close_to_fill_pct'],0)
+
+    def test_full_block_widths_normalize_without_price_rounding_or_rule_changes(self):
+        sr=dict(levels={'long_resistance_major':dict(value=100,pivot_time=0)})
+        ob=dict(broken_supply=[dict(high=105,low=100,time=0),dict(high=115,low=108,time=3600)],zones=dict(demand=[dict(high=108,low=104,time=7200)]))
+        original=copy.deepcopy(ob)
+        sources=['sr:long_resistance_major','ob:supply_breakout','ob:bullish_formed']
+        m=snapshot(rows(),'Long',sources,sr,ob)
+        self.assertNotIn('block_width',m['references'][0])
+        for r,width in zip(m['references'][1:],[5,7,4]):
+            self.assertEqual(r['block_width'],width)
+            self.assertAlmostEqual(r['block_width_atr14'],width/m['atr14'])
+            self.assertEqual(r['block_high']-r['block_low'],width)
+        self.assertEqual(ob,original)
+        filled=with_fill(m,dict(fill_price=121))
+        self.assertEqual(filled['references'][1]['block_width_atr14'],m['references'][1]['block_width_atr14'])
+        # Currency rescaling (e.g. cheap coins) preserves the ATR ratio and keeps tiny widths nonzero.
+        scaled=[{k:(v*.00001 if k in ('open','high','low','close') else v) for k,v in row.items()} for row in rows()]
+        tiny=snapshot(scaled,'Long',['ob:bullish_formed'],ob=dict(zones=dict(demand=[dict(high=.00108,low=.00104,time=0)])))
+        self.assertGreater(tiny['references'][0]['block_width'],0)
+        self.assertAlmostEqual(tiny['references'][0]['block_width_atr14'],m['references'][-1]['block_width_atr14'])
+
+    def test_missing_historical_boundary_never_becomes_zero_strength(self):
+        m=snapshot(rows(),'Long',['ob:bullish_formed'],ob=dict(zones=dict(demand=[dict(high=105,time=0)])))
+        self.assertNotIn('block_width_atr14',m['references'][0])
+        self.assertNotIn('block_width',m['references'][0])
