@@ -1,5 +1,6 @@
 """Curated failure metadata only: never retain upstream bodies or credentials."""
 from urllib.error import HTTPError
+import sqlite3
 
 ENDPOINTS={'/v5/market/kline','/v5/position/list','/v5/position/trading-stop','/v5/account/wallet-balance',
  '/v5/account/transaction-log','/v5/order/create','/v5/order/realtime','/v5/order/history',
@@ -8,10 +9,24 @@ ENDPOINTS={'/v5/market/kline','/v5/position/list','/v5/position/trading-stop','/
 
 def failure_details(exc,stage):
     from .bybit_testnet import BybitError
-    kind='BybitError' if isinstance(exc,BybitError) else 'HTTPError' if isinstance(exc,HTTPError) else 'TimeoutError' if isinstance(exc,TimeoutError) else 'ConnectionError' if isinstance(exc,OSError) else 'ValidationError' if isinstance(exc,ValueError) else 'UnexpectedError'
+    kind='DatabaseError' if isinstance(exc,sqlite3.Error) else 'BybitError' if isinstance(exc,BybitError) else 'HTTPError' if isinstance(exc,HTTPError) else 'TimeoutError' if isinstance(exc,TimeoutError) else 'ConnectionError' if isinstance(exc,OSError) else 'ValidationError' if isinstance(exc,ValueError) else 'UnexpectedError'
     result={'stage':stage,'error_type':kind}
     if isinstance(exc,BybitError) and isinstance(exc.code,int):result['exchange_code']=exc.code
     if isinstance(exc,HTTPError):result['http_status']=exc.code
+    if isinstance(exc,sqlite3.Error):
+        # Numeric SQLite codes and fixed labels survive saved pause reports without
+        # exposing SQL, database paths, account data or raw exception messages.
+        result['exception_class']=type(exc).__name__ if type(exc).__module__=='sqlite3' else 'Error'
+        code=getattr(exc,'sqlite_errorcode',None)
+        if type(code) is int and 0<=code<=65535:
+            result['sqlite_code']=code
+            labels={1:'SQL error',2:'SQLite internal error',3:'Permission denied',4:'Operation aborted',
+                5:'Database busy',6:'Database locked',7:'Out of memory',8:'Read-only database',
+                9:'Operation interrupted',10:'Disk I/O error',11:'Database corrupt',12:'Database not found',
+                13:'Disk full',14:'Unable to open database',15:'Lock protocol error',17:'Schema changed',
+                18:'Value too large',19:'Constraint failed',20:'Type mismatch',21:'SQLite misuse',
+                22:'Unsupported platform',23:'Authorization denied',24:'Invalid parameter',26:'Not a database'}
+            result['database_reason']=labels.get(code & 255,'SQLite failure')
     quota=getattr(exc,'rate_quota',{})
     safe_quota={k:v for k,v in quota.items() if k in ('limit','remaining','reset_ms') and type(v) is int and 0<=v<=10**16} if isinstance(quota,dict) else {}
     if safe_quota:result['rate_quota']=safe_quota
@@ -36,7 +51,7 @@ def failure_details(exc,stage):
 
 
 def failure_summary(details):
-    parts=[str(details[k]) for k in ('stage','error_type','endpoint','exchange_code','http_status','data_reason') if k in details]
+    parts=[str(details[k]) for k in ('stage','error_type','endpoint','exchange_code','http_status','data_reason','sqlite_code','database_reason') if k in details]
     if details.get('stage')=='account_monitor':
         if details.get('exception_class'):parts.append(details['exception_class'])
         sites=details.get('code_locations',[])
