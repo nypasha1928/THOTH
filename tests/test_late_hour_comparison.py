@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from thoth.models import Settings
-from thoth.late_hour_comparison import LateHourComparison,ComparisonSettings,SourceState,decision,STRATEGY
+from thoth.late_hour_comparison import LateHourComparison,ComparisonSettings,SourceState,decision,STRATEGY,window_status
 
 BAR=360000.
 
@@ -29,6 +29,11 @@ class LastFiveTests(unittest.TestCase):
         state.sr_report['levels']=levels or {}
         with patch('thoth.late_hour_comparison.select',return_value=ob or dict(ready=True,signal=None,conflict=False,events=[],entry_sources=[])):
             return decision(rows,self.cfg,at,at if processed is None else processed,state)
+    def test_waiting_between_windows_is_not_a_worker_stop(self):
+        for seconds,state,next_start in [(0,'closed_hour_matching',BAR+3300),(1800,'waiting',BAR+3300),(3299,'waiting',BAR+3300),(3300,'entry_window_open',BAR+6900),(3599,'entry_window_open',BAR+6900)]:
+            result=window_status(BAR+seconds)
+            self.assertEqual(result['state'],state);self.assertEqual(result['next_window_at'],next_start)
+
     def test_default_on_persisted_off_and_no_live_configuration_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             live=Path(tmp)/'live.sqlite';live.write_bytes(b'unchanged sentinel')

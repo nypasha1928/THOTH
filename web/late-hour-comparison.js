@@ -32,7 +32,9 @@ async function loadLateHourComparison(){
    const start=document.createElement('span');start.append(tradeTimestamp(item.bar));const observed=document.createElement('div');observed.append(document.createTextNode(item.decision+' · '),tradeTimestamp(item.observed_at));
    for(const value of [start,item.symbol,observed,confirmation,order,detail]){const cell=document.createElement('td');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('lateHourRows').append(row);
   }
-  $('lateHourStatus').textContent=(data.enabled?'ON':'OFF')+' · '+data.total+' retained coin/hour comparisons · '+(data.items.length?'No orders placed by this panel.':'Awaiting :55–:00 samples while standalone 1h Bar Close is selected and the market feed is connected.')+(data.dropped?' · '+data.dropped+' samples dropped':'')+(data.error?' · Comparison error: '+data.error:'');
+  const nextWindow=data.window?.next_window_at?new Date(data.window.next_window_at*1000).toLocaleTimeString('en-US',{timeZone:'America/New_York',timeZoneName:'short'}):null;
+  const windowText=!data.window?'':data.window.state==='entry_window_open'?' · :55–:00 observation window OPEN':data.window.state==='closed_hour_matching'?' · Checking closed-hour matches; next observation window '+nextWindow:' · Waiting for :55; next observation window '+nextWindow;
+  $('lateHourStatus').textContent=(data.enabled?'ON':'OFF')+' · '+data.total+' retained coin/hour comparisons'+windowText+' · '+(data.items.length?'No orders placed by this panel.':'Awaiting :55–:00 samples while standalone 1h Bar Close is selected and the market feed is connected.')+(data.dropped?' · '+data.dropped+' samples dropped':'')+(data.error?' · Comparison error: '+data.error:'');
   $('lateHourPage').textContent='Page '+(Math.floor(lateHourOffset/50)+1)+' of '+Math.max(1,Math.ceil(data.total/50));$('lateHourPrevious').disabled=lateHourOffset===0;$('lateHourNext').disabled=lateHourOffset+50>=data.total;
  }catch(error){if(request===lateHourRequest)$('lateHourStatus').textContent='Comparison unavailable: '+error.message}
 }

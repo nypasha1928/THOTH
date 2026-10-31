@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
    elif path=='live/late-hour-comparison':
     early=dict(signal='Long',reason='Would enter Long (signal conditions only)',observed_at=1792302900,price=2400,passed_sources=['ob:bullish_formed'],source_checks=[dict(label='Bullish Order Block formed',distance_atr=.2,passed=True,reasons=[])])
-    result=dict(enabled=late_hour_enabled[0],total=1,items=[dict(symbol='ETHUSDT',bar=1792299600,observed_at=1792302900,decision=early['reason'],first_pass=early,latest=early,closed=dict(signal='Long',same_direction=True,same_sources=['ob:bullish_formed'],conflict=False),live_orders=[dict(side='Buy',phase='protected')])],dropped=0,error=None,mode='signal_comparison_only',rules=dict(start_minute=55))
+    result=dict(enabled=late_hour_enabled[0],total=1,items=[dict(symbol='ETHUSDT',bar=1792299600,observed_at=1792302900,decision=early['reason'],first_pass=early,latest=early,closed=dict(signal='Long',same_direction=True,same_sources=['ob:bullish_formed'],conflict=False),live_orders=[dict(side='Buy',phase='protected')])],dropped=0,error=None,mode='signal_comparison_only',rules=dict(start_minute=55),window=dict(state='waiting',next_window_at=1793433300))
    elif path=='live/late-hour-comparison/settings' and method=='PUT':
     late_hour_writes.append(req.request.post_data_json);late_hour_enabled[0]=req.request.post_data_json['enabled'];result=dict(enabled=late_hour_enabled[0])
    elif path=='live/market-leaders':
@@ -605,8 +605,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not writes[-1][1]['sma_exit_enabled'] and not writes[-1][1]['rsi']['volume_filter']
    page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'armed',losses:2,primary_timeframe:'D'}};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('ARMED · 1m Volume Delta may enter Long or Short')
+   payloads['live']['entry_gates']={'ETHUSDT':dict(phase='cooldown',losses=3,cooldown_until=time.time()+3600)}
    page.evaluate("() => {lv.entry_gates.ETHUSDT={phase:'cooldown',losses:3,cooldown_until:Date.now()/1000+3600};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('LOCKED · cooldown')
+   payloads['live']['entry_gates']={}
    protected_fields=['daily_loss_pct','stop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','coin_pnl_trailing_enabled','daily_equity_trailing_enabled','three_day_equity_trailing_enabled','weekly_equity_trailing_enabled','consecutive_losses','pause_minutes']
    before_ob_risk={key:payloads['live']['config'][key] for key in protected_fields}
    page.select_option('#strategyLogic','order_block_intrabar')
@@ -1085,6 +1087,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#lateHourBadge')).to_contain_text('ON')
+   expect(page.locator('#lateHourStatus')).to_contain_text('Waiting for :55')
    assert not page.locator('#lateHourPanel').evaluate('(el)=>el.open')
    page.locator('#lateHourPanel > summary').click()
    expect(page.locator('#lateHourEnabled')).to_be_checked()
