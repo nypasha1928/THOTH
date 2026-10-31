@@ -78,6 +78,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
+   elif path=='live/signal-alerts/export':result=dict(items=list(reversed(alert_items)),total=len(alert_items),limit=None,offset=0)
    elif path=='live/signal-alerts':
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
     records=[item for item in alert_items if not params.get('symbol') or item['symbol']==params['symbol'][0]]
@@ -1055,6 +1056,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#signalAlertRows')).to_contain_text('close→fill +0.125%')
    page.locator('#signalAlertRows .signal-stretch summary').click()
    expect(page.locator('#signalAlertRows')).to_contain_text('entry distance 0.625%')
+   page.fill('#signalAlertSymbol','ETHUSDT');expect(page.locator('#signalAlertRows tr')).to_have_count(1)
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.signalAlertsCopied=text}})")
+   page.click('#copyAllSignalAlerts');expect(page.locator('#signalAlertCopyStatus')).to_contain_text('Copied all 3 retained')
+   copied=page.evaluate('window.signalAlertsCopied')
+   assert 'All retained signal alerts' in copied and 'BTCUSDT' in copied and 'ETHUSDT' in copied
+   assert 'Signal candle / entry distance' in copied and 'Qualification diagnostics' in copied
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('Synthetic clipboard denial')}}})")
+   page.click('#copyAllSignalAlerts');expect(page.locator('#signalAlertCopyFallback')).to_be_visible()
+   assert 'All retained signal alerts' in page.locator('#signalAlertCopyFallback').input_value()
+   page.fill('#signalAlertSymbol','')
    alert_items.clear()
    page.click('[data-page-link=history]')
    expect(page.get_by_role('heading',name='THOTH Trading',exact=True)).to_have_count(0)

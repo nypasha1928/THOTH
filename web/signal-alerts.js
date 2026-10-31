@@ -17,18 +17,38 @@ let signalAlertNewest=null,signalAlertAudio=null;
 function signalAlertsMarkup(){return `<section class="card"><h2>Signal alerts</h2>
 <p class="note">Saved signal-status updates for your selected trading strategy and coins, including skipped signals during managed pauses. Linked signals show their latest known outcome; queued does not mean filled. Historical chart arrows are not backfilled. Latest 5,000 updates retained. New standalone 1h Bar Close entries include candle stretch and entry distance measurements; these do not predict exhaustion or change trading.</p>
 <label>Coin<input id="signalAlertSymbol" type="search" placeholder="All coins or JCTUSDT" aria-label="Signal alert coin"></label>
-<div class="row"><button id="refreshSignalAlerts" type="button">Refresh alerts</button><label><input id="signalAlertSound" type="checkbox"> Sound for new updates</label></div>
+<div class="row"><button id="refreshSignalAlerts" type="button">Refresh alerts</button><button id="copyAllSignalAlerts" type="button">Copy all signal alerts</button><label><input id="signalAlertSound" type="checkbox"> Sound for new updates</label></div>
 <p class="note">Sound works while THOTH is open and visible and the browser permits audio. This is not phone push notification delivery.</p>
-<p id="signalAlertStatus" role="status" aria-live="polite"></p>
+<p id="signalAlertStatus" role="status" aria-live="polite"></p><p id="signalAlertCopyStatus" role="status"></p><textarea id="signalAlertCopyFallback" readonly hidden aria-label="Signal alerts report to copy"></textarea>
 <div class="table-scroll"><table><thead><tr><th>Observed (New York)</th><th>Coin</th><th>Direction</th><th>Source / crossing</th><th>Strategy</th><th>Status</th><th>Signal candle / entry distance</th></tr></thead><tbody id="signalAlertRows"></tbody></table></div>
 <div class="row"><button id="signalAlertsPrevious" type="button">← Newer</button><span id="signalAlertsPage"></span><button id="signalAlertsNext" type="button">Older →</button></div></section>`}
 function bindSignalAlerts(){
+ $('copyAllSignalAlerts').onclick=copyAllSignalAlerts;
  $('refreshSignalAlerts').onclick=()=>{signalAlertOffset=0;loadSignalAlerts()};
  $('signalAlertsPrevious').onclick=()=>{signalAlertOffset=Math.max(0,signalAlertOffset-50);loadSignalAlerts()};
  $('signalAlertsNext').onclick=()=>{signalAlertOffset+=50;loadSignalAlerts()};
  let timer;$('signalAlertSymbol').oninput=()=>{clearTimeout(timer);signalAlertNewest=null;signalAlertOffset=0;timer=setTimeout(loadSignalAlerts,300)};
  $('signalAlertSound').onchange=async()=>{if(!$('signalAlertSound').checked)return;try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)throw Error('Audio unavailable');signalAlertAudio=signalAlertAudio||new Audio();await signalAlertAudio.resume()}catch{$('signalAlertSound').checked=false;$('signalAlertStatus').textContent='Sound unavailable in this browser; saved alerts remain available.'}};
  setInterval(()=>{if(location.hash==='#alerts'&&!document.hidden&&signalAlertOffset===0&&!signalAlertBusy&&state)loadSignalAlerts()},5000);
+}
+async function copyAllSignalAlerts(){
+ const button=$('copyAllSignalAlerts'),status=$('signalAlertCopyStatus'),fallback=$('signalAlertCopyFallback');
+ button.disabled=true;fallback.hidden=true;fallback.value='';status.textContent='Preparing all retained signal alerts across all coins and pages…';
+ try{
+  const data=await api('live/signal-alerts/export');
+  if(!data.items.length){status.textContent='No saved signal alerts to copy.';return}
+  const clean=value=>String(value instanceof Node?value.textContent:value??'—').replace(/[\t\r\n]+/g,' ');
+  const lines=['THOTH · All retained signal alerts · All coins and strategies',
+   'Exported: '+new Date().toISOString(),
+   'Alerts: '+data.items.length+' · Unique coins: '+new Set(data.items.map(item=>item.symbol)).size,
+   'Latest known outcomes for retained alerts; previously pruned updates and undetected signals are unavailable. A qualifying signal is not proof of an order or fill.',
+   ['Observed (New York)','Coin','Direction','Source / crossing','Strategy','Latest status','Original recorded reason','Execution phase','Signal candle / entry distance','Qualification diagnostics','Alert key'].join('\t')];
+  for(const item of data.items)lines.push([tradeTimestamp(item.observed_at??item.time),item.symbol,signalAlertDirection(item),signalAlertSources(item),strategyName(item.strategy),item.reason,item.original_reason,item.execution_phase,signalStretchText(item.signal_stretch),item.diagnostic?JSON.stringify(item.diagnostic):'Not recorded',item.alert_key].map(clean).join('\t'));
+  const report=lines.join('\n');
+  try{await navigator.clipboard.writeText(report);status.textContent='Copied all '+data.items.length+' retained signal alerts. Paste them into the chat.'}
+  catch{fallback.value=report;fallback.hidden=false;fallback.focus();fallback.select();status.textContent='Clipboard unavailable. Copy the selected report below.'}
+ }catch(error){status.textContent='Could not copy signal alerts: '+error.message}
+ finally{button.disabled=false}
 }
 function signalAlertSources(item){
  const d=item.diagnostic||{},names={static30_up:'RSI over 30',static30_down:'RSI below 30',static70_up:'RSI over 70',static70_down:'RSI below 70',ml_long_up:'RSI over Long',ml_long_down:'RSI below Long',ml_short_up:'RSI over Short',ml_short_down:'RSI below Short'};
