@@ -98,11 +98,13 @@ class FeedAdapter:
 
     def closed_hour_inputs(self,symbol):
         """Repair real missing candles in bounded download work, never on the order path."""
-        from .history_backfill import recover
+        from .history_backfill import recover,quarantine_hourly,validate_hourly
         rows=self.supervisor.client.candles(symbol,'60',limit=self.staged_history_limit(symbol,'60'))
+        validate_hourly(rows,'60')
+        repair=quarantine_hourly(Path(self.path).with_suffix('.candles.sqlite'),symbol,self.supervisor.clock())
         rows,status=recover(Path(self.path).with_suffix('.candles.sqlite'),symbol,'60',rows,
             self.supervisor.client.candles,self.supervisor.clock(),self.history_recovery.get(symbol))
-        self.history_recovery[symbol]=status
+        self.history_recovery[symbol]={**status,**repair}
         return rows
 
     def history_recovery_status(self,symbol):
@@ -111,6 +113,7 @@ class FeedAdapter:
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
+        if cfg.timeframe!=interval:raise ValueError('Strategy timeframe changed during download; waiting for next scan')
         if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'):
             return self.closed_hour_inputs(symbol)
         if cfg.strategy in ('order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h'):return self.staged_minute_inputs(symbol,cfg.timeframe)

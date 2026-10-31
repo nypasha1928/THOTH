@@ -1,8 +1,65 @@
 """Bounded recovery of actual missing historical candles; no invented OHLC or order access."""
 import sqlite3
+import json
+from math import isfinite
 from pathlib import Path
 from .indicator_stream import validate
 from .timeframes import interval_seconds
+
+
+def validate_hourly(rows,interval):
+    """Reject minute/shifted data before it can enter the hourly cache."""
+    if interval!='60':return
+    previous=None
+    for row in rows:
+        stamp=row['time']
+        if type(stamp) not in (int,float) or not isfinite(stamp) or stamp%3600:
+            raise ValueError('Hourly candle timestamp is not on the UTC hour')
+        if previous is not None and (stamp<=previous or (stamp-previous)%3600):
+            raise ValueError('Hourly candles have mixed intervals or duplicate timestamps')
+        validate(row);previous=stamp
+
+
+def quarantine_hourly(path,symbol,now):
+    """Archive mixed-resolution spans, including potentially overwritten hour bars.
+
+    No OHLC is inferred. The normal bounded backfill must replace the removed
+    span with real hourly candles before source validation can pass.
+    """
+    path=Path(path)
+    if not path.exists():return dict(quarantined_bars=0)
+    with sqlite3.connect(path,timeout=15) as db:
+        exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='candles'").fetchone()
+        if not exists:return dict(quarantined_bars=0)
+        contaminated=db.execute("SELECT 1 FROM candles WHERE symbol=? AND interval='60' AND (time%3600!=0 OR json_extract(payload,'$.time')!=time) LIMIT 1",(symbol,)).fetchone()
+        if not contaminated:return dict(quarantined_bars=0)
+        db.execute('BEGIN IMMEDIATE')
+        rows=db.execute("SELECT time,payload FROM candles WHERE symbol=? AND interval='60' ORDER BY time",(symbol,)).fetchall()
+        bad=[];hours=set()
+        for stamp,payload in rows:
+            actual=json.loads(payload)['time']
+            if type(actual) not in (int,float) or not isfinite(actual):
+                raise ValueError('Invalid stored hourly candle timestamp')
+            if stamp%3600 or actual!=stamp:
+                bad.append(stamp)
+                for value in (stamp,actual):
+                    hour=int(value)//3600*3600
+                    hours.update((hour,hour+3600))
+        if not bad:return dict(quarantined_bars=0)
+        affected=[(stamp,payload) for stamp,payload in rows if int(stamp)//3600*3600 in hours or stamp in bad]
+        db.execute('CREATE TABLE IF NOT EXISTS candle_quarantine(symbol TEXT,interval TEXT,time INTEGER,payload TEXT,reason TEXT,quarantined_at REAL,PRIMARY KEY(symbol,interval,time,payload))')
+        db.executemany('INSERT OR IGNORE INTO candle_quarantine VALUES(?,?,?,?,?,?)',
+            [(symbol,'60',stamp,payload,'Mixed-resolution hourly span; real hourly replacement required',now) for stamp,payload in affected])
+        db.executemany("DELETE FROM candles WHERE symbol=? AND interval='60' AND time=?",[(symbol,stamp) for stamp,_ in affected])
+        for table in ('checkpoints','analyses'):
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name=?",(table,)).fetchone():
+                db.execute('DELETE FROM '+table+" WHERE symbol=? AND interval='60'",(symbol,))
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='order_block_checkpoints'").fetchone():
+            db.execute('DELETE FROM order_block_checkpoints WHERE symbol=?',(symbol,))
+        db.execute('CREATE TABLE IF NOT EXISTS candle_repairs(symbol TEXT,interval TEXT,generation INTEGER,PRIMARY KEY(symbol,interval))')
+        db.execute("INSERT INTO candle_repairs VALUES(?,'60',1) ON CONFLICT(symbol,interval) DO UPDATE SET generation=generation+1",(symbol,))
+    return dict(quarantined_bars=len(affected),irregular_bars=len(bad),
+        quarantine_from=min(t for t,_ in affected),quarantine_to=max(t for t,_ in affected))
 
 
 def gaps(times,duration):
@@ -19,6 +76,7 @@ def recover(path,symbol,interval,fresh,fetch,now,previous=None,max_pages=2):
     This function never edits the candle database or indicator/execution state.
     """
     path=Path(path);duration=interval_seconds(interval)
+    validate_hourly(fresh,interval)
     if not fresh:return fresh,dict(active=False,reason='Fresh candles unavailable')
     if not path.exists():return fresh,dict(active=False,reason='Initial history bootstrap')
     try:
@@ -26,6 +84,8 @@ def recover(path,symbol,interval,fresh,fetch,now,previous=None,max_pages=2):
             times=[r[0] for r in db.execute('SELECT time FROM candles WHERE symbol=? AND interval=? ORDER BY time',(symbol,interval))]
     except sqlite3.OperationalError:return fresh,dict(active=False,reason='History bootstrap')
     if not times:return fresh,dict(active=False,reason='Initial symbol bootstrap')
+    if interval=='60' and any(t%3600 for t in times):
+        raise ValueError('Mixed-resolution hourly cache requires quarantine before backfill')
     known=set(times)|{r['time'] for r in fresh}
     missing=gaps(known,duration)
     status=dict(active=bool(missing),gap_count=len(missing),recovered_bars=0,pages=0,reason='History contiguous' if not missing else 'Backfill pending')
