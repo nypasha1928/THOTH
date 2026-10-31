@@ -23,6 +23,23 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_late_hour_comparison_defaults_on_and_settings_are_isolated(self):
+        from thoth.late_hour_comparison import LateHourComparison
+        observer=LateHourComparison(Path(self.tmp.name)/'comparison.sqlite',Path(self.tmp.name)/'live.sqlite')
+        before=self.client.get('/api/live').json()
+        with patch('thoth.app.late_hour_comparison',observer):
+            response=self.client.get('/api/live/late-hour-comparison')
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertTrue(response.json()['enabled']);self.assertEqual(response.json()['mode'],'signal_comparison_only')
+            self.assertEqual(response.json()['rules']['start_minute'],55)
+            self.assertEqual(self.client.get('/api/live/late-hour-comparison?limit=101').status_code,422)
+            changed=self.client.put('/api/live/late-hour-comparison/settings',json={'enabled':False})
+            self.assertEqual(changed.status_code,200);self.assertFalse(changed.json()['enabled'])
+            self.assertEqual(self.client.put('/api/live/late-hour-comparison/settings',json={'enabled':True,'entries':True}).status_code,422)
+            after=self.client.get('/api/live').json()
+            self.assertEqual(after['config'],before['config']);self.assertEqual(after['entries'],before['entries'])
+            self.assertEqual(after['status'],before['status']);self.assertEqual(after['positions'],before['positions'])
+
     def test_market_leaders_are_readonly_and_independently_persisted(self):
         before=self.client.get('/api/live').json()
         response=self.client.get('/api/live/market-leaders');self.assertEqual(response.status_code,200)

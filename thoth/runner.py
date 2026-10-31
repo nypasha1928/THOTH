@@ -370,9 +370,13 @@ class Runner:
                 result['volume_delta_status']='Hourly entry window closed; tracking sources without queuing entries'
         return result
 
-    def closed_inverted_order_block_sr_observation(self,symbol,cfg,rows,now):
+    def closed_inverted_order_block_sr_observation(self,symbol,cfg,rows,now,sample_received_at=None):
         from .closed_order_block_sr import evaluate
         history=self.history(symbol,'60',rows)
+        observer=getattr(self,'late_hour_observer',None)
+        if observer is not None and cfg.strategy=='order_block_sr_1h_close':
+            try:observer.submit(symbol,cfg,history,now if sample_received_at is None else sample_received_at)
+            except Exception:pass  # Comparison failures cannot alter LIVE signal processing.
         closed=[r for r in history if r['time']+3600<=now]
         latest=int(now)//3600*3600-3600
         if not closed or closed[-1]['time']!=latest:raise ValueError('Latest CLOSED 1h candle unavailable')
@@ -706,7 +710,7 @@ class Runner:
                         # Delta needs current 1m inputs: process ready symbols now,
                         # rather than age their samples behind the whole download.
                         now=time.time()
-                        observation=self.closed_inverted_order_block_sr_observation(symbol,cfg,rows,now) if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.combined_order_block_sr_observation(symbol,cfg,rows,now) if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.order_block_observation(symbol,cfg,rows,now) if cfg.strategy=='order_block_intrabar' else self.sma_intrabar_observation(symbol,cfg,rows,now) if cfg.strategy=='sma_7_50_intrabar' else self.sr_volume_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_volume_intrabar' else self.staged_observation(symbol,cfg,rows,now) if cfg.strategy in STAGED_STRATEGIES else self.volume_delta_observation(symbol,cfg,rows,now)
+                        observation=self.closed_inverted_order_block_sr_observation(symbol,cfg,rows,now,sample_timings.get(symbol,{}).get('sample_received_at')) if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.combined_order_block_sr_observation(symbol,cfg,rows,now) if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.order_block_observation(symbol,cfg,rows,now) if cfg.strategy=='order_block_intrabar' else self.sma_intrabar_observation(symbol,cfg,rows,now) if cfg.strategy=='sma_7_50_intrabar' else self.sr_volume_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_volume_intrabar' else self.staged_observation(symbol,cfg,rows,now) if cfg.strategy in STAGED_STRATEGIES else self.volume_delta_observation(symbol,cfg,rows,now)
                         record(symbol,observation)
                     else:downloaded[symbol]=rows
                 except Exception as exc:

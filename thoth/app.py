@@ -24,6 +24,7 @@ from .models import Settings, TestnetSettings, TestnetActivation
 from .timeframes import INTERVALS
 from .trailing_observation import TrailingObservation,ObservationSettings
 from .push_notifications import PushNotifications
+from .late_hour_comparison import LateHourComparison,ComparisonSettings
 
 ROOT = Path(__file__).resolve().parent.parent
 live_feed = None
@@ -35,10 +36,12 @@ async def lifespan(app):
     global live_feed
     phone_alerts.start()
     trailing_observation.start()
+    late_hour_comparison.start()
     live.trailing_observer=trailing_observation
     live.start()
     adapter=FeedAdapter(live)
     live_feed=Runner(adapter,fetch=adapter.fetch)
+    live_feed.late_hour_observer=late_hour_comparison
     live_feed.start()
     try:
         yield
@@ -46,6 +49,7 @@ async def lifespan(app):
         live_feed.stop()
         live.stop()
         trailing_observation.stop()
+        late_hour_comparison.stop()
         phone_alerts.stop()
 
 
@@ -56,6 +60,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=['localhost', '127.0.0.1
 DATA = Path(os.environ.get('THOTH_DB',str(ROOT/'data'/'live.sqlite'))).parent
 live = ProductionSupervisor(DATA/'live.sqlite',enabled=os.environ.get('THOTH_ENABLE_LIVE')=='1',password_configured=bool(PASSWORD),allow_unverified=os.environ.get('THOTH_ALLOW_UNVERIFIED_LIVE')=='1')
 trailing_observation=TrailingObservation(DATA/'trailing-observation.sqlite',DATA/'live.sqlite')
+late_hour_comparison=LateHourComparison(DATA/'late-hour-comparison.sqlite',DATA/'live.sqlite')
 phone_alerts=PushNotifications(DATA/'phone-alerts.sqlite',DATA/'live.sqlite',
     'https://'+PUBLIC_HOST if PUBLIC_HOST else 'mailto:operator@localhost')
 
@@ -146,6 +151,16 @@ def exchange_status(request: Request):
     result=live.snapshot()
     result['feed_health']=live_feed.health if live_feed else None
     return result
+
+
+@app.get('/api/live/late-hour-comparison')
+def late_hour_report(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0)):
+    return late_hour_comparison.report(limit,offset)
+
+
+@app.put('/api/live/late-hour-comparison/settings')
+def late_hour_settings(settings: ComparisonSettings):
+    return late_hour_comparison.configure(settings)
 
 
 @app.get('/api/live/trailing-comparison')
