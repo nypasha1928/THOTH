@@ -61,10 +61,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
-  late_hour_enabled=[True];late_hour_writes=[]
+  late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();late_total=[1]
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
+   if path in refresh_failures:
+    refresh_failures.remove(path);req.fulfill(status=503,content_type='application/json',body=json.dumps(dict(detail='Synthetic temporary outage')));return
    if path.startswith('chart/'):
     chart_queries.append(url)
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
@@ -89,7 +91,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
    elif path=='live/late-hour-comparison':
     early=dict(signal='Long',reason='Would enter Long (signal conditions only)',observed_at=1792302900,price=2400,passed_sources=['ob:bullish_formed'],source_checks=[dict(label='Bullish Order Block formed',distance_atr=.2,passed=True,reasons=[])])
-    result=dict(enabled=late_hour_enabled[0],total=1,items=[dict(symbol='ETHUSDT',bar=1792299600,observed_at=1792302900,decision=early['reason'],first_pass=early,latest=early,closed=dict(signal='Long',same_direction=True,same_sources=['ob:bullish_formed'],conflict=False),live_orders=[dict(side='Buy',phase='protected')])],dropped=0,error=None,mode='signal_comparison_only',rules=dict(start_minute=55),window=dict(state='waiting',next_window_at=1793433300))
+    result=dict(enabled=late_hour_enabled[0],selected_strategy='order_block_sr_1h_early',collection_supported=True,market_connected=True,feed_status='ok',total=late_total[0],items=[dict(symbol='ETHUSDT',bar=1792299600,observed_at=1792302900,decision=early['reason'],first_pass=early,latest=early,closed=dict(signal='Long',same_direction=True,same_sources=['ob:bullish_formed'],conflict=False),live_orders=[dict(side='Buy',phase='protected')])],dropped=0,error=None,mode='signal_comparison_only',rules=dict(start_minute=55),window=dict(state='waiting',next_window_at=1793433300))
    elif path=='live/late-hour-comparison/settings' and method=='PUT':
     late_hour_writes.append(req.request.post_data_json);late_hour_enabled[0]=req.request.post_data_json['enabled'];result=dict(enabled=late_hour_enabled[0])
    elif path=='live/market-leaders':
@@ -1099,6 +1101,12 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert 'Trial minimum: 0.25 ATR14' in page.evaluate('window.stretchCopied')
    assert 'width 0.250 ATR14' in page.evaluate('window.stretchCopied')
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
+   refresh_failures.add('live/history');page.click('#historyRefresh')
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('Will retry automatically')
+   page.evaluate('refreshVisibleData()');expect(page.locator('#tradeHistoryStatus')).to_contain_text('3 closed trades')
+   history_many.append(dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300001,pnl=.02,reason='Newly settled synthetic trade',strategy='order_block_sr_1h_early'))
+   page.evaluate('refreshVisibleData()');expect(page.locator('#historyRows')).to_contain_text('Newly settled synthetic trade')
+   history_many.clear();page.evaluate('refreshVisibleData()');expect(page.locator('#historyRows tr')).to_have_count(3)
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#lateHourBadge')).to_contain_text('ON')
@@ -1108,6 +1116,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#lateHourEnabled')).to_be_checked()
    expect(page.locator('#lateHourRows')).to_contain_text('Would enter Long')
    expect(page.locator('#lateHourRows')).to_contain_text('same direction')
+   refresh_failures.add('live/late-hour-comparison');page.click('#lateHourRefresh')
+   expect(page.locator('#lateHourStatus')).to_contain_text('Will retry automatically')
+   page.wait_for_function('() => !lateHourLoading')
+   late_total[0]=2;page.evaluate('refreshVisibleData()');expect(page.locator('#lateHourStatus')).to_contain_text('2 retained')
    prior_live_writes=len(writes)
    page.locator('#lateHourEnabled').uncheck();expect(page.locator('#lateHourBadge')).to_have_text('OFF')
    page.locator('#lateHourEnabled').check();expect(page.locator('#lateHourBadge')).to_contain_text('ON')

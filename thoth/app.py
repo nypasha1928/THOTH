@@ -155,7 +155,17 @@ def exchange_status(request: Request):
 
 @app.get('/api/live/late-hour-comparison')
 def late_hour_report(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0)):
-    return late_hour_comparison.report(limit,offset)
+    from .late_hour_comparison import SUPPORTED_STRATEGIES
+    report=late_hour_comparison.report(limit,offset)
+    selected=live.state['config']['strategy']
+    if selected in SUPPORTED_STRATEGIES:report['strategy']=selected
+    if selected=='order_block_sr_1h_early':
+        from .early_hour import rules
+        report['rules']=rules(Settings(**{k:v for k,v in live.state['config'].items() if k in Settings.model_fields}))
+    report.update(selected_strategy=selected,collection_supported=selected in SUPPORTED_STRATEGIES,
+        market_connected=bool(live.client and live.state['management']),
+        feed_status=live_feed.health.get('status') if live_feed else 'not_started')
+    return report
 
 
 @app.put('/api/live/late-hour-comparison/settings')

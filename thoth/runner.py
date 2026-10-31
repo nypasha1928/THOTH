@@ -387,6 +387,10 @@ class Runner:
         from .early_hour import context,rules,window
         from .late_hour_comparison import SourceState,decision
         history=self.history(symbol,'60',rows);bar=int(now)//3600*3600
+        observer=getattr(self,'late_hour_observer',None)
+        if observer is not None:
+            try:observer.submit(symbol,cfg,history,now)
+            except Exception:pass  # Observational failures cannot change entry decisions.
         if not history or history[-1]['time']!=bar:raise ValueError('Current forming hour unavailable')
         identity=strategy_fingerprint(cfg)+':early-hour'
         if not hasattr(self,'early_hour_states'):self.early_hour_states={}
