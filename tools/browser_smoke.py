@@ -61,6 +61,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
+  late_hour_enabled=[True];late_hour_writes=[]
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
@@ -86,6 +87,11 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
    elif path=='live/trailing-comparison/settings' and method=='PUT':
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
+   elif path=='live/late-hour-comparison':
+    early=dict(signal='Long',reason='Would enter Long (signal conditions only)',observed_at=1792302900,price=2400,passed_sources=['ob:bullish_formed'],source_checks=[dict(label='Bullish Order Block formed',distance_atr=.2,passed=True,reasons=[])])
+    result=dict(enabled=late_hour_enabled[0],total=1,items=[dict(symbol='ETHUSDT',bar=1792299600,observed_at=1792302900,decision=early['reason'],first_pass=early,latest=early,closed=dict(signal='Long',same_direction=True,same_sources=['ob:bullish_formed'],conflict=False),live_orders=[dict(side='Buy',phase='protected')])],dropped=0,error=None,mode='signal_comparison_only',rules=dict(start_minute=55))
+   elif path=='live/late-hour-comparison/settings' and method=='PUT':
+    late_hour_writes.append(req.request.post_data_json);late_hour_enabled[0]=req.request.post_data_json['enabled'];result=dict(enabled=late_hour_enabled[0])
    elif path=='live/market-leaders':
     from thoth.market_leaders import report
     result=report()
@@ -1078,6 +1084,21 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    history_many.clear();page.click('#historyRefresh');expect(page.locator('#historyRows tr')).to_have_count(3)
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   expect(page.locator('#lateHourBadge')).to_contain_text('ON')
+   assert not page.locator('#lateHourPanel').evaluate('(el)=>el.open')
+   page.locator('#lateHourPanel > summary').click()
+   expect(page.locator('#lateHourEnabled')).to_be_checked()
+   expect(page.locator('#lateHourRows')).to_contain_text('Would enter Long')
+   expect(page.locator('#lateHourRows')).to_contain_text('same direction')
+   prior_live_writes=len(writes)
+   page.locator('#lateHourEnabled').uncheck();expect(page.locator('#lateHourBadge')).to_have_text('OFF')
+   page.locator('#lateHourEnabled').check();expect(page.locator('#lateHourBadge')).to_contain_text('ON')
+   assert late_hour_writes==[{'enabled':False},{'enabled':True}] and len(writes)==prior_live_writes
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.lateCopied=text}})")
+   page.click('#lateHourCopy');expect(page.locator('#lateHourStatus')).to_contain_text('Comparison copied')
+   assert 'Would enter Long' in page.evaluate('window.lateCopied')
+   page.locator('#lateHourPanel > summary').click()
+
    entry_delay_items.append(dict(symbol='WLDUSDT',side='Buy',phase='closed',sources=['ob:bullish_formed'],details={'qualified_at':1793143000},timing={},measurements={'observation_gap_seconds':192.6,'volume_wait_seconds':120,'qualified_to_submit_seconds':5,'submit_to_fill_observed_seconds':7,'entry_move_pct':.2},realized_pnl=-.4))
    expect(page.locator('#watchlistRows')).to_contain_text('WLDUSDT');expect(page.locator('#watchlistRows')).to_contain_text('192.6s')
    page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.watchlistCopied=text}})")

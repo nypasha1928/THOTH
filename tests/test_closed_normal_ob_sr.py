@@ -2,7 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch,Mock
 from thoth.models import Settings,TestnetSettings
 from thoth.closed_order_block_sr import evaluate,STRATEGY,NORMAL_STRATEGY
 from thoth.timeframes import SHORT_LIVED_SIGNAL_STRATEGIES
@@ -53,6 +53,8 @@ class ClosedNormalTests(unittest.TestCase):
                     if branch=='sr':data=[{**r,'open':100,'close':100,'high':101,'low':99} for r in data]
                     def fetch(symbol,interval,limit=1000):calls.append((interval,limit));return data[-limit:]
                     runner=Runner(feed,fetch=feed.fetch)
+                    observer=Mock();observer.submit.side_effect=RuntimeError('Fixture comparison failure')
+                    runner.late_hour_observer=observer
                     side='Short' if bearish else 'Long'
                     def analysis(symbol,source,rows,stamp,**kwargs):
                         result=sr_result(side if branch=='sr' and stamp>=NOW else None)
@@ -88,5 +90,6 @@ class ClosedNormalTests(unittest.TestCase):
                         close=next(o for o in exchange.orders.values() if o['reduceOnly']);exchange.fill(close['orderLinkId']);service.monitor()
                         trade=service.history()['items'][0];self.assertEqual(trade['strategy'],NORMAL_STRATEGY)
                         self.assertEqual(trade['side'],side)
+                        self.assertGreaterEqual(observer.submit.call_count,2)
                         self.assertEqual(trade['signal_stretch'],owner['signal_stretch'])
                         self.assertEqual(service.history(limit=-1)['items'][0]['signal_stretch'],trade['signal_stretch'])
