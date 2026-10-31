@@ -705,6 +705,21 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_close')
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Order Block + S/R · 1h · Bar Close');page.keyboard.press('Escape')
+   page.select_option('#strategyLogic','order_block_sr_1h_early')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text(':55–:00')
+   expect(page.locator('#strategyDescription')).to_contain_text('Reversal / Close-only')
+   expect(page.locator('#earlyHourSettings')).to_be_visible()
+   assert not page.locator('#earlyHourSettings').evaluate('(el) => el.open')
+   page.locator('#earlyHourSettings summary').click()
+   expect(page.locator('#early_max_opposing_wick_pct')).to_have_value('30')
+   page.fill('#early_min_distance_atr','0.08');page.fill('#early_max_distance_atr','0.6')
+   page.click('#saveSymbols');page.wait_for_function("() => lv.config.strategy==='order_block_sr_1h_early'")
+   assert writes[-1][1]['early_min_distance_atr']==.08 and writes[-1][1]['early_max_distance_atr']==.6
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_early')
+   page.locator('#earlyHourSettings summary').click();expect(page.locator('#early_min_distance_atr')).to_have_value('0.08')
+   page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Early :55–:00');page.keyboard.press('Escape')
    page.select_option('#strategyLogic','ob_sr_minute_hourly')
    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#oppositeAction')).to_have_value('close_only');expect(page.locator('#oppositeAction')).to_be_disabled()

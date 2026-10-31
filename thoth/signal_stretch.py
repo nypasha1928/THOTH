@@ -2,7 +2,7 @@
 from .entry_diagnostics import number
 
 
-def _snapshot(rows,side,sources,sr=None,ob=None,qualified_at=None):
+def _snapshot(rows,side,sources,sr=None,ob=None,qualified_at=None,atr14_override=None):
     if not rows or side not in ('Long','Short'):return None
     candle=rows[-1]
     values={key:number(candle.get(key)) for key in ('open','high','low','close')}
@@ -22,6 +22,10 @@ def _snapshot(rows,side,sources,sr=None,ob=None,qualified_at=None):
             if len(seed)==14:atr=sum(seed)/14
         else:atr=(atr*13+tr)/14
         previous=price;last_time=row['time']
+    if atr14_override is not None:
+        override=number(atr14_override)
+        if override is None or override<=0:return None
+        atr=override
     span=hi-lo;direction=1 if side=='Long' else -1
     references=[]
     from .signal_sources import source_label
@@ -69,15 +73,18 @@ def _with_fill(snapshot,timing):
             item['entry_distance_pct']=direction*(fill-item['price'])/item['price']*100
     observed=number(timing.get('fill_observed_at'))
     if observed is None:observed=number(timing.get('fill_confirmed_at'))
-    closed=number(snapshot.get('closed_at'))
+    sampled=number(snapshot.get('observed_at'))
+    if snapshot.get('provisional') and sampled is not None and observed is not None and observed>=sampled:
+        result['snapshot_to_fill_observed_seconds']=observed-sampled
+    closed=None if snapshot.get('provisional') else number(snapshot.get('closed_at'))
     if observed is not None and closed is not None and observed>=closed:
         result['close_to_fill_observed_seconds']=observed-closed
     return result
 
 
-def snapshot(rows,side,sources,sr=None,ob=None,qualified_at=None):
+def snapshot(rows,side,sources,sr=None,ob=None,qualified_at=None,atr14_override=None):
     # Optional diagnostics must not suppress a valid signal or account management.
-    try:return _snapshot(rows,side,sources,sr,ob,qualified_at)
+    try:return _snapshot(rows,side,sources,sr,ob,qualified_at,atr14_override)
     except (TypeError,ValueError,KeyError,AttributeError,ArithmeticError):return None
 
 

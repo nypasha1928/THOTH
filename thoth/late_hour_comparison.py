@@ -46,13 +46,15 @@ class SourceState:
         self.recent=dict(sorted(self.recent.items())[-60:])
 
 
-def decision(rows,cfg,observed_at,processed_at,state=None):
+def decision(rows,cfg,observed_at,processed_at,state=None,rules=None):
     """Evaluate current provisional conditions, not a fabricated exact crossing time."""
+    rules=RULES if rules is None else rules
     bar=int(observed_at)//3600*3600
     if not rows or rows[-1]['time']!=bar:raise ValueError('Current hourly candle unavailable')
     state=state or SourceState(cfg);state.advance(rows,observed_at)
     if state.ob.s['last_time']!=bar-3600 or state.sr.count<max(14,2*cfg.pivot_long+1):raise ValueError('Comparison history warming up')
-    ob=select(OrderBlockState(state.ob.checkpoint(),interval='60',formation_filter=False).step(rows[-1]),cfg.order_block,formation_filter=False)
+    preview=OrderBlockState(state.ob.checkpoint(),interval='60',formation_filter=False)
+    ob=select(preview.step(rows[-1]),cfg.order_block,formation_filter=False)
     levels=state.sr_report['levels'];previous=state.sr.buffer[-1]['close'];price=rows[-1]['close']
     sr_sources=[];sr_sides=set()
     for key,level in levels.items():
@@ -64,13 +66,13 @@ def decision(rows,cfg,observed_at,processed_at,state=None):
     candidates.extend((s,'Long' if 'resistance' in s else 'Short') for s in sr_sources)
     sides={side for _,side in candidates}
     result=dict(bar=bar,observed_at=observed_at,processed_at=processed_at,price=price,signal=None,
-        raw_sources=sorted({s for s,_ in candidates}),passed_sources=[],source_checks=[],provisional=True,rules=RULES)
+        raw_sources=sorted({s for s,_ in candidates}),passed_sources=[],source_checks=[],provisional=True,rules=rules)
     if observed_at<bar+3300 or observed_at>=bar+3600 or processed_at>=bar+3600 or processed_at<observed_at or processed_at-observed_at>30:
         result['reason']='Skip: outside :55–:00 window or observation older than 30 seconds';return result
     if len(sides)>1 or ob['conflict'] or len(sr_sides)>1:
         result['reason']='Skip: conflicting Long and Short signals';return result
     if not candidates:result['reason']='Skip: no provisional Order Block or Major S/R signal';return result
-    side=next(iter(sides));m=snapshot(rows,side,[s for s,_ in candidates],dict(levels=levels),ob)
+    side=next(iter(sides));m=snapshot(rows,side,[s for s,_ in candidates],dict(levels=levels),ob,atr14_override=preview.s['atr'])
     if not m or not m.get('atr14') or m['atr14']<=0 or m.get('opposing_wick_pct') is None:
         result['reason']='Skip: ATR/wick measurements unavailable';return result
     m.update(provisional=True,atr_basis='Wilder ATR14 including forming hourly candle')
@@ -78,9 +80,9 @@ def decision(rows,cfg,observed_at,processed_at,state=None):
     for ref in m['references']:
         distance=(price-ref['price'])*(1 if side=='Long' else -1)/m['atr14']
         reasons=[]
-        if m['opposing_wick_pct']>RULES['max_opposing_wick_pct']+1e-10:reasons.append('opposing wick above 30%')
-        if distance<RULES['minimum_distance_atr']-1e-10:reasons.append('clearance below 0.05 ATR')
-        if distance>RULES['maximum_distance_atr']+1e-10:reasons.append('entry beyond 0.50 ATR')
+        if m['opposing_wick_pct']>rules['max_opposing_wick_pct']+1e-10:reasons.append('opposing wick above '+str(rules['max_opposing_wick_pct'])+'%')
+        if distance<rules['minimum_distance_atr']-1e-10:reasons.append('clearance below '+str(rules['minimum_distance_atr'])+' ATR')
+        if distance>rules['maximum_distance_atr']+1e-10:reasons.append('entry beyond '+format(rules['maximum_distance_atr'],'.2f')+' ATR')
         result['source_checks'].append(dict(source=ref['source'],label=ref['label'],boundary=ref['price'],distance_atr=distance,passed=not reasons,reasons=reasons))
     result['passed_sources']=sorted({r['source'] for r in result['source_checks'] if r['passed']})
     if result['passed_sources']:
