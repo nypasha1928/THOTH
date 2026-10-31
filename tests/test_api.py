@@ -426,6 +426,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(result.json()['items'],[dict(symbol='JCTUSDT',reason='skipped: recovery baseline')])
         self.assertEqual(self.client.get('/api/live/signal-decisions?limit=201').status_code,422)
 
+    def test_signal_alert_export_includes_all_pages_and_linked_outcomes_without_writes(self):
+        import json,sqlite3
+        from thoth.app import live
+        before=self.client.get('/api/live').json()
+        with live.db() as db:
+            for i in range(405):
+                item=dict(symbol='ETHUSDT' if i%2 else 'SOLUSDT',time=i,observed_at=i,signal='Long',reason='queued: Long',alert_key='fixture-'+str(i),entry_sources=['ob:bullish_formed'])
+                db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',(i,item['symbol'],json.dumps(item)))
+        with sqlite3.connect(Path(live.path).with_suffix('.execution.sqlite')) as db:
+            db.execute('CREATE TABLE execution(link TEXT,phase TEXT,result TEXT,instrument TEXT)')
+            db.executemany('INSERT INTO execution VALUES(?,?,?,?)', [('fixture-'+str(i),'protected','{}','{}') for i in range(405)])
+        result=self.client.get('/api/live/signal-alerts/export?symbol=ETHUSDT&offset=50').json()
+        self.assertEqual(len(result['items']),405);self.assertEqual(result['total'],405)
+        self.assertEqual({x['symbol'] for x in result['items']},{'ETHUSDT','SOLUSDT'})
+        self.assertTrue(all(x['execution_phase']=='protected' for x in result['items']))
+        self.assertTrue(all(x['original_reason']=='queued: Long' for x in result['items']))
+        after=self.client.get('/api/live').json()
+        self.assertEqual(after['entries'],before['entries']);self.assertEqual(after['config'],before['config'])
+        with live.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_decisions').fetchone()[0],405)
+
     def test_signal_alerts_paginate_and_filter_saved_decisions(self):
         import json
         from thoth.app import live

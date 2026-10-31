@@ -197,6 +197,13 @@ def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$
     return read_alerts(live.path,symbol,limit,offset,{int(value) for value in watch_ids.split(',')} if watch_ids else set())
 
 
+@app.get('/api/live/signal-alerts/export')
+def export_signal_alerts():
+    # One retained snapshot, independent of dashboard filter/page. No new orders.
+    from .signal_alerts import read_alerts
+    return read_alerts(live.path,limit=None)
+
+
 @app.get('/api/live/market-leaders')
 def market_leader_lists():
     from .market_leaders import report

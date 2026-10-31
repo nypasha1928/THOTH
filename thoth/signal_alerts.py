@@ -35,17 +35,19 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
         if not item.get('alert_key') and item['reason'].startswith('queued:'):
             groups[key]['reason']='Historical queued update; final outcome not linked'
     items=sorted(groups.values(),key=lambda item:item['update_id'],reverse=True)
-    selected=items[offset:offset+limit]
+    selected=items[offset:] if limit is None else items[offset:offset+limit]
     watched=[item for item in items if item['id'] in watch_ids]
     candidates={item['id']:item for item in selected+watched}
     execution=Path(path).with_suffix('.execution.sqlite')
     links={item['alert_key'] for item in candidates.values() if item.get('alert_key')}
     if execution.exists() and links:
         with sqlite3.connect(f'file:{execution}?mode=ro',uri=True) as db:
-            placeholders=','.join('?' for _ in links)
-            for link,phase,result,instrument in db.execute('SELECT link,phase,result,instrument FROM execution WHERE link IN ('+placeholders+')',tuple(links)):
-                for item in candidates.values():
-                    if item.get('alert_key')!=link:continue
+            by_link={item.get('alert_key'):item for item in candidates.values() if item.get('alert_key')}
+            ordered=sorted(links)
+            for index in range(0,len(ordered),200):
+                chunk=ordered[index:index+200];placeholders=','.join('?' for _ in chunk)
+                for link,phase,result,instrument in db.execute('SELECT link,phase,result,instrument FROM execution WHERE link IN ('+placeholders+')',chunk):
+                    item=by_link[link]
                     item['execution_phase']=phase
                     item['reason']=PHASES.get(phase,'Execution state: '+phase)
                     execution_result=json.loads(result)
