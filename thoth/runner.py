@@ -55,11 +55,13 @@ class Runner:
         self.scan_cycle=0
         self.previous_scan_seconds=0.
         self.source_fingerprint=source_fingerprint()
+        self.history_generations={}
         self.history_path = str(Path(engine.path).with_suffix('.candles.sqlite'))
         with sqlite3.connect(self.history_path) as db:
             db.execute('CREATE TABLE IF NOT EXISTS price_observations(symbol TEXT,strategy TEXT,payload TEXT,PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS intrabar_observations(symbol TEXT, strategy TEXT, payload TEXT, PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS order_block_checkpoints(symbol TEXT,strategy TEXT,source TEXT,stamp INTEGER,payload TEXT,PRIMARY KEY(symbol,strategy))')
+            db.execute('CREATE TABLE IF NOT EXISTS candle_repairs(symbol TEXT,interval TEXT,generation INTEGER,PRIMARY KEY(symbol,interval))')
             db.execute('CREATE TABLE IF NOT EXISTS candles(symbol TEXT, interval TEXT, time INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,time))')
             db.execute('CREATE TABLE IF NOT EXISTS checkpoints(symbol TEXT, interval TEXT, strategy TEXT, source TEXT, stamp INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS analyses(symbol TEXT, interval TEXT, strategy TEXT, source TEXT, stamp INTEGER, payload TEXT, PRIMARY KEY(symbol,interval,strategy,stamp))')
@@ -82,7 +84,18 @@ class Runner:
     def history(self, symbol, interval, rows):
         """Persist history so moving API windows don't reset major/minor state."""
         duration = interval_seconds(interval)
+        from .history_backfill import validate_hourly
+        validate_hourly(rows,interval)
         with sqlite3.connect(self.history_path) as db:
+            repaired=db.execute('SELECT generation FROM candle_repairs WHERE symbol=? AND interval=?',(symbol,interval)).fetchone()
+            generation=repaired[0] if repaired else 0
+            if generation!=self.history_generations.get((symbol,interval),0):
+                self.history_generations[(symbol,interval)]=generation
+                for key in list(getattr(self,'early_hour_states',{})):
+                    if key[0]==symbol:self.early_hour_states.pop(key,None)
+                for strategy,payload in db.execute('SELECT strategy,payload FROM intrabar_observations WHERE symbol=?',(symbol,)).fetchall():
+                    tracker=json.loads(payload);tracker['session']='hourly-cache-repaired'
+                    db.execute('UPDATE intrabar_observations SET payload=? WHERE symbol=? AND strategy=?',(json.dumps(tracker),symbol,strategy))
             previous = db.execute('SELECT MAX(time) FROM candles WHERE symbol=? AND interval=?', (symbol,interval)).fetchone()[0]
             if previous is not None and rows[0]['time'] > previous + duration:
                 raise ValueError('Market history gap exceeds API window; backfill required')
