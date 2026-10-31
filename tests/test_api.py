@@ -32,6 +32,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(saved['entries'],before['entries']);self.assertEqual(saved['config']['leverage'],before['config']['leverage'])
         self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_1h_early').status_code,200)
 
+    def test_comparison_reports_selected_early_profile_and_connection_state(self):
+        from thoth.late_hour_comparison import LateHourComparison
+        before=self.client.get('/api/live').json()['config']
+        self.assertEqual(self.client.put('/api/live/settings',json={**before,'strategy':'order_block_sr_1h_early'}).status_code,200)
+        observer=LateHourComparison(Path(self.tmp.name)/'comparison.sqlite',Path(self.tmp.name)/'live.sqlite')
+        with patch('thoth.app.late_hour_comparison',observer):
+            result=self.client.get('/api/live/late-hour-comparison').json()
+        self.assertEqual(result['selected_strategy'],'order_block_sr_1h_early');self.assertTrue(result['collection_supported'])
+        self.assertEqual(result['strategy'],'order_block_sr_1h_early');self.assertEqual(result['rules']['maximum_distance_atr'],.5)
+        self.assertFalse(result['market_connected'])
+
     def test_late_hour_comparison_defaults_on_and_settings_are_isolated(self):
         from thoth.late_hour_comparison import LateHourComparison
         observer=LateHourComparison(Path(self.tmp.name)/'comparison.sqlite',Path(self.tmp.name)/'live.sqlite')

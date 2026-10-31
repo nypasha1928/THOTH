@@ -14,6 +14,7 @@ from .order_block import OrderBlockState,select
 from .signal_stretch import snapshot
 
 STRATEGY='order_block_sr_1h_close'
+SUPPORTED_STRATEGIES=(STRATEGY,'order_block_sr_1h_early')
 RULES=dict(start_minute=55,max_opposing_wick_pct=30.,minimum_distance_atr=.05,maximum_distance_atr=.50,ob_thickness_filter=False)
 
 def window_status(now):
@@ -109,7 +110,7 @@ class LateHourComparison:
         return self.report()
     def submit(self,symbol,cfg,history,observed_at):
         """Bounded nonblocking callback. No database or network work on LIVE thread."""
-        if not self.enabled or cfg.strategy!=STRATEGY:return
+        if not self.enabled or cfg.strategy not in SUPPORTED_STRATEGIES:return
         # Compare last five minutes; first five minutes are for closed-hour matching.
         if not (observed_at%3600>=3300 or observed_at%3600<300):return
         try:self.inputs.put_nowait((symbol,cfg,tuple(history),observed_at))
@@ -118,7 +119,7 @@ class LateHourComparison:
     def process(self,item):
         symbol,cfg,rows,observed_at=item
         with self.lock:
-            if not self.enabled or cfg.strategy!=STRATEGY or symbol not in cfg.symbols:return
+            if not self.enabled or cfg.strategy not in SUPPORTED_STRATEGIES or symbol not in cfg.symbols:return
             identity=strategy_fingerprint(cfg);bar=int(observed_at)//3600*3600
             key=(symbol,identity)
             state=self.states.get(key)
@@ -143,9 +144,13 @@ class LateHourComparison:
                         same_direction=bool(early and signal==early['signal']),same_sources=sorted(set(early['passed_sources'])&set(sources)) if early else [])
                     self._save(db,symbol,bar-3600,identity,record);return
                 if observed_at%3600<3300:return
-                sample=decision(rows,cfg,observed_at,self.clock(),state)
+                sample_rules=None
+                if cfg.strategy=='order_block_sr_1h_early':
+                    from .early_hour import rules
+                    sample_rules=rules(cfg)
+                sample=decision(rows,cfg,observed_at,self.clock(),state,sample_rules)
                 old=db.execute('SELECT payload FROM observations WHERE symbol=? AND bar=? AND identity=?',(symbol,bar,identity)).fetchone()
-                record=json.loads(old[0]) if old else dict(symbol=symbol,bar=bar,identity=identity,first_seen_at=observed_at,first_pass=None)
+                record=json.loads(old[0]) if old else dict(symbol=symbol,bar=bar,identity=identity,strategy=cfg.strategy,first_seen_at=observed_at,first_pass=None)
                 if record.get('latest',{}).get('observed_at',0)>observed_at:return
                 record['latest']=sample
                 if sample['signal'] and not record['first_pass']:record['first_pass']=deepcopy(sample)
@@ -156,13 +161,17 @@ class LateHourComparison:
     def _live_matches(self,items):
         """Exact symbol/hour/profile match; never infer a fill from chart arrows."""
         path=self.live_path.with_suffix('.execution.sqlite')
-        if not path.exists():return
+        if not path.exists() or not items:return
         pairs={}
-        for row in items:pairs.setdefault((row['symbol'],row['bar']+3600),[]).append(row)
+        for row in items:pairs.setdefault((row['symbol'],row['bar'],row.get('strategy',STRATEGY)),[]).append(row)
+        minimum=min(bar for _,bar,_ in pairs)
         with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=2) as db:
-            for payload,phase,instrument,result in db.execute("SELECT payload,phase,instrument,result FROM execution WHERE json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_strategy')=? AND json_extract(instrument,'$.thoth_entry_diagnostics.signal_bar_closed_at')>=?",(STRATEGY,min((b for _,b in pairs),default=0))):
-                p=json.loads(payload);meta=json.loads(instrument);stamp=(meta.get('thoth_entry_diagnostics') or {}).get('signal_bar_closed_at')
-                for row in pairs.get((p['symbol'],stamp),[]):row.setdefault('live_orders',[]).append(dict(side=p['side'],phase=phase,link=p.get('orderLinkId'),fill_price=json.loads(result).get('entry_timing',{}).get('fill_price')))
+            for payload,phase,instrument,result in db.execute("SELECT payload,phase,instrument,result FROM execution WHERE json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_strategy') IN (?,?) AND (json_extract(instrument,'$.thoth_early_window')>=? OR json_extract(instrument,'$.thoth_entry_diagnostics.signal_bar_closed_at')>=?)",(*SUPPORTED_STRATEGIES,minimum,minimum+3600)):
+                p=json.loads(payload);meta=json.loads(instrument);profile=meta.get('thoth_strategy')
+                stamp=meta.get('thoth_early_window') if profile=='order_block_sr_1h_early' else (meta.get('thoth_entry_diagnostics') or {}).get('signal_bar_closed_at')
+                if stamp is None:continue
+                bar=stamp if profile=='order_block_sr_1h_early' else stamp-3600
+                for row in pairs.get((p['symbol'],bar,profile),[]):row.setdefault('live_orders',[]).append(dict(side=p['side'],phase=phase,link=p.get('orderLinkId'),fill_price=json.loads(result).get('entry_timing',{}).get('fill_price')))
     def report(self,limit=50,offset=0):
         with self.lock,self.db() as db:
             total=db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]
@@ -174,7 +183,7 @@ class LateHourComparison:
         for row in items:
             chosen=row.get('first_pass') or row['latest']
             row.update(decision=chosen['reason'],observed_at=chosen['observed_at'],signal=chosen['signal'],price=chosen['price'])
-        return dict(enabled=self.enabled,mode='signal_comparison_only',strategy=STRATEGY,rules=RULES,items=items,total=total,limit=limit,offset=offset,
+        return dict(enabled=self.enabled,mode='signal_comparison_only',strategy=STRATEGY,supported_strategies=SUPPORTED_STRATEGIES,rules=RULES,items=items,total=total,limit=limit,offset=offset,
             dropped=self.dropped,error=self.error,matching_error=matching_error,server_time=self.clock(),window=window_status(self.clock()),latest_observed_at=latest,limitations='Sampled observations; no orders, simulated fills or hypothetical P&L. Risk checks are not evaluated. Uses existing downloads only; a signal between scans can be missed. Missing closed-hour observations remain unverified.')
     def run(self):
         while not self.stop_event.is_set():

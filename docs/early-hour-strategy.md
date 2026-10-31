@@ -39,7 +39,9 @@ Live checking is sampled, not tick-by-tick. A market order submitted before :00
 may fill or be observed afterward. History labels these measurements as forming
 candle snapshots, not final hourly closes. Execution records keep the sources
 that passed the final recheck. The existing Analysis comparison remains an
-independent observation-only feature for the Bar Close profile.
+independent observation-only feature for both the Bar Close and Early profiles.
+It uses the Early profile’s saved limits and labels the profile on each record;
+missing past intrabar observations are not reconstructed.
 
 Validation uses synthetic candles and a simulated exchange; it does not establish
 profitability or TradingView parity and never places real orders.
