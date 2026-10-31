@@ -10,6 +10,7 @@ class FeedAdapter:
         self.supervisor=supervisor
         self.path=supervisor.path
         self.volume_delta_data={}
+        self.history_recovery={}
 
     def snapshot(self):
         state=self.supervisor.load()
@@ -95,11 +96,23 @@ class FeedAdapter:
         if not self.supervisor.client:raise ValueError('Account is not connected')
         return self.supervisor.client.candles(symbol,timeframe,limit=self.staged_history_limit(symbol,timeframe))
 
+    def closed_hour_inputs(self,symbol):
+        """Repair real missing candles in bounded download work, never on the order path."""
+        from .history_backfill import recover
+        rows=self.supervisor.client.candles(symbol,'60',limit=self.staged_history_limit(symbol,'60'))
+        rows,status=recover(Path(self.path).with_suffix('.candles.sqlite'),symbol,'60',rows,
+            self.supervisor.client.candles,self.supervisor.clock(),self.history_recovery.get(symbol))
+        self.history_recovery[symbol]=status
+        return rows
+
+    def history_recovery_status(self,symbol):
+        return self.history_recovery.get(symbol)
+
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})
         if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
-            return self.supervisor.client.candles(symbol,'60',limit=self.staged_history_limit(symbol,'60'))
+            return self.closed_hour_inputs(symbol)
         if cfg.strategy in ('order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h'):return self.staged_minute_inputs(symbol,cfg.timeframe)
         if cfg.strategy=='sr_volume_intrabar':
             primary={}

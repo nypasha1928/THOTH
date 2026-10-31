@@ -717,6 +717,8 @@ class Runner:
                     if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES):
                         observations.pop(symbol,None)
                         statuses[symbol]=dict(status='error',message=str(exc)[:240])
+                        recovery=getattr(self.engine,'history_recovery_status',None)
+                        if callable(recovery) and recovery(symbol):statuses[symbol]['history_recovery']=recovery(symbol)
                     else:downloaded[symbol]=exc
         duration = interval_seconds(cfg.timeframe)
         for symbol in (() if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else symbols):

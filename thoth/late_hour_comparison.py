@@ -16,6 +16,12 @@ from .signal_stretch import snapshot
 STRATEGY='order_block_sr_1h_close'
 RULES=dict(start_minute=55,max_opposing_wick_pct=30.,minimum_distance_atr=.05,maximum_distance_atr=.50,ob_thickness_filter=False)
 
+def window_status(now):
+    start=int(now)//3600*3600;seconds=now-start
+    return dict(state='entry_window_open' if seconds>=3300 else 'closed_hour_matching' if seconds<300 else 'waiting',
+        next_window_at=start+3300 if seconds<3300 else start+6900,
+        window_ends_at=start+3600 if seconds>=3300 else None)
+
 class ComparisonSettings(BaseModel):
     model_config=ConfigDict(extra='forbid')
     enabled: bool=True
@@ -158,6 +164,7 @@ class LateHourComparison:
     def report(self,limit=50,offset=0):
         with self.lock,self.db() as db:
             total=db.execute('SELECT COUNT(*) FROM observations').fetchone()[0]
+            latest=db.execute("SELECT MAX(json_extract(payload,'$.latest.observed_at')) FROM observations").fetchone()[0]
             items=[json.loads(r[0]) for r in db.execute('SELECT payload FROM observations ORDER BY bar DESC,symbol LIMIT ? OFFSET ?',(limit,offset))]
         matching_error=None
         try:self._live_matches(items)
@@ -166,7 +173,7 @@ class LateHourComparison:
             chosen=row.get('first_pass') or row['latest']
             row.update(decision=chosen['reason'],observed_at=chosen['observed_at'],signal=chosen['signal'],price=chosen['price'])
         return dict(enabled=self.enabled,mode='signal_comparison_only',strategy=STRATEGY,rules=RULES,items=items,total=total,limit=limit,offset=offset,
-            dropped=self.dropped,error=self.error,matching_error=matching_error,server_time=self.clock(),limitations='Sampled observations; no orders, simulated fills or hypothetical P&L. Risk checks are not evaluated. Uses existing downloads only; a signal between scans can be missed. Missing closed-hour observations remain unverified.')
+            dropped=self.dropped,error=self.error,matching_error=matching_error,server_time=self.clock(),window=window_status(self.clock()),latest_observed_at=latest,limitations='Sampled observations; no orders, simulated fills or hypothetical P&L. Risk checks are not evaluated. Uses existing downloads only; a signal between scans can be missed. Missing closed-hour observations remain unverified.')
     def run(self):
         while not self.stop_event.is_set():
             try:item=self.inputs.get(timeout=.5)
