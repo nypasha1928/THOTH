@@ -42,7 +42,11 @@ function signalAlertSources(item){
   return source;
  });
  const parts=recorded.length?recorded:[...(d.rsi_events||[]).map(k=>names[k]||k),...(d.sr_levels||[]).map(k=>'S/R '+k.replaceAll('_',' '))];
- return parts.join(' · ')||(item.strategy?.startsWith('sr_')?'S/R / strategy signal':item.strategy?.startsWith('sma')?'SMA crossover':'RSI / strategy signal');
+ if(parts.length)return parts.join(' · ');
+ const candidates=[...new Set((d.source_checks||[]).map(check=>check.label).filter(Boolean))];
+ if(candidates.length)return 'Candidate (not qualified): '+candidates.join(' · ');
+ if(item.strategy?.startsWith('order_block_sr_')||['ob_sr_hour_gate','ob_sr_minute_hourly'].includes(item.strategy))return 'Order Block / Major S/R · source not recorded';
+ return item.strategy?.startsWith('sr_')?'S/R / strategy signal':item.strategy?.startsWith('sma')?'SMA crossover':item.strategy==='rsi_hourly_intrabar'?'RSI / strategy signal':'Source not recorded';
 }
 function signalAlertDirection(item){
  if(item.signal)return item.signal==='Long'?'Bullish / Long':item.signal==='Short'?'Bearish / Short':item.signal;
