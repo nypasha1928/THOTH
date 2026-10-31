@@ -1,11 +1,11 @@
 // Measurements only: no exhaustion score, filter, or trading action.
 function stretchNumber(value,digits=2){return value!=null&&Number.isFinite(Number(value))?Number(value).toFixed(digits):'Not recorded'}
 function stretchValue(value,unit='',digits=2){return value==null?'Not recorded':stretchNumber(value,digits)+unit}
-function signalStretchSummary(m){if(!m)return 'Not recorded';return 'Range '+stretchValue(m.range_atr14,'× ATR14')+' · opposing wick '+stretchValue(m.opposing_wick_pct,'%',1)+' · close→fill '+(m.close_to_fill_pct==null?'not recorded':(m.close_to_fill_pct>=0?'+':'')+stretchNumber(m.close_to_fill_pct,3)+'%')}
+function signalStretchSummary(m){if(!m)return 'Not recorded';return 'Range '+stretchValue(m.range_atr14,'× ATR14')+' · opposing wick '+stretchValue(m.opposing_wick_pct,'%',1)+' · '+(m.provisional?'snapshot→fill ':'close→fill ')+(m.close_to_fill_pct==null?'not recorded':(m.close_to_fill_pct>=0?'+':'')+stretchNumber(m.close_to_fill_pct,3)+'%')}
 function signalStretchText(m){
  if(!m)return 'Not recorded';
- const lines=[signalStretchSummary(m),'1h signal candle · '+m.atr_basis,'ATR14: '+stretchNumber(m.atr14,8),'Close→qualification: '+stretchValue(m.qualification_after_close_seconds,'s',1),'Close→fill observed: '+stretchValue(m.close_to_fill_observed_seconds,'s',1),'Close→fill: positive = worse entry; negative = better entry. Fill time is when THOTH observed the fill.'];
- for(const r of m.references||[])lines.push(r.label+' · '+r.kind.replaceAll('_',' ')+' '+Number(r.price).toPrecision(8)+' · close distance '+stretchNumber(r.close_distance_pct,3)+'% · entry distance '+stretchValue(r.entry_distance_pct,'%',3));
+ const lines=[signalStretchSummary(m),(m.provisional?'Forming 1h signal candle · ':'1h signal candle · ')+m.atr_basis,'ATR14: '+stretchNumber(m.atr14,8),m.provisional?'Qualification: forming candle snapshot':'Close→qualification: '+stretchValue(m.qualification_after_close_seconds,'s',1),(m.provisional?'Snapshot→fill observed: ':'Close→fill observed: ')+stretchValue(m.provisional?m.snapshot_to_fill_observed_seconds:m.close_to_fill_observed_seconds,'s',1),(m.provisional?'Snapshot→fill: ':'Close→fill: ')+'positive = worse entry; negative = better entry. Fill time is when THOTH observed the fill.'];
+ for(const r of m.references||[])lines.push(r.label+' · '+r.kind.replaceAll('_',' ')+' '+Number(r.price).toPrecision(8)+(m.provisional?' · snapshot distance ':' · close distance ')+stretchNumber(r.close_distance_pct,3)+'% · entry distance '+stretchValue(r.entry_distance_pct,'%',3));
  lines.push('Reference distances: positive = beyond boundary in signal direction; negative = inside. Formation edges are not breakout levels. Missing measurements are not zero. These measurements do not predict exhaustion.');
  return lines.join('\n');
 }

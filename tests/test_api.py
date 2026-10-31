@@ -23,6 +23,15 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_early_hour_profile_save_does_not_activate_orders(self):
+        before=self.client.get('/api/live').json()
+        response=self.client.put('/api/live/settings',json={**before['config'],'strategy':'order_block_sr_1h_early','timeframe':'D','early_min_distance_atr':.08,'early_max_distance_atr':.6})
+        self.assertEqual(response.status_code,200,response.text)
+        saved=response.json();self.assertEqual(saved['config']['timeframe'],'60')
+        self.assertEqual(saved['config']['early_min_distance_atr'],.08)
+        self.assertEqual(saved['entries'],before['entries']);self.assertEqual(saved['config']['leverage'],before['config']['leverage'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=order_block_sr_1h_early').status_code,200)
+
     def test_late_hour_comparison_defaults_on_and_settings_are_isolated(self):
         from thoth.late_hour_comparison import LateHourComparison
         observer=LateHourComparison(Path(self.tmp.name)/'comparison.sqlite',Path(self.tmp.name)/'live.sqlite')

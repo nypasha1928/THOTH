@@ -232,7 +232,7 @@ class Runner:
         from .order_block import OrderBlockState,select,entry_volume
         duration=interval_seconds(cfg.timeframe);start=int(now)//duration*duration
         minute_gate=cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly')
-        unfiltered=minute_gate or cfg.strategy in ('order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close')
+        unfiltered=minute_gate or cfg.strategy in ('order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early')
         if not rows or rows[-1]['time']!=start:raise ValueError('Current '+cfg.timeframe+' Order Block candle unavailable')
         history=self.history(symbol,cfg.timeframe,rows) if history is None else history
         volume=({'passed':True,'reason':'no volume filter'} if minute_gate else entry_volume(history,cfg.timeframe)) if unfiltered else None
@@ -368,6 +368,41 @@ class Runner:
             if callable(held_reader) and not held_reader(symbol):
                 result.update(signal=None,entry_sources=[],entry_context=None,signal_diagnostic=None)
                 result['volume_delta_status']='Hourly entry window closed; tracking sources without queuing entries'
+        return result
+
+    def early_hour_observation(self,symbol,cfg,rows,now):
+        from .early_hour import context,rules,window
+        from .late_hour_comparison import SourceState,decision
+        history=self.history(symbol,'60',rows);bar=int(now)//3600*3600
+        if not history or history[-1]['time']!=bar:raise ValueError('Current forming hour unavailable')
+        identity=strategy_fingerprint(cfg)+':early-hour'
+        if not hasattr(self,'early_hour_states'):self.early_hour_states={}
+        state=self.early_hour_states.get((symbol,identity))
+        if state is None:state=self.early_hour_states[(symbol,identity)]=SourceState(cfg)
+        state.advance(history,now)
+        with sqlite3.connect(self.history_path) as db:
+            saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
+            tracker=json.loads(saved[0]) if saved else {}
+            continuous=tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle) and 0<now-tracker.get('observed_at',0)<=300
+            fired=tracker.get('fired',False) if tracker.get('bar')==bar else False
+            result=dict(time=now,mark=history[-1]['close'],signal=None,entry_sources=[],source_errors={},volume_checks={},entry_context=None,
+                volume_delta_status='Early 1h Order Block OR Major S/R; waiting for :55–:00',sampling=dict(continuous=continuous,closed_bar=bar-3600))
+            if window(now):
+                raw=decision(history,cfg,now,now,state,rules(cfg))
+                result['volume_delta_status']=raw['reason']
+                if raw['signal'] and continuous and not fired:
+                    result.update(signal=raw['signal'],entry_sources=raw['passed_sources'],entry_context=context(state,history,cfg,now))
+                    metrics=raw['metrics'];metrics.update(observed_at=now,early_rules=rules(cfg))
+                    result['entry_context']['signal_stretch']=metrics
+                    from .entry_diagnostics import qualification
+                    result['entry_diagnostics']=qualification(raw['passed_sources'],{s:dict(first_seen_at=now,first_seen_price=raw['price']) for s in raw['passed_sources']},now,raw['price'],tracker.get('observed_at'))
+                    fired=True
+                elif raw['signal'] and not continuous:result['volume_delta_status']='Early observation baseline; waiting for a fresh continuous sample'
+                elif raw['signal'] and fired:result['volume_delta_status']='Early hourly signal already observed; next hour requires a new decision'
+                elif raw['raw_sources'] and tracker.get('reason')!=raw['reason']:
+                    result['signal_diagnostic']=dict(reason=raw['reason'],source_checks=raw['source_checks'],signal=None)
+            tracker.update(bar=bar,observed_at=now,session=self.observation_session,scan_cycle=self.scan_cycle,fired=fired,reason=result['volume_delta_status'])
+            db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return result
 
     def closed_inverted_order_block_sr_observation(self,symbol,cfg,rows,now,sample_received_at=None):
@@ -656,7 +691,7 @@ class Runner:
         self.scan_cycle+=1
         observations, statuses = {}, {}
         sample_timings={}
-        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) and
+        streaming=(cfg.strategy in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) and
                    callable(getattr(self.engine,'begin_market_scan',None)) and
                    callable(getattr(self.engine,'market_observation',None)))
         if streaming:self.engine.begin_market_scan()
@@ -667,7 +702,7 @@ class Runner:
             observations[symbol]=observation
             statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,
                 signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}),volume_checks=observation.get('volume_checks',{}))
-            if cfg.strategy in (HOUR_GATE,'order_block_sr_1h_close','order_block_sr_1h_inverted_close'):
+            if cfg.strategy in (HOUR_GATE,'order_block_sr_1h_close','order_block_sr_1h_early','order_block_sr_1h_inverted_close'):
                 statuses[symbol]['sampling']=observation.get('sampling',{})
             if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)
         if cfg.strategy in STAGED_STRATEGIES:
@@ -688,7 +723,7 @@ class Runner:
             try:return self.fetch(symbol, cfg.timeframe)
             finally:sample_timings[symbol]=dict(sample_requested_at=started,sample_received_at=time.time())
         with ThreadPoolExecutor(max_workers=4) as pool:
-            if cfg.strategy in (*STAGED_STRATEGIES,'sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close'):
+            if cfg.strategy in (*STAGED_STRATEGIES,'sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'):
                 completed=bounded_downloads(pool,symbols,fetch_limited,self.stop_event)
             else:
                 for symbol in symbols:
@@ -706,22 +741,22 @@ class Runner:
                         observations[symbol]=dict(signal=None)
                         statuses[symbol]=dict(status='ok',signal=None,note='Armed; checked by independent minute worker')
                         continue
-                    if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES):
+                    if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES):
                         # Delta needs current 1m inputs: process ready symbols now,
                         # rather than age their samples behind the whole download.
                         now=time.time()
-                        observation=self.closed_inverted_order_block_sr_observation(symbol,cfg,rows,now,sample_timings.get(symbol,{}).get('sample_received_at')) if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.combined_order_block_sr_observation(symbol,cfg,rows,now) if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.order_block_observation(symbol,cfg,rows,now) if cfg.strategy=='order_block_intrabar' else self.sma_intrabar_observation(symbol,cfg,rows,now) if cfg.strategy=='sma_7_50_intrabar' else self.sr_volume_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_volume_intrabar' else self.staged_observation(symbol,cfg,rows,now) if cfg.strategy in STAGED_STRATEGIES else self.volume_delta_observation(symbol,cfg,rows,now)
+                        observation=self.early_hour_observation(symbol,cfg,rows,now) if cfg.strategy=='order_block_sr_1h_early' else self.closed_inverted_order_block_sr_observation(symbol,cfg,rows,now,sample_timings.get(symbol,{}).get('sample_received_at')) if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close') else self.combined_order_block_sr_observation(symbol,cfg,rows,now) if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else self.order_block_observation(symbol,cfg,rows,now) if cfg.strategy=='order_block_intrabar' else self.sma_intrabar_observation(symbol,cfg,rows,now) if cfg.strategy=='sma_7_50_intrabar' else self.sr_volume_observation(symbol,cfg,rows,now) if cfg.strategy=='sr_volume_intrabar' else self.staged_observation(symbol,cfg,rows,now) if cfg.strategy in STAGED_STRATEGIES else self.volume_delta_observation(symbol,cfg,rows,now)
                         record(symbol,observation)
                     else:downloaded[symbol]=rows
                 except Exception as exc:
-                    if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES):
+                    if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES):
                         observations.pop(symbol,None)
                         statuses[symbol]=dict(status='error',message=str(exc)[:240])
                         recovery=getattr(self.engine,'history_recovery_status',None)
                         if callable(recovery) and recovery(symbol):statuses[symbol]['history_recovery']=recovery(symbol)
                     else:downloaded[symbol]=exc
         duration = interval_seconds(cfg.timeframe)
-        for symbol in (() if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES) else symbols):
+        for symbol in (() if cfg.strategy in ('volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else symbols):
             if self.stop_event.is_set(): return
             try:
                 rows = downloaded[symbol]
@@ -744,13 +779,13 @@ class Runner:
         # Missing held-position data blocks new entries. An unavailable unheld symbol
         # does not suppress otherwise valid signals on unrelated symbols.
         held={p['symbol'] for p in state['positions']}
-        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close',*STAGED_STRATEGIES):
+        if held-set(observations) and cfg.strategy not in ('rsi_hourly_intrabar',DAILY_COMBINED,'sr_inverse_intrabar','volume_delta_intrabar','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES):
             for observation in observations.values(): observation['signal'] = None
         if not streaming:self.engine.market_cycle(cfg.model_dump(), observations)
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) or any(s['status']!='ok' for s in statuses.values()) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
-                       'note': 'Intrabar 1m Order Block / S/R; one entry per coin per UTC hour; hourly total capped by Maximum Positions; entry window ' +str(cfg.minute_entry_window_minutes)+' minutes; opposite 1m closes only; NO filters' if cfg.strategy=='ob_sr_minute_hourly' else 'Single-use CLOSED 1h permission -> intrabar 1m entry / CLOSED 1m opposite exit; minute S/R Bounce/Rejection ONLY; OB unchanged; NO filters' if cfg.strategy==HOUR_GATE else '1h CLOSED Order Block OR S/R; '+('INVERTED' if cfg.strategy=='order_block_sr_1h_inverted_close' else 'NORMAL')+' entries; NO volume filter' if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close') else ('1h' if cfg.timeframe=='60' else '4h')+' Order Block OR Major only S/R; both require Volume > MA 20; intrabar' if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else '4h Order Block intrabar; all four signals require Volume > MA 20; no SMA exit' if cfg.strategy=='order_block_intrabar' else '4h SMA 7/50 intrabar reversal; no SMA exit' if cfg.strategy=='sma_7_50_intrabar' else 'Direct 4h/Daily S/R intrabar entries; forming volume > MA '+str(cfg.sr_volume_period)+'; no SMA exit' if cfg.strategy=='sr_volume_intrabar' else '4h/Daily S/R ONLY permission; 5m Order Block chooses either direction; SMA 200: formation inverted, supply break above / demand break below; no SMA exit' if cfg.strategy==ORDER_BLOCK_STRATEGY else '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy in STAGED_STRATEGIES else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': 'Early 1h OB / Major S/R · :55–:00 · normal reversal; fresh rejection/distance rules' if cfg.strategy=='order_block_sr_1h_early' else 'Intrabar 1m Order Block / S/R; one entry per coin per UTC hour; hourly total capped by Maximum Positions; entry window ' +str(cfg.minute_entry_window_minutes)+' minutes; opposite 1m closes only; NO filters' if cfg.strategy=='ob_sr_minute_hourly' else 'Single-use CLOSED 1h permission -> intrabar 1m entry / CLOSED 1m opposite exit; minute S/R Bounce/Rejection ONLY; OB unchanged; NO filters' if cfg.strategy==HOUR_GATE else '1h CLOSED Order Block OR S/R; '+('INVERTED' if cfg.strategy=='order_block_sr_1h_inverted_close' else 'NORMAL')+' entries; NO volume filter' if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else ('1h' if cfg.timeframe=='60' else '4h')+' Order Block OR Major only S/R; both require Volume > MA 20; intrabar' if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else '4h Order Block intrabar; all four signals require Volume > MA 20; no SMA exit' if cfg.strategy=='order_block_intrabar' else '4h SMA 7/50 intrabar reversal; no SMA exit' if cfg.strategy=='sma_7_50_intrabar' else 'Direct 4h/Daily S/R intrabar entries; forming volume > MA '+str(cfg.sr_volume_period)+'; no SMA exit' if cfg.strategy=='sr_volume_intrabar' else '4h/Daily S/R ONLY permission; 5m Order Block chooses either direction; SMA 200: formation inverted, supply break above / demand break below; no SMA exit' if cfg.strategy==ORDER_BLOCK_STRATEGY else '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy in STAGED_STRATEGIES else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():
