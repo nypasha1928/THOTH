@@ -1,4 +1,6 @@
 """Read-only signal lifecycle projection, joined by exact execution identity."""
+
+from .database import connect
 import json
 import hashlib
 import sqlite3
@@ -19,7 +21,7 @@ PHASES={
 
 
 def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
-    with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+    with connect(f'file:{path}?mode=ro',uri=True) as db:
         saved=db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()
         state=json.loads(saved[0]) if saved else {}
         records=db.execute('SELECT id,payload FROM signal_decisions'+(' WHERE symbol=?' if symbol else '')+' ORDER BY id', (symbol,) if symbol else ()).fetchall()
@@ -41,7 +43,7 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
     execution=Path(path).with_suffix('.execution.sqlite')
     links={item['alert_key'] for item in candidates.values() if item.get('alert_key')}
     if execution.exists() and links:
-        with sqlite3.connect(f'file:{execution}?mode=ro',uri=True) as db:
+        with connect(f'file:{execution}?mode=ro',uri=True) as db:
             by_link={item.get('alert_key'):item for item in candidates.values() if item.get('alert_key')}
             ordered=sorted(links)
             for index in range(0,len(ordered),200):

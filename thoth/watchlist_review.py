@@ -1,4 +1,6 @@
 """Read-only review of saved symbols; never changes trading eligibility."""
+
+from .database import connect
 import collections
 import json
 import sqlite3
@@ -9,7 +11,7 @@ from pathlib import Path
 
 def read(path, scope='current'):
     path=Path(path)
-    with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+    with connect(f'file:{path}?mode=ro',uri=True) as db:
         saved=db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()
         state=json.loads(saved[0]) if saved else {}
         cfg=state.get('config',{});strategy=cfg.get('strategy')
@@ -42,7 +44,7 @@ def read(path, scope='current'):
             g['entry_check_failures']+=1;g['check_failure_reasons'][reason]=g['check_failure_reasons'].get(reason,0)+1
     journal=path.with_suffix('.execution.sqlite')
     if journal.exists():
-        with sqlite3.connect(f'file:{journal}?mode=ro',uri=True) as db:
+        with connect(f'file:{journal}?mode=ro',uri=True) as db:
             for payload,phase,instrument,result in db.execute('SELECT payload,phase,instrument,result FROM execution'):
                 p=json.loads(payload);inst=json.loads(instrument);result=json.loads(result)
                 r={'symbol':p.get('symbol'),'strategy':inst.get('thoth_strategy')}

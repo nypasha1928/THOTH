@@ -4,6 +4,8 @@ The dashboard must explicitly activate testnet orders; credentials, a password,
 a dedicated account acknowledgement and a server-side feature flag are required.
 After a restart only risk management resumes; new entries need manual activation.
 """
+
+from .database import connect
 from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE
 import hashlib
 import json
@@ -108,7 +110,7 @@ class TestnetSupervisor:
             self.state.update(status='recovery_required',reason='Recover managed positions before enabling new entries')
         self.save()
 
-    def db(self):return sqlite3.connect(self.path,timeout=15)
+    def db(self):return connect(self.path,timeout=15)
 
     def load(self):
         with self.db() as db:state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])

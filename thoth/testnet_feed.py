@@ -1,4 +1,6 @@
 """Reuse causal market replay on testnet prices, with a separate account engine."""
+
+from .database import connect
 from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE
 from .models import Settings,TestnetSettings
 import sqlite3
@@ -71,7 +73,7 @@ class FeedAdapter:
             if path.exists():
                 from .verification import strategy_fingerprint
                 try:
-                    with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+                    with connect(f'file:{path}?mode=ro',uri=True) as db:
                         row=db.execute('SELECT stamp FROM order_block_checkpoints WHERE symbol=? AND strategy=?',(symbol,strategy_fingerprint(cfg))).fetchone()
                         count=db.execute("SELECT COUNT(*) FROM candles WHERE symbol=? AND interval=?",(symbol,interval)).fetchone()[0]
                     if row and count>=(200 if cfg.strategy==ORDER_BLOCK_STRATEGY else max(14,2*cfg.pivot_long+1) if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close') else 14):
@@ -86,7 +88,7 @@ class FeedAdapter:
         path=Path(self.path).with_suffix('.candles.sqlite')
         if not path.exists():return 1000
         try:
-            with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+            with connect(f'file:{path}?mode=ro',uri=True) as db:
                 count,last=db.execute('SELECT COUNT(*),MAX(time) FROM candles WHERE symbol=? AND interval=?',(symbol,interval)).fetchone()
             if count<50 or last is None or last>self.supervisor.clock():return 1000
             return min(1000,max(3,int((self.supervisor.clock()-last)//interval_seconds(interval))+3))
@@ -142,7 +144,7 @@ class FeedAdapter:
         if cfg.strategy!='rsi_hourly_intrabar' or not cfg.rsi.ml_signals or cfg.rsi.calculation_mode!='corrected':return rows
         required=cfg.rsi.max_data+cfg.rsi.rsi_length+6*cfg.rsi.smooth_period+2
         path=str(Path(self.path).with_suffix('.candles.sqlite'))
-        with sqlite3.connect(path) as db:
+        with connect(path) as db:
             stored=[r[0] for r in db.execute('SELECT time FROM candles WHERE symbol=? AND interval=?',(symbol,interval))]
         known=set(stored)|{row['time'] for row in rows}
         if len(known)>=required:return rows

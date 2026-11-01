@@ -1,4 +1,6 @@
 """Bounded recovery of actual missing historical candles; no invented OHLC or order access."""
+
+from .database import connect
 import sqlite3
 import json
 from math import isfinite
@@ -28,7 +30,7 @@ def quarantine_hourly(path,symbol,now):
     """
     path=Path(path)
     if not path.exists():return dict(quarantined_bars=0)
-    with sqlite3.connect(path,timeout=15) as db:
+    with connect(path,timeout=15) as db:
         exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='candles'").fetchone()
         if not exists:return dict(quarantined_bars=0)
         contaminated=db.execute("SELECT 1 FROM candles WHERE symbol=? AND interval='60' AND (time%3600!=0 OR json_extract(payload,'$.time')!=time) LIMIT 1",(symbol,)).fetchone()
@@ -80,7 +82,7 @@ def recover(path,symbol,interval,fresh,fetch,now,previous=None,max_pages=2):
     if not fresh:return fresh,dict(active=False,reason='Fresh candles unavailable')
     if not path.exists():return fresh,dict(active=False,reason='Initial history bootstrap')
     try:
-        with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=2) as db:
+        with connect('file:'+str(path)+'?mode=ro',uri=True,timeout=2) as db:
             times=[r[0] for r in db.execute('SELECT time FROM candles WHERE symbol=? AND interval=? ORDER BY time',(symbol,interval))]
     except sqlite3.OperationalError:return fresh,dict(active=False,reason='History bootstrap')
     if not times:return fresh,dict(active=False,reason='Initial symbol bootstrap')
