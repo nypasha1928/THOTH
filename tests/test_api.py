@@ -23,6 +23,24 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_entry_schedule_save_is_independent_and_readiness_exposes_block(self):
+        from thoth.app import live
+        from thoth.verification import strategy_fingerprint
+        from test_entry_schedule import at
+        before=self.client.get('/api/live').json()
+        from thoth.models import Settings
+        fingerprint=strategy_fingerprint(Settings(**{k:v for k,v in before['config'].items() if k in Settings.model_fields}))
+        with patch.object(live,'clock',return_value=at('2026-11-02T10:44:59')):
+            saved=self.client.put('/api/live/settings',json={**before['config'],'entry_daily_enabled':True,'entry_weekend_enabled':True}).json()
+            self.assertTrue(saved['entry_schedule']['blocked']);self.assertFalse(saved['entries'])
+            self.assertEqual(saved['entry_schedule']['next_open_at'],at('2026-11-02T10:45:00'))
+            self.assertEqual(strategy_fingerprint(saved['config']),fingerprint)
+            self.assertTrue(self.client.get('/api/readiness').json()['entry_schedule']['blocked'])
+        with patch.object(live,'clock',return_value=at('2026-11-02T10:45:00')):
+            current=self.client.get('/api/live').json()
+            self.assertFalse(current['entry_schedule']['blocked']);self.assertFalse(current['entries'])
+            self.assertEqual(current['config']['stop_dollars'],before['config']['stop_dollars'])
+
     def test_early_hour_profile_save_does_not_activate_orders(self):
         before=self.client.get('/api/live').json()
         response=self.client.put('/api/live/settings',json={**before['config'],'strategy':'order_block_sr_1h_early','timeframe':'D','early_min_distance_atr':.08,'early_max_distance_atr':.6})

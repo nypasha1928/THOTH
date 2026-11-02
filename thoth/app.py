@@ -141,7 +141,8 @@ def readiness():
     live_state=live.snapshot()
     reference=reference_status(live_state['config'],DATA/'validation')
     healthy=bool(live_state['last_monitor'] and __import__('time').time()-live_state['last_monitor']<15)
-    return {'live_ready':bool(live_state['entries'] and live_state['status']=='running' and healthy and (reference['verified'] or live.allow_unverified)),
+    return {'live_ready':bool(live_state['entries'] and live_state['status']=='running' and healthy and not live_state['entry_schedule']['blocked'] and (reference['verified'] or live.allow_unverified)),
+        'live_entries_armed':bool(live_state['entries'] and live_state['status']=='running'),'entry_schedule':live_state['entry_schedule'],
         'unverified_live_allowed':live.allow_unverified,'live_reference':reference,
         'public_host_configured':bool(PUBLIC_HOST),'authentication_configured':bool(PASSWORD)}
 

@@ -53,6 +53,7 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
                     item['execution_phase']=phase
                     item['reason']=PHASES.get(phase,'Execution state: '+phase)
                     execution_result=json.loads(result)
+                    if execution_result.get('not_submitted'):item['reason']='Not submitted: '+execution_result.get('reason','entry eligibility changed')
                     from .signal_stretch import with_fill
                     metrics=json.loads(instrument).get('thoth_signal_stretch') or item.get('signal_stretch')
                     if metrics:item['signal_stretch']=with_fill(metrics,execution_result.get('entry_timing',{}))

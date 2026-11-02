@@ -80,7 +80,7 @@ class ExecutionJournal:
                 db.execute('UPDATE execution SET result=? WHERE link=?',(json.dumps(result),link))
         except Exception:pass  # Diagnostics must not interrupt protection/settlement.
 
-    def submit(self,payload,stop_dollars=None,instrument=None):
+    def submit(self,payload,stop_dollars=None,instrument=None,entry_guard=None):
         with self.lock:
             link=payload.get('orderLinkId')
             if not link or not payload.get('symbol'):raise ValueError('Missing execution identity')
@@ -101,13 +101,15 @@ class ExecutionJournal:
                 return self.poll(link)  # Never submit an existing intent again.
             if not payload.get('reduceOnly'):self.record_timing(link,submit_started_at=self.clock())
             try:
-                response=self.client.submit(payload)
+                response=self.client.submit(payload,entry_guard=entry_guard) if entry_guard is not None else self.client.submit(payload)
             except AmbiguousOrder:
                 return self.update(link,'unknown',{'reason':'Submission outcome unknown; reconcile before continuing'})
             except BybitError as exc:
                 return self.update(link,'rejected',{'reason':'Exchange rejected submission','exchange_code':exc.code})
             except Exception:
                 return self.update(link,'unknown',{'reason':'Submission interrupted; reconcile before continuing'})
+            if response['state']=='not_submitted':
+                return self.update(link,'cancelled',{'reason':response['reason'],'not_submitted':True})
             if not payload.get('reduceOnly'):self.record_timing(link,acknowledged_at=self.clock())
             if response['state']=='reconciled':
                 return self.poll(link)

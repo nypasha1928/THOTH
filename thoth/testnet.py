@@ -7,6 +7,8 @@ After a restart only risk management resumes; new entries need manual activation
 
 from .database import connect
 from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE
+from copy import deepcopy
+from .entry_schedule import reason as schedule_reason,status as schedule_status
 import hashlib
 import json
 import sqlite3
@@ -167,6 +169,7 @@ class TestnetSupervisor:
             'pnl_trailing':s['pnl_trailing'],'equity_trailing':s['equity_trailing'],'entry_gates':s.get('entry_gates',{}),
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'order_block_exit_blocks':s.get('order_block_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'monitor_failures':s.get('monitor_failures',[]),
+            'entry_schedule':schedule_status(TestnetSettings(**s['config']),self.clock()),
             'last_portfolio_stop':s.get('last_portfolio_stop'),
             'hourly_entry_slot':dict(enabled=s['config']['strategy']=='ob_sr_minute_hourly',
                 used_count=len(self._minute_hour_symbols(s)) if s['config']['strategy']=='ob_sr_minute_hourly' else 0,
@@ -952,6 +955,8 @@ class TestnetSupervisor:
 
     def _reversal_block_reason(self,symbol):
         reasons=[]
+        scheduled=schedule_reason(TestnetSettings(**self.state['config']),self.clock())
+        if scheduled:reasons.append(scheduled)
         if symbol_paused(self.state['risk'],symbol,TestnetSettings(**self.state['config']),self.clock()):
             reasons.append('per-coin consecutive-loss cooldown')
         if symbol in self.state['order_block_exit_blocks']:
@@ -970,6 +975,7 @@ class TestnetSupervisor:
             rows=db.execute("SELECT instrument,result FROM execution WHERE json_extract(payload,'$.symbol')=? AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_strategy')=? AND phase!='rejected'",(symbol,HOUR_GATE)).fetchall()
         for instrument,result in rows:
             instrument=json.loads(instrument);result=json.loads(result)
+            if result.get('not_submitted'):continue
             stamp=instrument.get('thoth_permission_armed_at')
             if stamp is None:stamp=(instrument.get('thoth_entry_diagnostics') or {}).get('permission_armed_at')
             if stamp is not None:
@@ -1050,7 +1056,7 @@ class TestnetSupervisor:
                         self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
                     reason='Opposite CLOSED 1m Order Block / S/R signal' if current.strategy==HOUR_GATE else 'Opposite 1m Order Block / S/R signal' if current.strategy=='ob_sr_minute_hourly' else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
-                    if current.opposite_action=='reverse' and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
+                    if current.opposite_action=='reverse' and not schedule_reason(current,self.clock()) and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse':
@@ -1062,6 +1068,9 @@ class TestnetSupervisor:
                         if p:self._close(symbol,p,reason)
                     except Exception as exc:self._monitor_failure(exc)
                     self.save();continue
+                scheduled=schedule_reason(current,self.clock())
+                if scheduled:
+                    self._signal_decision(symbol,'skipped: '+scheduled,observation);continue
                 hour_block=self._minute_hour_block_reason(symbol,current)
                 if hour_block:
                     self._signal_decision(symbol,'skipped: '+hour_block,observation);continue
@@ -1098,7 +1107,7 @@ class TestnetSupervisor:
         symbols={symbol for symbol,window in state.get('minute_hour_entries',{}).items() if window==start}
         if self.journal:
             with self.journal.db() as db:
-                symbols.update(row[0] for row in db.execute("SELECT DISTINCT json_extract(payload,'$.symbol') FROM execution WHERE phase!='rejected' AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_minute_hour_window')=?",(start,)))
+                symbols.update(row[0] for row in db.execute("SELECT DISTINCT json_extract(payload,'$.symbol') FROM execution WHERE phase!='rejected' AND COALESCE(json_extract(result,'$.not_submitted'),0)=0 AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_minute_hour_window')=?",(start,)))
         return symbols
 
     def _minute_hour_block_reason(self,symbol,cfg):
@@ -1124,7 +1133,7 @@ class TestnetSupervisor:
                 if trade.get('strategy')==cfg.strategy and float(trade.get('opened_at') or 0)>=start:return True
         if self.journal:
             for record in self.journal.records():
-                if record['payload']['symbol']!=symbol or record['payload'].get('reduceOnly') or record['phase']=='rejected':continue
+                if record['payload']['symbol']!=symbol or record['payload'].get('reduceOnly') or record['phase']=='rejected' or record.get('result',{}).get('not_submitted'):continue
                 if (record.get('instrument') or {}).get('thoth_sr_volume_window')==start:return True
         return False
 
@@ -1133,12 +1142,16 @@ class TestnetSupervisor:
         bar=int(self.clock())//3600*3600
         if self.state.get('early_entry_windows',{}).get(symbol)==bar:return True
         with self.journal.db() as db:
-            return db.execute("SELECT 1 FROM execution WHERE phase!='rejected' AND json_extract(payload,'$.symbol')=? AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_early_window')=? LIMIT 1",(symbol,bar)).fetchone() is not None
+            return db.execute("SELECT 1 FROM execution WHERE phase!='rejected' AND COALESCE(json_extract(result,'$.not_submitted'),0)=0 AND json_extract(payload,'$.symbol')=? AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_early_window')=? LIMIT 1",(symbol,bar)).fetchone() is not None
 
     def _entry(self,symbol,side,stamp,identity,cfg,context=None):
         from .tradfi import EXCLUDED_SYMBOLS
         if symbol in EXCLUDED_SYMBOLS:return
         checks_started_at=self.clock();check_timing={}
+        scheduled=schedule_reason(cfg,self.clock())
+        if scheduled:
+            self._signal_decision(symbol,'skipped: '+scheduled,dict(time=stamp,signal=side));return
+        reservations={key:deepcopy(self.state.get(key)) for key in ('entry_gates','early_entry_windows','sr_volume_entry_windows','minute_hour_entries')} if (cfg.entry_daily_enabled or cfg.entry_weekend_enabled) else {}
         if cfg.strategy=='order_block_sr_1h_early':
             from .early_hour import window
             if not window(self.clock()) or self._early_hour_used(symbol,cfg):
@@ -1275,7 +1288,20 @@ class TestnetSupervisor:
                 # submission boundary, not only before saving the reservation.
                 self.state.get('early_entry_windows',{}).pop(symbol,None)
                 raise ValueError('Early entry window or fresh signal expired before submission')
-            record=self.journal.submit(payload,cfg.stop_dollars,metadata)
+            scheduled=schedule_reason(cfg,self.clock())
+            if scheduled:
+                for key,value in reservations.items():
+                    if value is None:self.state.pop(key,None)
+                    else:self.state[key]=value
+                raise ValueError(scheduled+'; window changed during entry checks')
+            guard=(lambda:schedule_reason(cfg,self.clock())) if (cfg.entry_daily_enabled or cfg.entry_weekend_enabled) else None
+            record=self.journal.submit(payload,cfg.stop_dollars,metadata,entry_guard=guard) if guard is not None else self.journal.submit(payload,cfg.stop_dollars,metadata)
+            if record['phase']=='cancelled' and record.get('result',{}).get('not_submitted'):
+                for key,value in reservations.items():
+                    if value is None:self.state.pop(key,None)
+                    else:self.state[key]=value
+                self._signal_decision(symbol,'skipped: '+record['result']['reason'],dict(time=stamp,signal=side))
+                self.save();return
             if record['phase']=='rejected':
                 if cfg.strategy=='order_block_sr_1h_early':self.state.get('early_entry_windows',{}).pop(symbol,None)
                 if cfg.strategy==HOUR_GATE:self.state['entry_gates'][symbol]['phase']='armed'
@@ -1296,6 +1322,10 @@ class TestnetSupervisor:
 
     def _drain(self,cfg):
         for symbol,intent in list(self.state['pending_signals'].items()):
+            scheduled=schedule_reason(cfg,self.clock())
+            if scheduled:
+                self._signal_decision(symbol,'skipped: '+scheduled,dict(time=intent['time'],signal=intent['side']))
+                del self.state['pending_signals'][symbol];continue
             if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
                 self._signal_decision(symbol,'skipped: per-coin consecutive-loss cooldown',{'time':intent['time'],'signal':intent['side']})
                 del self.state['pending_signals'][symbol];continue
@@ -1311,6 +1341,11 @@ class TestnetSupervisor:
 
     def _reversals(self,cfg):
         for symbol,reversal in list(self.state['reversals'].items()):
+            scheduled=schedule_reason(cfg,self.clock())
+            if scheduled:
+                del self.state['reversals'][symbol]
+                self._signal_decision(symbol,'replacement entry skipped: '+scheduled,dict(time=reversal['time'],signal=reversal['side']))
+                continue
             if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):
                 del self.state['reversals'][symbol]
                 self.event(symbol+": replacement entry blocked by this coin’s consecutive-loss cooldown")

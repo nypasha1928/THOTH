@@ -166,12 +166,15 @@ class TestnetClient:
         history=self.request('GET','/v5/order/history',dict(category='linear',symbol=symbol,orderLinkId=link),private=True)['list']
         return next((r for r in history if r['orderLinkId']==link),None)
 
-    def submit(self,payload):
+    def submit(self,payload,entry_guard=None):
         if not self.armed:raise BybitError('Testnet execution is not armed')
         if not payload.get('orderLinkId') or payload.get('category')!='linear':
             raise ValueError('An idempotency identifier and linear category are required')
         existing=self.reconcile(payload['symbol'],payload['orderLinkId'])
         if existing:return {'state':'reconciled','order':existing}
+        if entry_guard is not None and not payload.get('reduceOnly'):
+            blocked=entry_guard()
+            if blocked:return {'state':'not_submitted','reason':blocked}
         try:
             accepted=self.request('POST','/v5/order/create',payload,private=True)
         except BybitError as exc:
