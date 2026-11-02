@@ -119,7 +119,8 @@ class Settings(BaseModel):
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
 
     entry_daily_enabled: bool = False
-    entry_daily_start: str = Field(default='04:00',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    entry_daily_exit_enabled: bool = False
+    entry_daily_start: str = Field(default='03:45',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
     entry_daily_end: str = Field(default='10:45',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
     entry_weekend_enabled: bool = False
     entry_weekend_start_day: int = Field(default=5,ge=0,le=6)

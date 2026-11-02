@@ -36,7 +36,7 @@ class FeedAdapter:
         from .account_risk import symbol_paused
         cfg=TestnetSettings(**state['config'])
         from .entry_schedule import reason as schedule_reason
-        return bool(not schedule_reason(cfg,self.supervisor.clock()) and state['entries'] and state['status']=='running' and not state.get('flatten_reason')
+        return bool(not state.get('schedule_exit',{}).get('active') and not schedule_reason(cfg,self.supervisor.clock()) and state['entries'] and state['status']=='running' and not state.get('flatten_reason')
             and symbol not in state.get('blocked_symbols',{})
             and not symbol_paused(state['risk'],symbol,cfg,self.supervisor.clock()))
 

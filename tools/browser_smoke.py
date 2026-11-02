@@ -728,7 +728,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#entry_daily_enabled')).not_to_be_checked()
    page.click('#entrySchedulePreset')
    expect(page.locator('#entry_daily_enabled')).to_be_checked();expect(page.locator('#entry_weekend_enabled')).to_be_checked()
-   expect(page.locator('#entry_daily_end')).to_have_value('10:45');expect(page.locator('#entry_weekend_end_day')).to_have_value('0')
+   expect(page.locator('#entry_daily_start')).to_have_value('03:45');expect(page.locator('#entry_daily_exit_enabled')).to_be_checked();expect(page.locator('#entry_daily_end')).to_have_value('10:45');expect(page.locator('#entry_weekend_end_day')).to_have_value('0')
    expect(page.locator('#entry_schedule_scope')).to_have_value('main')
    before_window_writes=len(writes);page.click('#saveSymbols');page.wait_for_function('()=>lv.config.entry_daily_enabled===true')
    assert len(writes)==before_window_writes+1 and writes[-1][1]['entry_weekend_end']=='10:45'
