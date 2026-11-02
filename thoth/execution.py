@@ -5,6 +5,8 @@ ambiguous submission is reconciled rather than resubmitted. Account-level risk,
 permission/margin preflight and an activation flow must wrap this component
 before it can be connected to an actual testnet account.
 """
+
+from .database import connect
 import json
 import sqlite3
 import threading
@@ -29,22 +31,28 @@ class ExecutionJournal:
             db.execute('CREATE TABLE IF NOT EXISTS execution (link TEXT PRIMARY KEY, payload TEXT NOT NULL, phase TEXT NOT NULL, stop_dollars TEXT, instrument TEXT, result TEXT NOT NULL)')
 
     def db(self):
-        return sqlite3.connect(self.path,timeout=15)
+        return connect(self.path,timeout=15)
+
+    @staticmethod
+    def _decode(row):
+        record=dict(row)
+        for key in ('payload','result','instrument'):
+            record[key]=json.loads(record[key]) if record[key] is not None else None
+        return record
 
     def records(self):
+        # One snapshot query; never open a new connection for every old order.
         with self.db() as db:
-            links=[r[0] for r in db.execute('SELECT link FROM execution ORDER BY rowid')]
-        return [self.get(link) for link in links]
+            db.row_factory=sqlite3.Row
+            rows=db.execute('SELECT * FROM execution ORDER BY rowid').fetchall()
+        return [self._decode(row) for row in rows]
 
     def get(self, link):
         with self.db() as db:
             db.row_factory=sqlite3.Row
             row=db.execute('SELECT * FROM execution WHERE link=?',(link,)).fetchone()
         if row is None:raise ValueError('Unknown execution identifier')
-        record=dict(row)
-        for key in ('payload','result','instrument'):
-            record[key]=json.loads(record[key]) if record[key] is not None else None
-        return record
+        return self._decode(row)
 
     def update(self,link,phase,result=None):
         # Results are curated local metadata, never a raw upstream account response.
@@ -72,7 +80,7 @@ class ExecutionJournal:
                 db.execute('UPDATE execution SET result=? WHERE link=?',(json.dumps(result),link))
         except Exception:pass  # Diagnostics must not interrupt protection/settlement.
 
-    def submit(self,payload,stop_dollars=None,instrument=None):
+    def submit(self,payload,stop_dollars=None,instrument=None,entry_guard=None):
         with self.lock:
             link=payload.get('orderLinkId')
             if not link or not payload.get('symbol'):raise ValueError('Missing execution identity')
@@ -93,13 +101,15 @@ class ExecutionJournal:
                 return self.poll(link)  # Never submit an existing intent again.
             if not payload.get('reduceOnly'):self.record_timing(link,submit_started_at=self.clock())
             try:
-                response=self.client.submit(payload)
+                response=self.client.submit(payload,entry_guard=entry_guard) if entry_guard is not None else self.client.submit(payload)
             except AmbiguousOrder:
                 return self.update(link,'unknown',{'reason':'Submission outcome unknown; reconcile before continuing'})
             except BybitError as exc:
                 return self.update(link,'rejected',{'reason':'Exchange rejected submission','exchange_code':exc.code})
             except Exception:
                 return self.update(link,'unknown',{'reason':'Submission interrupted; reconcile before continuing'})
+            if response['state']=='not_submitted':
+                return self.update(link,'cancelled',{'reason':response['reason'],'not_submitted':True})
             if not payload.get('reduceOnly'):self.record_timing(link,acknowledged_at=self.clock())
             if response['state']=='reconciled':
                 return self.poll(link)

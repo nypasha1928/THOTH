@@ -1,4 +1,6 @@
 """Sampled entry timing only. No order decisions or extra exchange requests."""
+
+from .database import connect
 import json
 import math
 import sqlite3
@@ -76,12 +78,12 @@ def read(path,limit=50,offset=0,symbol=None):
     where="json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_entry_diagnostics') IS NOT NULL"
     args=[]
     if symbol:where+=" AND json_extract(payload,'$.symbol')=?";args.append(symbol)
-    with sqlite3.connect('file:'+str(journal)+'?mode=ro',uri=True) as db:
+    with connect('file:'+str(journal)+'?mode=ro',uri=True) as db:
         total=db.execute('SELECT COUNT(*) FROM execution WHERE '+where,args).fetchone()[0]
         rows=db.execute('SELECT link,payload,phase,stop_dollars,instrument,result FROM execution WHERE '+where+' ORDER BY rowid DESC LIMIT ? OFFSET ?',args+[limit,offset]).fetchall()
     trades={}
     if rows:
-        with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True) as db:
+        with connect('file:'+str(path)+'?mode=ro',uri=True) as db:
             marks=','.join('?' for _ in rows)
             trades={link:json.loads(payload) for link,payload in db.execute('SELECT link,payload FROM trade_history WHERE link IN ('+marks+')',[row[0] for row in rows])}
     from .signal_sources import source_label
@@ -112,11 +114,11 @@ def record_speed(db,symbol,strategy,now,price,session,max_gap=300):
 
 def fast_movers(path,now,limit=50):
     path=Path(path);history=path.with_suffix('.candles.sqlite')
-    with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True) as db:
+    with connect('file:'+str(path)+'?mode=ro',uri=True) as db:
         state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])
     cfg=state['config'];items=[];tracked=0;stale=0
     if history.exists():
-        with sqlite3.connect('file:'+str(history)+'?mode=ro',uri=True) as db:
+        with connect('file:'+str(history)+'?mode=ro',uri=True) as db:
             exists=db.execute("SELECT 1 FROM sqlite_master WHERE name='price_observations'").fetchone()
             rows=db.execute('SELECT payload FROM price_observations WHERE strategy=?',(cfg['strategy'],)).fetchall() if exists else []
         selected=set(cfg['symbols'])

@@ -1,4 +1,6 @@
 """Read-only signal lifecycle projection, joined by exact execution identity."""
+
+from .database import connect
 import json
 import hashlib
 import sqlite3
@@ -19,7 +21,7 @@ PHASES={
 
 
 def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
-    with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as db:
+    with connect(f'file:{path}?mode=ro',uri=True) as db:
         saved=db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()
         state=json.loads(saved[0]) if saved else {}
         records=db.execute('SELECT id,payload FROM signal_decisions'+(' WHERE symbol=?' if symbol else '')+' ORDER BY id', (symbol,) if symbol else ()).fetchall()
@@ -41,7 +43,7 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
     execution=Path(path).with_suffix('.execution.sqlite')
     links={item['alert_key'] for item in candidates.values() if item.get('alert_key')}
     if execution.exists() and links:
-        with sqlite3.connect(f'file:{execution}?mode=ro',uri=True) as db:
+        with connect(f'file:{execution}?mode=ro',uri=True) as db:
             by_link={item.get('alert_key'):item for item in candidates.values() if item.get('alert_key')}
             ordered=sorted(links)
             for index in range(0,len(ordered),200):
@@ -51,6 +53,7 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
                     item['execution_phase']=phase
                     item['reason']=PHASES.get(phase,'Execution state: '+phase)
                     execution_result=json.loads(result)
+                    if execution_result.get('not_submitted'):item['reason']='Not submitted: '+execution_result.get('reason','entry eligibility changed')
                     from .signal_stretch import with_fill
                     metrics=json.loads(instrument).get('thoth_signal_stretch') or item.get('signal_stretch')
                     if metrics:item['signal_stretch']=with_fill(metrics,execution_result.get('entry_timing',{}))

@@ -1,4 +1,6 @@
 """Private single-owner dashboard security, independent of exchange state."""
+
+from .database import connect
 import base64
 import hashlib
 import hmac
@@ -66,7 +68,7 @@ class SecurityStore:
             db.execute('CREATE TABLE IF NOT EXISTS challenges(id TEXT PRIMARY KEY,purpose TEXT,payload TEXT,expires REAL)')
         self.path.chmod(0o600)
 
-    def db(self):return sqlite3.connect(self.path,timeout=15)
+    def db(self):return connect(self.path,timeout=15)
 
     @contextmanager
     def edit(self):

@@ -17,6 +17,9 @@ def failure_details(exc,stage):
         # Numeric SQLite codes and fixed labels survive saved pause reports without
         # exposing SQL, database paths, account data or raw exception messages.
         result['exception_class']=type(exc).__name__ if type(exc).__module__=='sqlite3' else 'Error'
+        resources=getattr(exc,'thoth_db_resources',{})
+        safe_resources={k:v for k,v in resources.items() if k in ('open_fds','fd_soft_limit','disk_free_bytes') and type(v) is int and 0<=v<=10**18} if isinstance(resources,dict) else {}
+        if safe_resources:result['database_resources']=safe_resources
         code=getattr(exc,'sqlite_errorcode',None)
         if type(code) is int and 0<=code<=65535:
             result['sqlite_code']=code
@@ -57,6 +60,9 @@ def failure_summary(details):
         sites=details.get('code_locations',[])
         if sites:
             site=sites[-1];parts.append(site['file']+':'+str(site['line'])+' '+site['function'])
+    resources=details.get('database_resources',{})
+    for key,label in (('open_fds','open files'),('fd_soft_limit','file limit'),('disk_free_bytes','disk free bytes')):
+        if key in resources:parts.append(label+': '+str(resources[key]))
     reason=PROTECTION_LABELS.get(details.get('protection_reason'))
     if reason:parts.append(reason)
     elif details.get('protection_check') in PROTECTION_CHECKS:parts.append('check: '+details['protection_check'].replace('_',' '))

@@ -1,4 +1,6 @@
 """Single-process, opt-in automatic paper loop. Never submits exchange orders."""
+
+from .database import connect
 from .timeframes import interval_seconds
 import json
 import sqlite3
@@ -57,7 +59,7 @@ class Runner:
         self.source_fingerprint=source_fingerprint()
         self.history_generations={}
         self.history_path = str(Path(engine.path).with_suffix('.candles.sqlite'))
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             db.execute('CREATE TABLE IF NOT EXISTS price_observations(symbol TEXT,strategy TEXT,payload TEXT,PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS intrabar_observations(symbol TEXT, strategy TEXT, payload TEXT, PRIMARY KEY(symbol,strategy))')
             db.execute('CREATE TABLE IF NOT EXISTS order_block_checkpoints(symbol TEXT,strategy TEXT,source TEXT,stamp INTEGER,payload TEXT,PRIMARY KEY(symbol,strategy))')
@@ -86,7 +88,7 @@ class Runner:
         duration = interval_seconds(interval)
         from .history_backfill import validate_hourly
         validate_hourly(rows,interval)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             repaired=db.execute('SELECT generation FROM candle_repairs WHERE symbol=? AND interval=?',(symbol,interval)).fetchone()
             generation=repaired[0] if repaired else 0
             if generation!=self.history_generations.get((symbol,interval),0):
@@ -117,7 +119,7 @@ class Runner:
     def analysis(self,symbol,cfg,history,now,*,latest_only=False):
         strategy=strategy_fingerprint(cfg);duration=interval_seconds(cfg.timeframe)
         for row in history:validate(row)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             checkpoint=db.execute('SELECT source,stamp,payload FROM checkpoints WHERE symbol=? AND interval=? AND strategy=?',(symbol,cfg.timeframe,strategy)).fetchone()
             valid=checkpoint and checkpoint[0]==self.source_fingerprint
             state=IndicatorState(cfg,json.loads(checkpoint[2]) if valid else None)
@@ -141,7 +143,7 @@ class Runner:
         if not result or result[-1]['time']!=int(now)//duration*duration-duration:
             raise ValueError('Latest confirmed entry-timeframe levels unavailable')
         identity=strategy_fingerprint(cfg)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             before=set(tracker.get('fired',[])) if tracker.get('bar')==int(now)//duration*duration else set()
@@ -168,7 +170,7 @@ class Runner:
 
     def rsi_preview(self,symbol,cfg,history,now):
         strategy=strategy_fingerprint(cfg);duration=interval_seconds(cfg.timeframe)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             checkpoint=db.execute('SELECT source,payload FROM checkpoints WHERE symbol=? AND interval=? AND strategy=?',(symbol,cfg.timeframe,strategy)).fetchone()
         if not checkpoint or checkpoint[0]!=self.source_fingerprint:raise ValueError('RSI warm-up checkpoint unavailable')
         state=IndicatorState(cfg,json.loads(checkpoint[1]))
@@ -180,7 +182,7 @@ class Runner:
         preview=self.rsi_preview(symbol,cfg,history,now)
         if preview['rsi'] is None or (cfg.rsi.calculation_mode=='corrected' and cfg.rsi.ml_signals and not preview['ml_ready']):raise ValueError('RSI/ML history warming up; no entry')
         identity=strategy_fingerprint(cfg);start=preview['time'];duration=interval_seconds(cfg.timeframe)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             fresh=0<now-tracker.get('observed_at',0)<=30 and tracker.get('bar') in (start,start-duration)
@@ -199,7 +201,7 @@ class Runner:
             raise ValueError('Latest confirmed Daily S/R levels unavailable')
         preview=self.rsi_preview(symbol,cfg,history,now)
         identity=strategy_fingerprint(cfg)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             # Only consecutive scans in this worker session may use the measured
@@ -224,7 +226,7 @@ class Runner:
             bullish_enabled=settings.bullish,bearish_enabled=settings.bearish)
         identity=strategy_fingerprint(cfg)
         cycle=self.confirmation_symbol_cycles.get(symbol,0) if self.confirmation_only else self.scan_cycle
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             gap=min(300.,max(30.,len(cfg.symbols)/8+20,self.previous_scan_seconds*1.5+self.interval+10))
@@ -250,7 +252,7 @@ class Runner:
         history=self.history(symbol,cfg.timeframe,rows) if history is None else history
         volume=({'passed':True,'reason':'no volume filter'} if minute_gate else entry_volume(history,cfg.timeframe)) if unfiltered else None
         identity=strategy_fingerprint(cfg)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT source,stamp,payload FROM order_block_checkpoints WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             checkpoint=json.loads(saved[2]) if saved and saved[0]==self.source_fingerprint else None
             known={r['time']:r for r in history}
@@ -305,7 +307,7 @@ class Runner:
         duration=interval_seconds(cfg.timeframe);start=int(now)//duration*duration
         if not result or result[-1]['time']!=start-duration:raise ValueError('Latest confirmed S/R levels unavailable')
         identity=strategy_fingerprint(cfg)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             continuous=tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle)
@@ -324,7 +326,7 @@ class Runner:
         from .sma_intrabar import observe
         history=self.history(symbol,'240',rows)
         identity=strategy_fingerprint(cfg)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             continuous=tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle)
@@ -346,7 +348,7 @@ class Runner:
         if count<2*cfg.pivot_long+1 or not result or result[-1]['time']!=start-duration:
             raise ValueError('Confirmed source-timeframe Major only S/R history unavailable')
         identity=strategy_fingerprint(cfg)+(':sr-bounce' if cfg.strategy==HOUR_GATE else ':sr')
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             cycle=self.confirmation_symbol_cycles.get(symbol,0) if self.confirmation_only else self.scan_cycle
@@ -397,7 +399,7 @@ class Runner:
         state=self.early_hour_states.get((symbol,identity))
         if state is None:state=self.early_hour_states[(symbol,identity)]=SourceState(cfg)
         state.advance(history,now)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(saved[0]) if saved else {}
             continuous=tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle) and 0<now-tracker.get('observed_at',0)<=300
@@ -433,7 +435,7 @@ class Runner:
         latest=int(now)//3600*3600-3600
         if not closed or closed[-1]['time']!=latest:raise ValueError('Latest CLOSED 1h candle unavailable')
         identity=strategy_fingerprint(cfg)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             row=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
             tracker=json.loads(row[0]) if row else {}
         # Completed candles are immutable; consecutive scans may exceed the
@@ -466,7 +468,7 @@ class Runner:
                 result['entry_diagnostics']['price_basis']='closed_signal_candle_close'
         result['sampling']=dict(continuous=bool(continuous),gap=now-tracker['observed_at'] if tracker.get('observed_at') is not None else None,limit=budget,closed_bar=latest)
         tracker.update(closed_bar=latest,observed_at=now,session=self.observation_session,scan_cycle=self.scan_cycle,report=result)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return result
 
@@ -488,7 +490,7 @@ class Runner:
                 if not result or result[-1]['time']!=int(source_now)//duration*duration-duration:
                     raise ValueError('Latest confirmed S/R levels unavailable')
                 identity=strategy_fingerprint(source_cfg)
-                with sqlite3.connect(self.history_path) as db:
+                with connect(self.history_path) as db:
                     saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
                     tracker=json.loads(saved[0]) if saved else {}
                     continuous=tracker.get('session')==self.observation_session and tracker.get('scan_cycle') in (self.scan_cycle-1,self.scan_cycle)
@@ -532,7 +534,7 @@ class Runner:
         latest=int(now)//60*60-60
         if not closed or closed[-1]['time']!=latest:raise ValueError('Latest CLOSED 1m exit candle unavailable')
         identity=strategy_fingerprint(cfg)+':closed-minute-exit'
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
         tracker=json.loads(saved[0]) if saved else {}
         cycle=self.confirmation_symbol_cycles.get(symbol,0)
@@ -566,7 +568,7 @@ class Runner:
                 signal=report.get('signal');sources=['htf:1:'+s for s in report.get('entry_sources',[])]
             tracker.update(state=state.checkpoint(),ob=ob,source=self.source_fingerprint,recent=closed[-60:],errors=errors)
         tracker.update(closed_bar=latest,observed_at=now,session=self.observation_session,scan_cycle=cycle)
-        with sqlite3.connect(self.history_path) as db:
+        with connect(self.history_path) as db:
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
         return dict(exit_signal=signal,exit_sources=sources,closed_exit_bar=latest,closed_exit_errors=errors)
 
@@ -623,7 +625,7 @@ class Runner:
                         if not rows or rows[-1]['time']!=expected:raise ValueError('Current higher candle unavailable: expected '+str(expected)+', received '+str(rows[-1]['time'] if rows else None))
                 source_cfg=cfg.model_copy(update={'strategy':'sr_hourly_intrabar' if cfg.strategy==ORDER_BLOCK_STRATEGY else DAILY_COMBINED,'timeframe':timeframe})
                 identity=strategy_fingerprint(source_cfg)
-                with sqlite3.connect(self.history_path) as db:
+                with connect(self.history_path) as db:
                     saved=db.execute('SELECT payload FROM intrabar_observations WHERE symbol=? AND strategy=?',(symbol,identity)).fetchone()
                 previous=json.loads(saved[0]) if saved else {}
                 window_start=previous.get('observed_at',0) if cfg.strategy==ORDER_BLOCK_STRATEGY else min(previous.get(part,{}).get('observed_at',0) for part in ('sr','rsi'))

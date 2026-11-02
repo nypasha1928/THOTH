@@ -39,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-security-browser-') as directory:
                     else:route.continue_()
                 page.route('**/api/**',routes)
                 page.goto(base+'/login');page.fill('#password',PASSWORD);page.click('#login button')
-                expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+                expect(page.locator('#savedSymbolList')).to_contain_text('BTCUSDT')
                 page.click('[data-page-link=security]');expect(page.locator('#securityStatus')).to_contain_text('Authenticator: off')
                 old_cookie=next(c for c in context.cookies() if c['name']=='thoth_session')
                 page.fill('#securityPassword',PASSWORD);page.fill('#newSecurityPassword',NEW);page.fill('#confirmSecurityPassword',NEW);page.click('#changePassword button')
@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-security-browser-') as directory:
                 expect(page.locator('#registeredPasskeys')).to_contain_text('Synthetic Android device')
                 page.click('#logout');expect(page.locator('#password')).to_be_visible()
                 expect(page.locator('#passkeyLogin')).to_be_visible();page.click('#passkeyLogin')
-                expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+                expect(page.locator('#savedSymbolList')).to_contain_text('BTCUSDT')
                 page.click('[data-page-link=security]');page.fill('#securityPassword',NEW);page.click('#setupTotp')
                 expect(page.locator('#totpSetup')).to_be_visible()
                 secret=page.locator('#totpSecret').input_value()
@@ -69,8 +69,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-security-browser-') as directory:
                 assert not page.evaluate('document.documentElement.scrollWidth>window.innerWidth')
                 page.click('#logout');expect(page.locator('#otpLabel')).to_be_visible()
                 # User-verified passkey sign-in works when password sign-in requires TOTP.
-                page.click('#passkeyLogin');expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
-                page.click('#logout');page.locator('summary').click()
+                page.click('#passkeyLogin');expect(page.locator('#savedSymbolList')).to_contain_text('BTCUSDT')
+                page.click('#logout');expect(page.locator('#password')).to_be_visible();page.locator('summary').click()
                 page.fill('#recoveryCode',codes[0]);page.fill('#recoveryPassword',RESET);page.fill('#recoveryConfirm',RESET);page.click('#recover button')
                 expect(page.locator('#recoveryResult')).to_be_visible()
                 assert len(page.locator('#newCodes').inner_text().splitlines())==10
@@ -78,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-security-browser-') as directory:
                 page.goto(base+'/login');expect(page.locator('#passkeyLogin')).not_to_be_visible()
                 expect(page.locator('#otpLabel')).not_to_be_visible()
                 page.fill('#password',RESET);page.click('#login button')
-                expect(page.locator('#savedSymbols')).to_contain_text('BTCUSDT')
+                expect(page.locator('#savedSymbolList')).to_contain_text('BTCUSDT')
                 assert not errors,errors
                 with __import__('sqlite3').connect(directory+'/live.sqlite') as db:
                     state=json.loads(db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()[0])

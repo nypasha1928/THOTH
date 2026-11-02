@@ -1,4 +1,6 @@
 """Opt-in Web Push for account entry pauses; delivery never runs on a trading thread."""
+
+from .database import connect
 import base64
 import hashlib
 import json
@@ -67,7 +69,7 @@ class PushNotifications:
         key=serialization.load_pem_private_key(pem.encode(),password=None)
         self.public_key=encode(key.public_key().public_bytes(serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint))
 
-    def db(self):return sqlite3.connect(self.path,timeout=5)
+    def db(self):return connect(self.path,timeout=5)
 
     def register(self,value):
         value=subscription(value);identity=hashlib.sha256(value['endpoint'].encode()).hexdigest()
@@ -87,7 +89,7 @@ class PushNotifications:
     def status(self):
         with self.db() as db:
             devices=[dict(id=row[0],status=row[1]) for row in db.execute('SELECT id,last_status FROM devices')]
-        with sqlite3.connect('file:'+self.supervisor_path+'?mode=ro',uri=True,timeout=2) as source:
+        with connect('file:'+self.supervisor_path+'?mode=ro',uri=True,timeout=2) as source:
             pauses=[dict(id=row[0],time=row[1],**json.loads(row[2])) for row in source.execute('SELECT id,time,payload FROM entry_pauses ORDER BY id DESC LIMIT 50')]
         return dict(public_key=self.public_key,devices=devices,recent_pauses=pauses)
 
@@ -104,7 +106,7 @@ class PushNotifications:
     def capture(self):
         with self.db() as db:
             row=db.execute("SELECT value FROM metadata WHERE key='pause_cursor'").fetchone();cursor=int(row[0]) if row else 0
-            with sqlite3.connect('file:'+self.supervisor_path+'?mode=ro',uri=True,timeout=2) as source:
+            with connect('file:'+self.supervisor_path+'?mode=ro',uri=True,timeout=2) as source:
                 events=source.execute('SELECT id,time,payload FROM entry_pauses WHERE id>? ORDER BY id LIMIT 100',(cursor,)).fetchall()
             for identity,created,payload in events:
                 # A newly subscribed device must not receive old pauses.

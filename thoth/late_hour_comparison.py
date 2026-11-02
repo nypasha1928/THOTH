@@ -1,4 +1,6 @@
 """Independent signal-only research. No exchange client, order methods or live writes."""
+
+from .database import connect
 import json
 import queue
 import sqlite3
@@ -102,7 +104,7 @@ class LateHourComparison:
             db.execute('INSERT OR IGNORE INTO settings VALUES(1,?)',(json.dumps(ComparisonSettings().model_dump()),))
             db.execute('CREATE TABLE IF NOT EXISTS observations(symbol TEXT,bar INTEGER,identity TEXT,updated REAL,payload TEXT,PRIMARY KEY(symbol,bar,identity))')
             self.enabled=json.loads(db.execute('SELECT payload FROM settings WHERE id=1').fetchone()[0])['enabled']
-    def db(self):return sqlite3.connect(self.path,timeout=2)
+    def db(self):return connect(self.path,timeout=2)
     def configure(self,value):
         with self.lock,self.db() as db:
             self.enabled=value.enabled
@@ -165,7 +167,7 @@ class LateHourComparison:
         pairs={}
         for row in items:pairs.setdefault((row['symbol'],row['bar'],row.get('strategy',STRATEGY)),[]).append(row)
         minimum=min(bar for _,bar,_ in pairs)
-        with sqlite3.connect('file:'+str(path)+'?mode=ro',uri=True,timeout=2) as db:
+        with connect('file:'+str(path)+'?mode=ro',uri=True,timeout=2) as db:
             for payload,phase,instrument,result in db.execute("SELECT payload,phase,instrument,result FROM execution WHERE json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_strategy') IN (?,?) AND (json_extract(instrument,'$.thoth_early_window')>=? OR json_extract(instrument,'$.thoth_entry_diagnostics.signal_bar_closed_at')>=?)",(*SUPPORTED_STRATEGIES,minimum,minimum+3600)):
                 p=json.loads(payload);meta=json.loads(instrument);profile=meta.get('thoth_strategy')
                 stamp=meta.get('thoth_early_window') if profile=='order_block_sr_1h_early' else (meta.get('thoth_entry_diagnostics') or {}).get('signal_bar_closed_at')

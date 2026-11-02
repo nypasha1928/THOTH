@@ -118,6 +118,17 @@ class Settings(BaseModel):
     inverse_entry_delay_seconds: int = Field(default=60,ge=0,le=3600)
     symbols: list[str] = Field(default_factory=lambda: ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'], max_length=300)
 
+    entry_daily_enabled: bool = False
+    entry_daily_exit_enabled: bool = False
+    entry_daily_start: str = Field(default='03:45',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    entry_daily_end: str = Field(default='10:45',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    entry_weekend_enabled: bool = False
+    entry_weekend_start_day: int = Field(default=5,ge=0,le=6)
+    entry_weekend_start: str = Field(default='00:00',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    entry_weekend_end_day: int = Field(default=0,ge=0,le=6)
+    entry_weekend_end: str = Field(default='10:45',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
+    entry_schedule_scope: str = Field(default='main',pattern=r'^(main|tradfi|all)$')
+
     active_symbol_list: str = Field(default='main',pattern=r'^(main|tradfi|main_leaders|tradfi_leaders)$')
     saved_symbol_lists: dict[str,list[str]] = Field(default_factory=default_symbol_lists)
 
@@ -195,6 +206,8 @@ class Settings(BaseModel):
         if self.strategy=='rsi_hourly_intrabar' and not (self.rsi.static_signals or self.rsi.ml_signals):
             raise ValueError('Enable at least one RSI entry signal family')
         if self.early_min_distance_atr>self.early_max_distance_atr:raise ValueError('Early minimum ATR distance must not exceed maximum')
+        if self.entry_daily_enabled and self.entry_daily_start==self.entry_daily_end:raise ValueError('Daily entry-window start and end must differ')
+        if self.entry_weekend_enabled and (self.entry_weekend_start_day,self.entry_weekend_start)==(self.entry_weekend_end_day,self.entry_weekend_end):raise ValueError('Weekend entry-window start and end must differ')
         # Minor S/R is display-only in every strategy, including legacy saved settings.
         if self.minor:self.major=True  # Migrate legacy minor-only configurations to majors.
         self.minor=False

@@ -3,6 +3,8 @@
 The risk loop only queues small snapshots. A separate worker owns this database
 and public-price requests; failures never block or change fixed trailing state.
 """
+
+from .database import connect
 import json
 import math
 import queue
@@ -96,7 +98,7 @@ class TrailingObservation:
             db.execute('CREATE TABLE IF NOT EXISTS cycles(id INTEGER PRIMARY KEY,started REAL NOT NULL,payload TEXT NOT NULL)')
         self.last_fetch=0.
 
-    def db(self):return sqlite3.connect(self.path,timeout=2)
+    def db(self):return connect(self.path,timeout=2)
 
     def submit(self,active,cfg,fixed,owners,now):
         """Nonblocking callback; cannot write settings, orders, peaks or journals."""
@@ -169,7 +171,7 @@ class TrailingObservation:
         if not cycle.get('fixed_triggered') or cycle.get('realized') is not None:return
         try:
             links=[p['link'] for p in cycle['positions']]
-            with sqlite3.connect('file:'+self.live_path+'?mode=ro',uri=True,timeout=1) as db:
+            with connect('file:'+self.live_path+'?mode=ro',uri=True,timeout=1) as db:
                 rows=[json.loads(row[0]) for row in db.execute('SELECT payload FROM trade_history WHERE link IN ('+','.join('?' for _ in links)+')',links)]
             if len(rows)==len(links):
                 cycle['realized']=sum(float(row['pnl']) for row in rows)
