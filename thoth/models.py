@@ -156,6 +156,7 @@ class Settings(BaseModel):
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
             self.order_block=OrderBlockSettings(bullish_formed=True,bearish_formed=True,supply_breakout=True,demand_breakdown=True,filter_breaks=False)
             if self.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'):self.major=True;self.minor=False;self.sr_volume_period=20
+        if self.strategy=='order_block_sr_1h_early':self.sma_length=200
         if self.strategy=='sma_7_50_intrabar':
             self.timeframe='240';self.sma_exit_enabled=False;self.opposite_action='reverse'
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False

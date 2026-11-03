@@ -1201,9 +1201,12 @@ class TestnetSupervisor:
         scheduled=self._schedule_entry_reason(cfg)
         if scheduled:
             self._signal_decision(symbol,'skipped: '+scheduled,dict(time=stamp,signal=side));return
-        reservations={key:deepcopy(self.state.get(key)) for key in ('entry_gates','early_entry_windows','sr_volume_entry_windows','minute_hour_entries')} if (cfg.entry_daily_enabled or cfg.entry_weekend_enabled) else {}
+        reservations={key:deepcopy(self.state.get(key)) for key in ('entry_gates','early_entry_windows','sr_volume_entry_windows','minute_hour_entries')} if (cfg.entry_daily_enabled or cfg.entry_weekend_enabled or cfg.strategy=='order_block_sr_1h_early') else {}
         if cfg.strategy=='order_block_sr_1h_early':
-            from .early_hour import window
+            from .early_hour import window,direction_check
+            checked=direction_check((context or {}).get('early_price'),side,(context or {}).get('sma200_baseline'),self.clock())
+            if not checked['passed']:
+                self._signal_decision(symbol,'skipped: '+checked['reason'],dict(time=stamp,signal=side));return
             if not window(self.clock()) or self._early_hour_used(symbol,cfg):
                 self._signal_decision(symbol,'skipped: early window closed or this coin already entered this hour',dict(time=stamp,signal=side));return
         hour_block=self._minute_hour_block_reason(symbol,cfg)
@@ -1345,6 +1348,20 @@ class TestnetSupervisor:
                     else:self.state[key]=value
                 raise ValueError(scheduled+'; window changed during entry checks')
             guard=(lambda:self._schedule_entry_reason(cfg)) if (cfg.entry_daily_enabled or cfg.entry_weekend_enabled or self.state.get('schedule_exit',{}).get('active')) else None
+            if cfg.strategy=='order_block_sr_1h_early':
+                def guard():
+                    reason=self._schedule_entry_reason(cfg)
+                    if reason:return reason
+                    try:
+                        latest=self.client.request('GET','/v5/market/tickers',dict(category='linear',symbol=symbol))['list'][0]['lastPrice']
+                        final=direction_check(latest,side,(context or {}).get('sma200_baseline'),self.clock())
+                        if not window(self.clock()) or self.clock()-stamp>30:return 'Early entry window or fresh signal expired before submission'
+                        reason=self._schedule_entry_reason(cfg)
+                        if reason:return reason
+                        if not final['passed']:return final['reason']
+                        self.journal.record_timing(payload['orderLinkId'],sma200_submission=final)
+                        return None
+                    except Exception:return '1h SMA200 entry blocked: fresh submission price unavailable'
             record=self.journal.submit(payload,cfg.stop_dollars,metadata,entry_guard=guard) if guard is not None else self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='cancelled' and record.get('result',{}).get('not_submitted'):
                 for key,value in reservations.items():
