@@ -125,8 +125,17 @@ function renderWatchlist(){
  renderScope();
 }
 
+function renderActiveEntryFilter(account){
+ let banner=$('activeEntryFilter');
+ if(!banner){banner=document.createElement('p');banner.id='activeEntryFilter';banner.className='banner';banner.setAttribute('role','status');const nav=document.querySelector('.page-nav');if(nav)nav.after(banner);else document.querySelector('main').prepend(banner)}
+ banner.hidden=account.config.strategy!=='order_block_sr_1h_early';
+ if(banner.hidden)return;
+ const filter=account.entry_filters?.sma200;
+ banner.textContent=filter?.enabled===true?'SMA200 entry filter ON · 1h · Above: Long only · Below: Short only · Equal or insufficient data: NO ENTRY. Required automatically; no checkbox. Trading windows and risk pauses still apply.':'Early strategy selected · SMA200 filter status not confirmed by server. Check deployment and refresh; do not assume the filter is active.';
+}
+
 function render(){
- const tn=selectedAccount();const s=current();const reading=accountReadings[mode];const recent=reading?.verified&&reading.balance&&Date.now()/1000-reading.balance.checked_at<300;const equity=s.equity??(recent?reading.balance.equity:null);$('equity').textContent=equity===null?'—':money(equity);$('pnl').textContent=money(s.positions.reduce((sum,p)=>sum+Number(p.pnl),0));
+ const tn=selectedAccount();renderActiveEntryFilter(tn);const s=current();const reading=accountReadings[mode];const recent=reading?.verified&&reading.balance&&Date.now()/1000-reading.balance.checked_at<300;const equity=s.equity??(recent?reading.balance.equity:null);$('equity').textContent=equity===null?'—':money(equity);$('pnl').textContent=money(s.positions.reduce((sum,p)=>sum+Number(p.pnl),0));
  $('limit').textContent=s.settings.daily_loss_pct;$('count').textContent=s.positions.length+' / '+s.settings.max_positions;
  $('status').textContent=s.closing?'Closing managed positions; waiting for exchange reconciliation':s.status.replaceAll('_',' ')+' · '+(s.reason||(['order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'].includes(s.settings.strategy)?'Waiting for '+(s.settings.strategy==='order_block_sr_1h'?'1h':'4h')+' Order Block OR Major only S/R; both require Volume > MA 20':s.settings.strategy==='order_block_intrabar'?'Waiting for 4h Order Block signals with Volume > MA 20':s.settings.strategy==='sr_order_block_gate'?'Waiting for S/R-only permission / 5m Order Block confirmation':s.settings.strategy==='sr_rsi_volume_gate'?'Waiting for two-stage permission / Volume Delta confirmation':s.settings.strategy==='volume_delta_intrabar'?'Waiting for Volume Delta signals; no SMA exit':s.settings.strategy==='sr_inverse_intrabar'?'Waiting for inverse S/R entries; Long signal → Short, Short signal → Long':s.settings.strategy==='sr_rsi_daily'?'Waiting for Daily S/R or fixed RSI signals':s.settings.strategy==='rsi_hourly_intrabar'?'Waiting for intrabar RSI signals':s.settings.strategy==='sr_hourly_intrabar'?'Waiting for live intrabar breakouts':'Waiting for confirmed signals'));
  if(!s.closing&&!s.reason&&s.settings.strategy==='ob_sr_minute_hourly'){const slot=tn.hourly_entry_slot;$('status').textContent=s.status.replaceAll('_',' ')+' · '+(slot?.entry_window_open===false?'Entry window CLOSED; opposite 1m exits remain active':slot&&slot.used_count>=slot.limit?'Hourly entry limit reached; opposite 1m exits remain active':'Waiting for fresh intrabar 1m OB/SR')+' · '+(slot?.used_count??0)+' / '+s.settings.max_positions+' hourly entries · once per coin per hour';}

@@ -80,3 +80,13 @@ and direction decision. Submission diagnostics also retain the final quote check
 Earlier trades have no reconstructed SMA measurement. The comparison worker
 applies the same filter to Early observations; Bar Close comparisons are unchanged.
 The strategy fingerprint is versioned to separate the new rule from earlier data.
+
+### Visible active-filter status
+
+The strategy selector labels this profile **Early :55–:00 · SMA200**. The saved
+Early profile also shows an **SMA200 entry filter ON** banner below the main page
+navigation, even during a scheduled pause or cooldown. The banner uses the
+server's `entry_filters.sma200.enabled` capability/status; a missing status shows
+an unconfirmed-deployment message instead of claiming the filter is active.
+There is no separate checkbox to select. This label does not change earlier
+trades' strategy names or imply that historical trades used the new filter.

@@ -171,6 +171,7 @@ class TestnetSupervisor:
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'order_block_exit_blocks':s.get('order_block_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'monitor_failures':s.get('monitor_failures',[]),
             'entry_schedule':self._schedule_status(s),
+            'entry_filters':{'sma200':{'enabled':s['config']['strategy']=='order_block_sr_1h_early','period':200,'timeframe':'60','basis':'completed hourly candles','equality':'block','insufficient_data':'block'}},
             'last_portfolio_stop':s.get('last_portfolio_stop'),
             'hourly_entry_slot':dict(enabled=s['config']['strategy']=='ob_sr_minute_hourly',
                 used_count=len(self._minute_hour_symbols(s)) if s['config']['strategy']=='ob_sr_minute_hourly' else 0,
