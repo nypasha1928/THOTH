@@ -1,6 +1,6 @@
 // Separate, bookmarkable PWA pages; navigation never changes trading settings.
 const pageIds=['chart','positions','history','analysis','comparison','alerts','settings','security'];
-let historyOffset=0,historyTotal=0,historyRequest=0,historyLoading=false,historyRenderedKey=null;
+let historyOffset=0,historyTotal=0,historyRequest=0,historyLoading=false,historyRenderedKey=null,historyController=null,historyStartedAt=0;
 function buildPages(){
  const grid=document.querySelector('.grid'),nav=document.createElement('nav');
  nav.className='page-nav';nav.setAttribute('aria-label','Trading desk pages');
@@ -87,14 +87,17 @@ function renderHistoryPages(){
  $('historyPageNumber').value=current;$('historyPageNumber').max=total;$('historyPageCount').textContent='of '+total;
 }
 function historyBlockStrengthCell(trade){const node=document.createElement('div');node.className='ob-strength-comparison';node.stretch=trade.signal_stretch;node.sources=trade.entry_sources;node.append(blockStrengthCell(trade.signal_stretch,historyOBMinimum(),trade.entry_sources));return node}
-async function loadHistory({background=false}={}){
- if(background&&historyLoading)return;
- historyLoading=true;
+async function loadHistory({background=false,reconnect=false}={}){
+ if(background&&historyLoading&&!reconnect&&Date.now()-historyStartedAt<12000)return;
+ // A suspended tab or stalled read must not hold the loading latch forever.
+ historyController?.abort();
+ const controller=new AbortController();historyController=controller;
+ historyLoading=true;historyStartedAt=Date.now();
  const request=++historyRequest,symbol=$('historySymbol').value.trim().toUpperCase();
  if(symbol&&!/^[A-Z0-9]{2,30}USDT$/.test(symbol)){$('tradeHistoryStatus').textContent='Enter the complete Bybit symbol, such as ETHUSDT.';$('historyRows').replaceChildren();historyLoading=false;historyRenderedKey=null;return}
  if(!background)$('tradeHistoryStatus').textContent='Loading confirmed closed trades…';
  try{
-  const data=await api('live/history?limit=50&offset='+historyOffset+(symbol?'&symbol='+encodeURIComponent(symbol):''));if(request!==historyRequest)return;
+  const data=await api('live/history?limit=50&offset='+historyOffset+(symbol?'&symbol='+encodeURIComponent(symbol):''),'GET',undefined,{controller,timeoutMs:12000,cache:'no-store'});if(request!==historyRequest)return;
   historyTotal=data.total;if(historyOffset>=historyTotal&&historyOffset>0){historyOffset=Math.max(0,(Math.ceil(historyTotal/50)-1)*50);loadHistory();return}
   const renderKey=JSON.stringify([symbol,historyOffset,data.items,historyOBMinimum()]);
   if(renderKey!==historyRenderedKey){$('historyRows').replaceChildren();
@@ -106,19 +109,21 @@ async function loadHistory({background=false}={}){
   }
   historyRenderedKey=renderKey;}
   $('tradeHistoryStatus').textContent=data.total?(historyOffset+1)+'–'+Math.min(historyOffset+data.items.length,data.total)+' of '+data.total+' closed trades':'No confirmed closed trades'+(symbol?' for '+symbol:'')+'.';
+  $('tradeHistoryStatus').textContent+=' · Updated '+new Date().toLocaleTimeString('en-US',{timeZone:'America/New_York',timeZoneName:'short'})+' · Auto-refresh every 15 seconds';
   renderHistoryPages();
   $('historyPrevious').disabled=historyOffset===0;$('historyNext').disabled=historyOffset+50>=data.total;
- }catch(e){if(request===historyRequest)$('tradeHistoryStatus').textContent='History unavailable: '+e.message+' · Will retry automatically while this page is visible.'}
- finally{if(request===historyRequest)historyLoading=false}
+ }catch(e){if(request===historyRequest)$('tradeHistoryStatus').textContent='History unavailable: '+(e.name==='AbortError'?'Request timed out or connection interrupted':e.message)+' · Will retry automatically while this page is visible.'}
+ finally{if(request===historyRequest){historyLoading=false;historyController=null}}
 }
-function refreshVisibleData(){
+function refreshVisibleData({reconnect=false}={}){
  if(!state||document.hidden)return;
- if(location.hash==='#history')loadHistory({background:true});
+ if(location.hash==='#history')loadHistory({background:true,reconnect});
  if(location.hash==='#analysis'&&$('lateHourPanel')?.open&&!$('lateHourEnabled').disabled)loadLateHourComparison({background:true});
 }
 setInterval(refreshVisibleData,15000);
-window.addEventListener('focus',refreshVisibleData);
-document.addEventListener('visibilitychange',refreshVisibleData);
+window.addEventListener('focus',()=>refreshVisibleData({reconnect:true}));
+window.addEventListener('online',()=>refreshVisibleData({reconnect:true}));
+document.addEventListener('visibilitychange',()=>refreshVisibleData({reconnect:true}));
 window.addEventListener('hashchange',showPage);
 buildPages();
 
