@@ -69,7 +69,7 @@ class IndicatorState:
         validate(row)
         cfg=self.cfg;duration=interval_seconds(cfg.timeframe)
         if self.last_time is not None and row['time']<=self.last_time:raise ValueError('Candle checkpoint must advance')
-        if cfg.strategy=='volume_delta_intrabar':
+        if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint'):
             from .volume_delta import signal
             self.buffer=(self.buffer+[row])[-50:];self.count+=1;self.last_time=row['time']
             item=dict(time=row['time'],levels={},sma=None,signal=None,conflict=False,close=row['close'],entry_sources=[])

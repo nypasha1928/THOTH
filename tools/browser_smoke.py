@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=payloads[path]
     if path=='live':result={**result,'server_time':time.time()}
    elif path.endswith('/settings') and method=='PUT':
-    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'}};writes.append((target,cfg));result=payloads[target]
+    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'},'volume_delta':{'enabled':cfg['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint'),'sma7_50':cfg['volume_delta']['sma_filter'],'bull_type':cfg['volume_delta']['bull_type'],'bear_type':cfg['volume_delta']['bear_type'],'bullish':cfg['volume_delta']['bullish'],'bearish':cfg['volume_delta']['bearish']}};writes.append((target,cfg));result=payloads[target]
    elif path.endswith('/activate'):
     activation.append(path);req.fulfill(status=400,json={'detail':'Fixture refuses trading'});return
    else:raise AssertionError((method,path))
@@ -597,6 +597,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['volume_delta']['sma_filter'] and not writes[-1][1]['sma_exit_enabled']
    page.uncheck('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.volume_delta.sma_filter')
    page.check('#vd_sma_filter');page.click('#saveSymbols');page.wait_for_function('() => lv.config.volume_delta.sma_filter')
+
+   page.select_option('#strategyLogic','volume_delta_1h_midpoint')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#volumeDeltaSettings')).to_be_visible()
+   expect(page.locator('#strategyDescription')).to_contain_text('One Volume Delta decision per coin during :30–:31')
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='volume_delta_1h_midpoint'")
+   expect(page.locator('#activeEntryFilter')).to_contain_text('SMA 7/50 ON')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('Bullish: strong')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('One decision per coin :30–:31')
+   assert not writes[-1][1]['sma_exit_enabled'] and writes[-1][1]['timeframe']=='60'
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('volume_delta_1h_midpoint')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('No SMA200, opposing-wick')
+
    page.select_option('#strategyLogic','sr_rsi_volume_gate')
    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#vd_sma_filter')).to_be_checked();expect(page.locator('#vd_sma_filter')).to_be_disabled()

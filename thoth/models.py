@@ -62,7 +62,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|order_block_sr_1h_early|ob_sr_hour_gate|ob_sr_minute_hourly|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|volume_delta_1h_midpoint|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|order_block_sr_1h_early|ob_sr_hour_gate|ob_sr_minute_hourly|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -187,7 +187,9 @@ class Settings(BaseModel):
             self.rsi=self.rsi.model_copy(update=dict(calculation_mode='fixed',signal_rules='eight_crossings',
                 static_signals=True,ml_signals=True,volume_filter=False,volume_for_static=False,
                 vwap_filter=False,sma_filter=False,histogram_filter=False))
-        if self.strategy in ('volume_delta_intrabar','sr_rsi_volume_gate'):
+        if self.strategy=='volume_delta_1h_midpoint':
+            self.timeframe='60';self.sma_enabled=False;self.sma_7_50_filter_enabled=False
+        if self.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','sr_rsi_volume_gate'):
             self.sma_exit_enabled=False
             if not (self.volume_delta.bullish or self.volume_delta.bearish):raise ValueError('Enable at least one Volume Delta signal direction')
         if self.strategy=='sr_inverse_intrabar':
