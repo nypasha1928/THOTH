@@ -136,7 +136,12 @@ class FeedAdapter:
                     try:packet['primary'][timeframe]=self.staged_primary_inputs(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
-        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
+        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
+        if cfg.strategy=='volume_delta_1h_midpoint':
+            from .volume_delta_midpoint import window
+            lower=self.supervisor.client.candles(symbol,'1',limit=32) if window(self.supervisor.clock()) else []
+            self.volume_delta_data[symbol]=dict(interval=interval,bar=rows[-1]['time'],rows=lower)
+            return rows
         if cfg.strategy=='volume_delta_intrabar':
             from .volume_delta import lower_inputs
             lower=lower_inputs(self.supervisor.client.candles,symbol,interval,rows,self.supervisor.clock(),self.volume_delta_data.get(symbol,{}).get('rows',[]))

@@ -41,6 +41,14 @@ class ApiTests(unittest.TestCase):
             self.assertFalse(current['entry_schedule']['blocked']);self.assertFalse(current['entries'])
             self.assertEqual(current['config']['stop_dollars'],before['config']['stop_dollars'])
 
+    def test_volume_delta_midpoint_profile_and_analysis_filter(self):
+        before=self.client.get('/api/live').json()
+        saved=self.client.put('/api/live/settings',json={**before['config'],'strategy':'volume_delta_1h_midpoint','timeframe':'D'}).json()
+        self.assertEqual(saved['config']['timeframe'],'60');self.assertFalse(saved['entries'])
+        self.assertFalse(saved['config']['sma_exit_enabled'])
+        self.assertTrue(saved['entry_filters']['volume_delta']['sma7_50'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=volume_delta_1h_midpoint').status_code,200)
+
     def test_early_hour_profile_save_does_not_activate_orders(self):
         before=self.client.get('/api/live').json()
         response=self.client.put('/api/live/settings',json={**before['config'],'strategy':'order_block_sr_1h_early','timeframe':'D','early_min_distance_atr':.08,'early_max_distance_atr':.6})
