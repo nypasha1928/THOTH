@@ -118,7 +118,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=payloads[path]
     if path=='live':result={**result,'server_time':time.time()}
    elif path.endswith('/settings') and method=='PUT':
-    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;writes.append((target,cfg));result=payloads[target]
+    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'}};writes.append((target,cfg));result=payloads[target]
    elif path.endswith('/activate'):
     activation.append(path);req.fulfill(status=400,json={'detail':'Fixture refuses trading'});return
    else:raise AssertionError((method,path))
@@ -723,6 +723,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_early')
    page.locator('#earlyHourSettings summary').click();expect(page.locator('#early_min_distance_atr')).to_have_value('0.08')
    expect(page.locator('#earlySma200Rules')).to_contain_text('exact equality')
+
+   expect(page.locator('#strategyLogic option:checked')).to_contain_text('SMA200')
+   expect(page.locator('#activeEntryFilter')).to_be_visible()
+   expect(page.locator('#activeEntryFilter')).to_contain_text('SMA200 entry filter ON')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('Equal or insufficient data: NO ENTRY')
+   page.evaluate("()=>{lv.entry_filters=undefined;render()}")
+   expect(page.locator('#activeEntryFilter')).to_contain_text('not confirmed by server')
+   page.evaluate("()=>{lv.entry_filters={sma200:{enabled:true}};lv.reason='Scheduled pause';render()}")
+   expect(page.locator('#activeEntryFilter')).to_contain_text('SMA200 entry filter ON')
+   page.evaluate("()=>{lv.reason='';render()}")
+
    expect(page.locator('#strategyDescription')).to_contain_text('Required 1h SMA200')
    assert page.evaluate("()=>signalStretchText({atr_basis:'test',references:[],sma200_direction:{value:'100',price:'101',reason:'Long entries only',basis:'last 200 completed hourly closes'}})").find('1h SMA200: 100 · checked price 101')>=0
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Early :55–:00');page.keyboard.press('Escape')

@@ -50,6 +50,7 @@ class SMA200Tests(unittest.TestCase):
         s=TestnetSupervisor(Path(tmp)/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**k:e,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
         cfg=TestnetSettings(strategy=STRATEGY,symbols=['BTCUSDT'],pivot_long=1,pivot_short=1,dedicated_account=True,daily_loss_pct=90)
         s.configure(cfg);s.activate(s.confirmation)
+        self.assertTrue(s.snapshot()['entry_filters']['sma200']['enabled'])
         rows=history();state=SourceState(cfg);state.advance(rows,now[0])
         return s,e,cfg,rows,context(state,rows,cfg,now[0])
 
