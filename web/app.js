@@ -13,9 +13,9 @@ let dirty=false,formDraft=null,chartRequest=0,chartLoading=false;
 const marketPrice=n=>Number(n).toLocaleString('en-US',{maximumFractionDigits:Math.abs(Number(n))<1?Math.min(12,Math.max(6,2-Math.floor(Math.log10(Math.abs(Number(n))||1)))):Math.abs(Number(n))<10?4:2});
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n||0));
 const fieldIds=['early_max_opposing_wick_pct','early_min_distance_atr','early_max_distance_atr','sma_ob_exit_enabled',...equityTrailingFieldIds,'sr_volume_period','inverse_entry_delay_seconds','inverse_direction_confirmed','coin_pnl_trailing_enabled','coin_pnl_trailing_activation_dollars','coin_pnl_trailing_drop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','take_profit_enabled','take_profit_dollars','sma_7_50_filter_enabled','sma_exit_enabled','trailing_enabled','trailing_activation_pct','trailing_distance_pct','position_value','leverage','stop_dollars','daily_loss_pct','max_positions','consecutive_losses','pause_minutes','pivot_long','pivot_short','sma_length','major','minor','sma_enabled','portfolio_loss_enabled','portfolio_loss_pct','daily_resume_automatic'];
-async function api(path,method='GET',body){
- const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),45000);
- try{const response=await fetch('/api/'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal});
+async function api(path,method='GET',body,{controller=new AbortController(),timeoutMs=45000,cache}={}){
+ const timeout=setTimeout(()=>controller.abort(),timeoutMs);
+ try{const response=await fetch('/api/'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,signal:controller.signal,...(cache?{cache}:{})});
  if(response.status===401){location.href='/login';throw Error('Sign in required')}
  const data=await response.json();if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));return data;
  }finally{clearTimeout(timeout)}

@@ -1141,6 +1141,47 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate('refreshVisibleData()');expect(page.locator('#historyRows')).to_contain_text('Newly settled synthetic trade')
    history_many.clear();page.evaluate('refreshVisibleData()');expect(page.locator('#historyRows tr')).to_have_count(3)
 
+   expect(page.locator('#tradeHistoryStatus')).to_contain_text('Auto-refresh every 15 seconds')
+   # Reproduce a pending network read holding the loading latch. An aged read
+   # must be aborted and replaced, and an obsolete response cannot overwrite it.
+   page.evaluate("""() => {
+    window.historyOriginalFetch=window.fetch;
+    window.stallNextHistory=true;
+    window.fetch=(input,options)=>{
+     if(String(input).startsWith('/api/live/history?')&&window.stallNextHistory){
+      window.stallNextHistory=false;
+      return new Promise(resolve=>{window.resolveStalledHistory=resolve});
+     }
+     return window.historyOriginalFetch(input,options);
+    };
+    loadHistory();
+   }""")
+   page.wait_for_function('()=>historyLoading&&!!window.resolveStalledHistory')
+   page.evaluate('()=>{historyStartedAt-=13000;refreshVisibleData()}')
+   page.wait_for_function('()=>!historyLoading')
+   page.evaluate("""async()=>{
+    window.resolveStalledHistory(new Response(JSON.stringify({total:0,items:[]})));
+    await new Promise(resolve=>setTimeout(resolve,0));
+    window.fetch=window.historyOriginalFetch;
+   }""")
+   expect(page.locator('#historyRows tr')).to_have_count(3)
+   # Returning online supersedes a stuck read immediately, even before its age limit.
+   page.evaluate("""()=>{
+    window.fetch=(input,options)=>String(input).startsWith('/api/live/history?')?
+      new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')))):
+      window.historyOriginalFetch(input,options);
+    loadHistory();
+   }""")
+   page.wait_for_function('()=>historyLoading')
+   page.evaluate("()=>{window.fetch=window.historyOriginalFetch;window.dispatchEvent(new Event('online'))}")
+   page.wait_for_function('()=>!historyLoading')
+   expect(page.locator('#historyRows tr')).to_have_count(3)
+   # Verify the actual interval, without a manual refresh helper or browser reload.
+   history_many.append(dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,closed_at=1792300001,pnl=.02,reason='Automatic interval settled trade',strategy='order_block_sr_1h_early'))
+   expect(page.locator('#historyRows')).to_contain_text('Automatic interval settled trade',timeout=20000)
+   history_many.clear();page.evaluate('refreshVisibleData()');expect(page.locator('#historyRows tr')).to_have_count(3)
+
+
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#lateHourBadge')).to_contain_text('ON')
    expect(page.locator('#lateHourStatus')).to_contain_text('Waiting for :55')
