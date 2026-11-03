@@ -722,6 +722,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('order_block_sr_1h_early')
    page.locator('#earlyHourSettings summary').click();expect(page.locator('#early_min_distance_atr')).to_have_value('0.08')
+   expect(page.locator('#earlySma200Rules')).to_contain_text('exact equality')
+   expect(page.locator('#strategyDescription')).to_contain_text('Required 1h SMA200')
+   assert page.evaluate("()=>signalStretchText({atr_basis:'test',references:[],sma200_direction:{value:'100',price:'101',reason:'Long entries only',basis:'last 200 completed hourly closes'}})").find('1h SMA200: 100 · checked price 101')>=0
    page.click('#start');expect(page.locator('#activationSymbols')).to_contain_text('Early :55–:00');page.keyboard.press('Escape')
    assert not page.locator('#entryScheduleSettings').evaluate('(el)=>el.open')
    page.locator('#entryScheduleSettings summary').click()

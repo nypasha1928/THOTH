@@ -151,6 +151,9 @@ class LateHourComparison:
                     from .early_hour import rules
                     sample_rules=rules(cfg)
                 sample=decision(rows,cfg,observed_at,self.clock(),state,sample_rules)
+                if cfg.strategy=='order_block_sr_1h_early':
+                    from .early_hour import filter_sample
+                    sample=filter_sample(sample,rows,observed_at)
                 old=db.execute('SELECT payload FROM observations WHERE symbol=? AND bar=? AND identity=?',(symbol,bar,identity)).fetchone()
                 record=json.loads(old[0]) if old else dict(symbol=symbol,bar=bar,identity=identity,strategy=cfg.strategy,first_seen_at=observed_at,first_pass=None)
                 if record.get('latest',{}).get('observed_at',0)>observed_at:return

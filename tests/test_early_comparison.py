@@ -8,7 +8,8 @@ from unittest.mock import Mock,patch
 from thoth.late_hour_comparison import LateHourComparison
 from thoth.models import Settings
 from thoth.runner import Runner
-from test_late_hour_comparison import BAR,history,raw
+from test_late_hour_comparison import BAR,raw
+from test_early_hour import history
 
 class EarlyComparisonTests(unittest.TestCase):
     def test_early_samples_and_closed_confirmation_continue_without_orders(self):

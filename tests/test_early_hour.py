@@ -4,14 +4,20 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from thoth.early_hour import STRATEGY,window,rules,context,recheck
+from thoth.early_hour import STRATEGY,window,rules,context,recheck,filter_sample
 from thoth.late_hour_comparison import SourceState,decision
 from thoth.models import Settings,TestnetSettings
 from thoth.runner import Runner
 from thoth.testnet import TestnetSupervisor
 from thoth.testnet_feed import FeedAdapter
 from thoth.signal_stretch import with_fill
-from test_late_hour_comparison import BAR,history,raw
+from test_late_hour_comparison import BAR,history as short_history,raw
+
+def history(close=100.5,**extra):
+    rows=short_history(close,**extra)
+    prefix=[{**rows[0],"time":rows[0]["time"]-(170-i)*3600} for i in range(170)]
+    return prefix+rows
+
 from test_testnet import Exchange
 from test_closed_inverted_ob_sr import history as formation_history,NOW
 
@@ -28,7 +34,7 @@ class EarlyHourTests(unittest.TestCase):
     def test_checkpoint_recheck_matches_full_history_and_rejects_revision_expiry_settings(self):
         c=self.cfg();rows=history();at=BAR+3301;s=SourceState(c);s.advance(rows,at);ctx=context(s,rows,c,at)
         with patch('thoth.late_hour_comparison.select',return_value=raw()):
-            full=decision(rows,c,at,at,s,rules(c));small=recheck(rows[-2:],c,'Long',ctx,at)
+            full=filter_sample(decision(rows,c,at,at,s,rules(c)),rows,at);small=recheck(rows[-2:],c,'Long',ctx,at)
             self.assertEqual(full['signal'],small['signal']);self.assertEqual(full['metrics'],small['metrics'])
             revised=copy.deepcopy(rows[-2:]);revised[0]['close']+=.01
             for data,cfg,stamp in [(revised,c,at),(rows[-2:],c,BAR+3600),(rows[-2:],self.cfg(early_max_distance_atr=.6),at)]:
@@ -78,6 +84,10 @@ class EarlyHourTests(unittest.TestCase):
                 now=[NOW-301];exchange=Exchange(lambda:now[0]);service=TestnetSupervisor(Path(tmp)/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**k:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
                 cfg=TestnetSettings(strategy=STRATEGY,symbols=['BTCUSDT'],dedicated_account=True,daily_loss_pct=90,early_min_distance_atr=0,early_max_distance_atr=20,early_max_opposing_wick_pct=100)
                 service.configure(cfg);service.activate(service.confirmation);feed=FeedAdapter(service);runner=Runner(feed,fetch=feed.fetch);data=formation_history(bearish)
+                data=[{**data[0],'time':data[0]['time']-3600}]+data
+                # Preserve the real recent formation while supplying an aligned longer trend.
+                for candle in data[:-45]:candle.update(open=1000 if bearish else 80,high=1001 if bearish else 81,low=999 if bearish else 79,close=1000 if bearish else 80)
+                exchange.prices['BTCUSDT']=data[-1]['close']
                 def fetch(symbol,interval,limit=1000):return data[-limit:]
                 with patch.object(exchange,'candles',side_effect=fetch),patch('thoth.runner.time.time',side_effect=lambda:now[0]),patch('thoth.testnet.observe_exit',side_effect=AssertionError('No separate SMA exit')):
                     runner.cycle(paced=False);self.assertFalse(exchange.orders)
@@ -107,14 +117,14 @@ class EarlyHourTests(unittest.TestCase):
                 cfg=TestnetSettings(strategy=STRATEGY,symbols=['BTCUSDT'],pivot_long=1,pivot_short=1,dedicated_account=True,daily_loss_pct=90,opposite_action=action)
                 cfg=TestnetSettings(**cfg.model_dump())
                 service.configure(cfg);service.activate(service.confirmation)
-                rows=history();s=SourceState(cfg);s.advance(rows,now[0]);ctx=context(s,rows,cfg,now[0])
+                rows=history();exchange.prices['BTCUSDT']=rows[-1]['close'];s=SourceState(cfg);s.advance(rows,now[0]);ctx=context(s,rows,cfg,now[0])
                 with patch.object(exchange,'candles',return_value=rows[-2:]),patch('thoth.late_hour_comparison.select',return_value=raw()):
                     service.apply_signals(Settings(**cfg.model_dump(exclude={'margin_mode','dedicated_account'})).model_dump(),{'BTCUSDT':dict(time=now[0]-1,signal=None,mark=100)})
                     service.apply_signals(Settings(**cfg.model_dump(exclude={'margin_mode','dedicated_account'})).model_dump(),{'BTCUSDT':dict(time=now[0],signal='Long',mark=100,entry_context=ctx)})
                 self.assertTrue(exchange.orders,(service.state['events'][-8:],service.state['cursors'],{k:(v,service.state['config'].get(k)) for k,v in cfg.model_dump().items() if v!=service.state['config'].get(k)}))
                 first=next(iter(exchange.orders));exchange.fill(first);service.monitor()
                 now[0]=BAR+3600+(3590 if late else 3301)
-                rows=[{**r,'time':r['time']+3600} for r in history(close=99.5)]
+                rows=[{**r,'time':r['time']+3600} for r in history(close=99.5)];exchange.prices['BTCUSDT']=99.5
                 s=SourceState(cfg);s.advance(rows,now[0]);ctx=context(s,rows,cfg,now[0]);stamp=now[0]
                 with patch.object(exchange,'candles',return_value=rows[-2:]),patch('thoth.late_hour_comparison.select',return_value=raw('bearish_formed','Short')):
                     service.apply_signals(Settings(**cfg.model_dump(exclude={'margin_mode','dedicated_account'})).model_dump(),{'BTCUSDT':dict(time=stamp,signal='Short',mark=100,entry_context=ctx)})
@@ -135,7 +145,7 @@ class EarlyHourTests(unittest.TestCase):
                 service=TestnetSupervisor(Path(tmp)/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**k:exchange,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
                 cfg=TestnetSettings(strategy=STRATEGY,symbols=['BTCUSDT'],pivot_long=1,pivot_short=1,dedicated_account=True,daily_loss_pct=90)
                 service.configure(cfg);service.activate(service.confirmation)
-                rows=history();state=SourceState(cfg);state.advance(rows,now[0]);ctx=context(state,rows,cfg,now[0])
+                rows=history();exchange.prices['BTCUSDT']=rows[-1]['close'];state=SourceState(cfg);state.advance(rows,now[0]);ctx=context(state,rows,cfg,now[0])
                 def fresh(*a,**kw):
                     if late:now[0]=BAR+3600
                     return history(close=100 if not late else 100.5)[-2:]

@@ -24,7 +24,9 @@ def execution_fingerprint():
 
 def strategy_fingerprint(cfg):
     values=cfg.model_dump() if hasattr(cfg,'model_dump') else cfg
-    return hashlib.sha256(json.dumps({k:values.get(k,'sr_breakout') if k=='strategy' else values.get(k,{}) if k in ('rsi','volume_delta','order_block') else values.get(k,20) if k=='sr_volume_period' else values.get(k,{'early_max_opposing_wick_pct':30,'early_min_distance_atr':.05,'early_max_distance_atr':.5}[k]) if k.startswith('early_') else values[k] for k in STRATEGY_FIELDS},sort_keys=True).encode()).hexdigest()
+    parameters={k:values.get(k,'sr_breakout') if k=='strategy' else values.get(k,{}) if k in ('rsi','volume_delta','order_block') else values.get(k,20) if k=='sr_volume_period' else values.get(k,{'early_max_opposing_wick_pct':30,'early_min_distance_atr':.05,'early_max_distance_atr':.5}[k]) if k.startswith('early_') else values[k] for k in STRATEGY_FIELDS}
+    if values.get('strategy')=='order_block_sr_1h_early':parameters['direction_filter_version']='1h_closed_sma200_v1'
+    return hashlib.sha256(json.dumps(parameters,sort_keys=True).encode()).hexdigest()
 
 
 def reference_status(cfg,directory):
