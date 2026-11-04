@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=payloads[path]
     if path=='live':result={**result,'server_time':time.time()}
    elif path.endswith('/settings') and method=='PUT':
-    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'},'volume_delta':{'enabled':cfg['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint'),'sma7_50':cfg['volume_delta']['sma_filter'],'bull_type':cfg['volume_delta']['bull_type'],'bear_type':cfg['volume_delta']['bear_type'],'bullish':cfg['volume_delta']['bullish'],'bearish':cfg['volume_delta']['bearish']}};writes.append((target,cfg));result=payloads[target]
+    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['exit_rules']={'closed_1m_sma7':cfg['strategy']=='volume_delta_1h_midpoint_sma7_exit'};payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'},'volume_delta':{'enabled':cfg['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit'),'sma7_50':cfg['volume_delta']['sma_filter'],'bull_type':cfg['volume_delta']['bull_type'],'bear_type':cfg['volume_delta']['bear_type'],'bullish':cfg['volume_delta']['bullish'],'bearish':cfg['volume_delta']['bearish']}};writes.append((target,cfg));result=payloads[target]
    elif path.endswith('/activate'):
     activation.append(path);req.fulfill(status=400,json={'detail':'Fixture refuses trading'});return
    else:raise AssertionError((method,path))
@@ -616,6 +616,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert not writes[-1][1]['sma_exit_enabled'] and writes[-1][1]['timeframe']=='60'
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('volume_delta_1h_midpoint')
    expect(page.locator('#activeEntryFilter')).to_contain_text('No SMA200, opposing-wick')
+
+   before_new_exit_risk={key:payloads['live']['config'][key] for key in ['position_value','leverage','stop_dollars','trailing_enabled','trailing_activation_pct','trailing_distance_pct','max_positions','daily_loss_pct']}
+   page.select_option('#strategyLogic','volume_delta_1h_midpoint_sma7_exit')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('ADDITIONAL EXIT ONLY')
+   expect(page.locator('#volumeDeltaDescription')).to_contain_text('No 1m entries or reversals')
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='volume_delta_1h_midpoint_sma7_exit'")
+   expect(page.locator('#activeEntryFilter')).to_contain_text('EXIT: CLOSED 1m price vs SMA7')
+   assert {key:writes[-1][1][key] for key in before_new_exit_risk}==before_new_exit_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('volume_delta_1h_midpoint_sma7_exit')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('close only')
+   page.select_option('#strategyLogic','volume_delta_1h_midpoint');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='volume_delta_1h_midpoint'")
+   expect(page.locator('#activeEntryFilter')).not_to_contain_text('EXIT: CLOSED 1m')
+
 
    page.select_option('#strategyLogic','sr_rsi_volume_gate')
    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()

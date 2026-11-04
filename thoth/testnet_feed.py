@@ -143,8 +143,8 @@ class FeedAdapter:
                     try:packet['primary'][timeframe]=self.staged_primary_inputs(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
-        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
-        if cfg.strategy=='volume_delta_1h_midpoint':
+        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
+        if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit'):
             from .volume_delta_midpoint import window
             observer=getattr(self,'volume_delta_comparison',None)
             if observer is not None and observer.enabled:
