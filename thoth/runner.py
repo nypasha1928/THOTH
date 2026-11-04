@@ -220,6 +220,18 @@ class Runner:
         from .volume_delta_midpoint import evaluate,context,window
         observed_at=now if observed_at is None else observed_at
         bar=int(now)//3600*3600;identity=strategy_fingerprint(cfg)
+        observer=getattr(self,'volume_delta_comparison',None)
+        if observer is not None:
+            try:
+                take=getattr(self.engine,'take_volume_delta_25_sample',None)
+                packet=take(symbol) if take else None
+                if packet and packet['identity']==(bar,identity):observer.submit('at25',symbol,cfg,packet['rows'],packet['lower'],packet['observed_at'],reason=packet['error'])
+                previous=getattr(self,'volume_delta_close_bars',{})
+                if previous.get(symbol)!=(bar,identity):
+                    observer.submit('close',symbol,cfg,rows,[],now)
+                    previous[symbol]=(bar,identity);self.volume_delta_close_bars=previous
+            except Exception:pass  # Comparison failures cannot alter LIVE decisions.
+        attempted=False;checked=None;lower=[];comparison_reason=None
         observation=dict(time=observed_at,mark=rows[-1]['close'],signal=None,entry_sources=[],entry_context=None,
             volume_delta_status='Volume Delta 1h: waiting for one :30–:31 decision')
         with connect(self.history_path) as db:
@@ -230,7 +242,7 @@ class Runner:
                 if decided:observation['volume_delta_status']='Volume Delta :30 decision already consumed; waiting for next hour'
                 else:
                     # Consume even a no-signal decision before handing it to execution.
-                    decided=True
+                    decided=True;attempted=True
                     try:
                         lower=self.engine.volume_delta_inputs(symbol,'60',bar)
                         checked=evaluate(rows,lower,cfg,now)
@@ -249,10 +261,14 @@ class Runner:
                             from .entry_diagnostics import qualification
                             observation['entry_diagnostics']=qualification(checked['entry_sources'],{s:dict(first_seen_at=observed_at,first_seen_price=checked['price'] if 'price' in checked else rows[-1]['close']) for s in checked['entry_sources']},observed_at,rows[-1]['close'],tracker.get('observed_at'))
                     except ValueError as exc:
+                        comparison_reason=str(exc)
                         observation['volume_delta_status']='Volume Delta :30 skipped: '+str(exc)
                         observation['signal_diagnostic']=dict(reason=observation['volume_delta_status'],signal=None)
             tracker.update(bar=bar,decided=decided,observed_at=now)
             db.execute('INSERT OR REPLACE INTO intrabar_observations VALUES(?,?,?)',(symbol,identity,json.dumps(tracker,allow_nan=False)))
+        if observer is not None and attempted:
+            try:observer.submit('at30',symbol,cfg,rows,lower,observed_at,decision=checked,reason=comparison_reason)
+            except Exception:pass
         return observation
 
     def volume_delta_observation(self,symbol,cfg,rows,now,lower=None):
