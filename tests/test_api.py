@@ -41,6 +41,20 @@ class ApiTests(unittest.TestCase):
             self.assertFalse(current['entry_schedule']['blocked']);self.assertFalse(current['entries'])
             self.assertEqual(current['config']['stop_dollars'],before['config']['stop_dollars'])
 
+    def test_volume_delta_comparison_is_read_only_and_exportable(self):
+        from thoth.volume_delta_comparison import VolumeDeltaComparison
+        observer=VolumeDeltaComparison(Path(self.tmp.name)/'delta-comparison.sqlite')
+        before=self.client.get('/api/live').json()
+        with patch('thoth.app.volume_delta_comparison',observer):
+            report=self.client.get('/api/live/volume-delta-comparison').json()
+            self.assertTrue(report['enabled']);self.assertEqual(report['mode'],'signal_comparison_only')
+            self.assertFalse(report['collection_supported'])
+            self.assertEqual(self.client.get('/api/live/volume-delta-comparison/export').json()['total'],0)
+            changed=self.client.put('/api/live/volume-delta-comparison/settings',json={'enabled':False}).json()
+            self.assertFalse(changed['enabled'])
+            self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
+            self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
+
     def test_volume_delta_midpoint_profile_and_analysis_filter(self):
         before=self.client.get('/api/live').json()
         saved=self.client.put('/api/live/settings',json={**before['config'],'strategy':'volume_delta_1h_midpoint','timeframe':'D'}).json()

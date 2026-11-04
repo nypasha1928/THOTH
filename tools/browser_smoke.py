@@ -61,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
-  late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();late_total=[1]
+  delta_timing_enabled=[True];delta_timing_writes=[];late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();late_total=[1]
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
@@ -90,6 +90,13 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=dict(mode='observation_only',executor='fixed',settings=dict(enabled=True,minimum=.1,maximum=.4,multiplier=2,fee_bps=5.5),total=1,offset=0,limit=50,dropped=0,error=None,items=[dict(id=1,started=1792300000,position_count=11,symbols=['ETHUSDT','BTCUSDT'],fixed_triggered=1792300100,fixed_gross=1.4,realized=1.25,actual_closed_at=1792300105,last_sample=1792300130,dynamic=dict(active=True,triggered=True,triggered_at=1792300130,result_gross=1.6,peak=2,threshold=1.6,distance=.4),assumed_fees=.2,estimate_after_assumed_fees_before_funding=1.4,gross_quote_difference=.2,warnings=[])])
    elif path=='live/trailing-comparison/settings' and method=='PUT':
     result=dict(settings=req.request.post_data_json);comparison_writes.append(req.request.post_data_json)
+   elif path in ('live/volume-delta-comparison','live/volume-delta-comparison/export'):
+    from thoth.volume_delta_comparison import compared
+    row=dict(symbol='ETHUSDT',bar=1792299600,at25=dict(signal='Long',price=2400,observed_at=1792301101,valid=True),at30=dict(signal='Long',price=2402,observed_at=1792301401,valid=True),hour_close=dict(price=2405))
+    row['comparison']=compared(row,1792303201)
+    result=dict(enabled=delta_timing_enabled[0],total=1,offset=0,limit=50,items=[row],dropped=0,error=None,mode='signal_comparison_only',collection_supported=True,market_connected=True,latest_observed_at=1792301401)
+   elif path=='live/volume-delta-comparison/settings' and method=='PUT':
+    delta_timing_writes.append(req.request.post_data_json);delta_timing_enabled[0]=req.request.post_data_json['enabled'];result=dict(enabled=delta_timing_enabled[0])
    elif path=='live/late-hour-comparison':
     early=dict(signal='Long',reason='Would enter Long (signal conditions only)',observed_at=1792302900,price=2400,passed_sources=['ob:bullish_formed'],source_checks=[dict(label='Bullish Order Block formed',distance_atr=.2,passed=True,reasons=[])])
     result=dict(enabled=late_hour_enabled[0],selected_strategy='order_block_sr_1h_early',collection_supported=True,market_connected=True,feed_status='ok',total=late_total[0],items=[dict(symbol='ETHUSDT',bar=1792299600,observed_at=1792302900,decision=early['reason'],first_pass=early,latest=early,closed=dict(signal='Long',same_direction=True,same_sources=['ob:bullish_formed'],conflict=False),live_orders=[dict(side='Buy',phase='protected')])],dropped=0,error=None,mode='signal_comparison_only',rules=dict(start_minute=55),window=dict(state='waiting',next_window_at=1793433300))
@@ -1210,6 +1217,23 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
 
 
    page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   expect(page.locator('#deltaTimingBadge')).to_contain_text('ON')
+   assert not page.locator('#deltaTimingPanel').evaluate('(el)=>el.open')
+   page.locator('#deltaTimingPanel > summary').click()
+   expect(page.locator('#deltaTimingRows')).to_contain_text('Same direction')
+   expect(page.locator('#deltaTimingRows')).to_contain_text(':25 price advantage +0.083%')
+   expect(page.locator('#deltaTimingStatus')).to_contain_text('No simulated P&L')
+   before_delta_writes=len(writes)
+   page.locator('#deltaTimingEnabled').uncheck();expect(page.locator('#deltaTimingBadge')).to_have_text('OFF')
+   page.locator('#deltaTimingEnabled').check();expect(page.locator('#deltaTimingBadge')).to_contain_text('ON')
+   assert delta_timing_writes==[{'enabled':False},{'enabled':True}] and len(writes)==before_delta_writes
+   refresh_failures.add('live/volume-delta-comparison');page.click('#deltaTimingRefresh')
+   expect(page.locator('#deltaTimingStatus')).to_contain_text('Will retry')
+   page.evaluate('refreshVisibleData()');expect(page.locator('#deltaTimingStatus')).to_contain_text('1 retained')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.deltaTimingCopied=text}})")
+   page.click('#deltaTimingCopy');expect(page.locator('#deltaTimingStatus')).to_contain_text('Copied all 1')
+   assert 'Same direction' in page.evaluate('window.deltaTimingCopied')
+   page.locator('#deltaTimingPanel > summary').click()
    expect(page.locator('#lateHourBadge')).to_contain_text('ON')
    expect(page.locator('#lateHourStatus')).to_contain_text('Waiting for :55')
    assert not page.locator('#lateHourPanel').evaluate('(el)=>el.open')

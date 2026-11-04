@@ -12,6 +12,7 @@ class FeedAdapter:
         self.supervisor=supervisor
         self.path=supervisor.path
         self.volume_delta_data={}
+        self.volume_delta_25_data={}
         self.history_recovery={}
 
     def snapshot(self):
@@ -25,6 +26,12 @@ class FeedAdapter:
     def market_cycle(self,cfg,observations):
         cfg={**cfg,'automatic_paper':False}
         self.supervisor.apply_signals(cfg,observations)
+
+    def take_volume_delta_25_sample(self,symbol):
+        packet=self.volume_delta_25_data.get(symbol)
+        if not packet or not packet.get('pending'):return None
+        packet['pending']=False
+        return packet
 
     def volume_delta_inputs(self,symbol,interval,bar):
         data=self.volume_delta_data.get(symbol)
@@ -139,6 +146,16 @@ class FeedAdapter:
         rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
         if cfg.strategy=='volume_delta_1h_midpoint':
             from .volume_delta_midpoint import window
+            observer=getattr(self,'volume_delta_comparison',None)
+            if observer is not None and observer.enabled:
+                from .volume_delta_comparison import early_window
+                from .verification import strategy_fingerprint
+                identity=(rows[-1]['time'],strategy_fingerprint(cfg))
+                previous=self.volume_delta_25_data.get(symbol,{})
+                if early_window(self.supervisor.clock()) and previous.get('identity')!=identity:
+                    try:early_lower=self.supervisor.client.candles(symbol,'1',limit=32);error=None
+                    except Exception as exc:early_lower=[];error=type(exc).__name__+': observation minute data unavailable'
+                    self.volume_delta_25_data[symbol]=dict(identity=identity,pending=True,rows=rows,lower=early_lower,observed_at=self.supervisor.clock(),error=error)
             lower=self.supervisor.client.candles(symbol,'1',limit=32) if window(self.supervisor.clock()) else []
             self.volume_delta_data[symbol]=dict(interval=interval,bar=rows[-1]['time'],rows=lower)
             return rows
