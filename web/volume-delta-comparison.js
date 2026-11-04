@@ -1,6 +1,6 @@
 let deltaTimingOffset=0,deltaTimingRequest=0,deltaTimingLoading=false;
 function volumeDeltaTimingMarkup(){return `<details class="card" id="deltaTimingPanel"><summary>Volume Delta · :25 versus :30 · <span id="deltaTimingBadge">Checking…</span></summary>
-<p>Read-only comparison alongside Volume Delta · 1h · :30 Decision. Uses the same saved SMA7/50 and signal-type settings. First snapshot per coin during :25–:26 is compared with the actual first :30–:31 source decision. No orders are sent by this panel; account/risk eligibility is not evaluated.</p>
+<p>Read-only comparison alongside either Volume Delta 1h :30 strategy (with or without the separate closed-1m SMA7 exit). Uses the same saved SMA7/50 and signal-type settings. First snapshot per coin during :25–:26 is compared with the actual first :30–:31 source decision. No orders are sent by this panel; account/risk eligibility is not evaluated.</p>
 <p>The :25 observation needs an additional bounded minute-data download per coin, only during :25–:26. Collection continues when this panel is closed and entries are paused, provided the selected strategy's market worker remains connected. A missed window stays unverified; filter changes are not paired.</p>
 <p>Price advantage: positive means the :25 snapshot offered a better price for the same direction. Moves to the same hourly close are price measurements only, not simulated profit or a replay of stops, trailing, fees, funding or slippage.</p>
 <label><input type="checkbox" id="deltaTimingEnabled" checked> Enable :25 observation only</label>

@@ -3,9 +3,12 @@ from .volume_delta import signal
 from .verification import strategy_fingerprint
 
 STRATEGY='volume_delta_1h_midpoint'
+EXIT_STRATEGY='volume_delta_1h_midpoint_sma7_exit'
+STRATEGIES=(STRATEGY,EXIT_STRATEGY)
 def window(now):return 1800<=now%3600<1860
 
 def evaluate(rows,lower,cfg,now):
+    if cfg.timeframe!='60':raise ValueError('Volume Delta :30 requires the 1h strategy timeframe')
     if not window(now):raise ValueError('Volume Delta :30–:31 decision window closed')
     v=cfg.volume_delta
     return signal(rows,lower,'60',now,sma_filter=v.sma_filter,bull_type=v.bull_type,bear_type=v.bear_type,

@@ -2,7 +2,7 @@
 from .database import connect
 from .verification import strategy_fingerprint
 from .volume_delta import signal
-from .volume_delta_midpoint import STRATEGY
+from .volume_delta_midpoint import STRATEGY,STRATEGIES
 from .entry_diagnostics import number
 import json
 import queue
@@ -46,7 +46,7 @@ class VolumeDeltaComparison:
             db.execute('UPDATE settings SET payload=? WHERE id=1',(json.dumps({'enabled':self.enabled}),))
         return self.report()
     def submit(self,phase,symbol,cfg,rows,lower,observed_at,decision=None,reason=None):
-        if not self.enabled or cfg.strategy!=STRATEGY:return
+        if not self.enabled or cfg.strategy not in STRATEGIES:return
         if phase=='at25' and not early_window(observed_at):return
         if phase=='at30' and not 1800<=observed_at%3600<1860:return
         try:self.inputs.put_nowait((phase,symbol,cfg,tuple(dict(r) for r in rows[-60:]),tuple(dict(r) for r in lower),observed_at,dict(decision) if decision is not None else None,reason))
@@ -54,7 +54,7 @@ class VolumeDeltaComparison:
         except Exception:self.dropped+=1
     def process(self,item):
         phase,symbol,cfg,rows,lower,observed_at,decision,reason=item
-        if cfg.strategy!=STRATEGY or symbol not in cfg.symbols:return
+        if cfg.strategy not in STRATEGIES or symbol not in cfg.symbols:return
         identity=strategy_fingerprint(cfg);bar=int(observed_at)//3600*3600
         if phase=='close':
             closed=next((r for r in reversed(rows) if r['time']==bar-3600),None)
@@ -83,7 +83,7 @@ class VolumeDeltaComparison:
             with self.db() as db:
                 stored=db.execute('SELECT payload FROM observations WHERE symbol=? AND bar=? AND identity=?',(symbol,bar,identity)).fetchone()
                 if phase=='close' and not stored:return
-                record=json.loads(stored[0]) if stored else dict(symbol=symbol,bar=bar,identity=identity,filters=cfg.volume_delta.model_dump(),strategy=STRATEGY)
+                record=json.loads(stored[0]) if stored else dict(symbol=symbol,bar=bar,identity=identity,filters=cfg.volume_delta.model_dump(),strategy=cfg.strategy)
                 key='hour_close' if phase=='close' else phase
                 if key in record:return  # First snapshot, even if it did not qualify.
                 record[key]=dict(price=closed['close'],closed_at=bar+3600,checked_at=observed_at) if phase=='close' else sample

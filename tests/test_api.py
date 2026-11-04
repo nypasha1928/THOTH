@@ -55,6 +55,16 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/live').json()['config'],before['config'])
             self.assertEqual(self.client.get('/api/live').json()['entries'],before['entries'])
 
+    def test_separate_volume_delta_closed_sma7_exit_profile(self):
+        before=self.client.get('/api/live').json()
+        saved=self.client.put('/api/live/settings',json={**before['config'],'strategy':'volume_delta_1h_midpoint_sma7_exit','timeframe':'D','trailing_enabled':True,'trailing_activation_pct':5,'trailing_distance_pct':.2}).json()
+        self.assertEqual(saved['config']['timeframe'],'60');self.assertTrue(saved['exit_rules']['closed_1m_sma7'])
+        self.assertFalse(saved['entries']);self.assertFalse(saved['config']['sma_exit_enabled'])
+        self.assertTrue(saved['config']['trailing_enabled']);self.assertEqual(saved['config']['volume_delta'],before['config']['volume_delta'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=volume_delta_1h_midpoint_sma7_exit').status_code,200)
+        original=self.client.put('/api/live/settings',json={**saved['config'],'strategy':'volume_delta_1h_midpoint'}).json()
+        self.assertFalse(original['exit_rules']['closed_1m_sma7'])
+
     def test_volume_delta_midpoint_profile_and_analysis_filter(self):
         before=self.client.get('/api/live').json()
         saved=self.client.put('/api/live/settings',json={**before['config'],'strategy':'volume_delta_1h_midpoint','timeframe':'D'}).json()
