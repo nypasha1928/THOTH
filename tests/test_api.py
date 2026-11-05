@@ -218,6 +218,27 @@ class ApiTests(unittest.TestCase):
         saved=self.client.get('/api/live').json()['config']
         self.assertEqual(saved,cfg);self.assertFalse(self.client.get('/api/live').json()['entries'])
 
+    def test_closed_30m_two_direction_profile_and_native_chart_interval(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_30m_close_two_direction','timeframe':'D','minor':True,'major':False,'sma_exit_enabled':True})
+        self.assertEqual(response.status_code,200,response.text);cfg=response.json()['config']
+        self.assertEqual((cfg['timeframe'],cfg['opposite_action']),('1','reverse'))
+        self.assertTrue(cfg['major']);self.assertFalse(cfg['minor'] or cfg['sma_exit_enabled'])
+        for key in ('stop_dollars','leverage','max_positions','daily_loss_pct','saved_symbol_lists','symbols','trailing_enabled','entry_daily_enabled','entry_weekend_enabled'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=ob_sr_30m_close_two_direction').status_code,200)
+        from test_order_block_sr import ob_rows,NOW
+        data=ob_rows();start=int(NOW)//1800*1800
+        source=[{**row,'time':start-(len(data)-i-1)*1800} for i,row in enumerate(data)]
+        with patch('thoth.app.candles',return_value=source) as market,patch('time.time',return_value=NOW+20):
+            chart=self.client.get('/api/chart/BTCUSDT?interval=30&environment=live&include_order_block=true')
+        self.assertEqual(chart.status_code,200,chart.text);market.assert_called_once_with('BTCUSDT','30')
+        body=chart.json();self.assertIn('CLOSED 30m permission',body['indicator_status'])
+        self.assertIn('NO minor',body['indicator_status']);self.assertIn('CLOSED candles only',body['sr_reference_status'])
+        self.assertIn('CLOSED candles',body['order_block_status']);self.assertFalse(self.client.get('/api/live').json()['entries'])
+        from thoth.signal_sources import source_label
+        self.assertIn('30-minute',source_label(['htf:30:sr:short_support_major']))
+
     def test_two_direction_window_profile_preserves_risk_and_exposes_both_sr_modes(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_windows_two_direction',

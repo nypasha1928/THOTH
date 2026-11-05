@@ -2,6 +2,8 @@
 from .volume_delta_windows import window_start
 
 STRATEGY='ob_sr_windows_two_direction'
+CLOSED_STRATEGY='ob_sr_30m_close_two_direction'
+STRATEGIES=(STRATEGY,CLOSED_STRATEGY)
 
 
 def new_gate():
