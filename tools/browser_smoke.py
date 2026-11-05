@@ -884,6 +884,19 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#entryGateList')).to_contain_text('next opposite CLOSED 1m signal EXIT ONLY')
    assert page.evaluate("signalAlertSources({entry_sources:['htf:30:sr:long_support_major']})").startswith('30-minute')
    assert page.evaluate("candleCountdown(0,'30')")=='30:00'
+   page.select_option('#strategyLogic','ob_sr_30m_delayed')
+   expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text(':00 → :15, :30 → :45')
+   expect(page.locator('#strategyDescription')).to_contain_text('no 1m entry, reversal or exit signals')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#oppositeAction')).to_be_enabled()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_30m_delayed'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   expect(page.locator('#activeEntryFilter')).to_contain_text('direct delayed entry :15 / :45')
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_30m_delayed')
+   page.evaluate("()=>{const now=lv.server_time||Date.now()/1000;lv.delayed_30m={ETHUSDT:{side:'Long',due_at:now+600,expires_at:now+660}};renderRiskOverview()}")
+   expect(page.locator('#entryGateStatus summary')).to_have_text('Scheduled 30m signals')
+   expect(page.locator('#entryGateList')).to_contain_text('Long · entry due in')
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'
