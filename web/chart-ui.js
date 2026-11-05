@@ -32,9 +32,10 @@ function renderAppearance(){const target=$('appearanceFields');target.replaceChi
  for(const [key,label]of [['showRSI','Show RSI indicator pane'],['showRSISignals','Show RSI signal arrows'],['showRSIPriceSignals','Show RSI arrows on price chart'],['showRSIPaneSignals','Show RSI arrows in RSI pane'],['showRSIStatic','Show static RSI 30/70 arrows'],['showRSIML','Show ML RSI arrows']])rsiGroup.append(appearanceInput(label,'checkbox',chartStyle[key],v=>chartStyle[key]=v));
  const vwapGroup=indicatorDropdown(target,'RSI VWAP');vwapGroup.append(appearanceInput('Show RSI VWAP on price chart','checkbox',chartStyle.showRSIVWAP,v=>chartStyle.showRSIVWAP=v));
  const srGroup=indicatorDropdown(target,'S/R');
- for(const [key,label]of [['showSRArrows','Show S/R breakout arrows'],['paintSRCandles','Color candles on S/R signals']])srGroup.append(appearanceInput(label,'checkbox',chartStyle[key],value=>chartStyle[key]=value));
+ for(const [key,label]of [['showSRArrows','Show S/R breakout, bounce/rejection arrows'],['paintSRCandles','Color candles on S/R signals']])srGroup.append(appearanceInput(label,'checkbox',chartStyle[key],value=>chartStyle[key]=value));
  for(const [key,label]of [['srLongCandle','S/R bullish signal candle color'],['srShortCandle','S/R bearish signal candle color']])srGroup.append(appearanceInput(label,'color',chartStyle[key],value=>chartStyle[key]=value));
  renderRSIAppearance(rsiGroup);
+ const srLegend=document.createElement('p');srLegend.className='note';srLegend.textContent='S/R labels: BO = breakout, B = bounce, R = rejection. Forming previews may change; chart arrows are references, not trade fills.';srGroup.append(srLegend);
  const deltaGroup=indicatorDropdown(target,'Volume Delta signals');deltaGroup.append(appearanceInput('Show Volume Delta reference arrows','checkbox',chartStyle.showVolumeDeltaArrows,v=>{chartStyle.showVolumeDeltaArrows=v;if(v&&state)loadChart()}));
  const obGroup=indicatorDropdown(target,'Order Block boxes');obGroup.append(appearanceInput('Show Order Block boxes','checkbox',chartStyle.showOrderBlockZones,v=>{chartStyle.showOrderBlockZones=v;if(v&&state)loadChart()}));
  for(const [key,label]of [['obBullish','Bullish block color'],['obBearish','Bearish block color']])obGroup.append(appearanceInput(label,'color',chartStyle[key],v=>chartStyle[key]=v));
