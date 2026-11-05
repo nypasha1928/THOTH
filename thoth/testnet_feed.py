@@ -143,8 +143,8 @@ class FeedAdapter:
                     try:packet['primary'][timeframe]=self.staged_primary_inputs(symbol,timeframe)
                     except Exception as exc:packet['primary'][timeframe]=exc
             return packet
-        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
-        if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
+        rows=self.supervisor.client.candles(symbol,interval,limit=60) if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit','sma_7_50_intrabar') else self.supervisor.client.candles(symbol,interval)
+        if cfg.strategy in ('volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit'):
             from .volume_delta_windows import window_start
             lower=self.supervisor.client.candles(symbol,'1',limit=61) if window_start(self.supervisor.clock()) is not None else []
             self.volume_delta_data[symbol]=dict(interval=interval,bar=rows[-1]['time'],rows=lower)
