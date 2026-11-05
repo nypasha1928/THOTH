@@ -83,9 +83,14 @@ class Runner:
     @health.setter
     def health(self,value):self._health=value
 
-    def history(self, symbol, interval, rows):
+    def history(self, symbol, interval, rows,*,defer_prune=False):
         """Persist history so moving API windows don't reset major/minor state."""
         duration = interval_seconds(interval)
+        # Chart reads share this cache: they must not remove the bridge while
+        # the independent minute worker is still recovering/advancing sources.
+        if interval=='1' and not defer_prune:
+            snapshot=getattr(self.engine,'snapshot',None)
+            if callable(snapshot):defer_prune=snapshot().get('settings',{}).get('strategy')==TWO_DIRECTION
         from .history_backfill import validate_hourly
         validate_hourly(rows,interval)
         with connect(self.history_path) as db:
@@ -109,7 +114,7 @@ class Runner:
                     db.execute('DELETE FROM analyses WHERE symbol=? AND interval=?',(symbol,interval))
             db.executemany('INSERT OR REPLACE INTO candles VALUES(?,?,?,?)',
                 [(symbol, interval, r['time'], json.dumps(r)) for r in rows])
-            db.execute('DELETE FROM candles WHERE symbol=? AND interval=? AND time<?',(symbol,interval,rows[-1]['time']-duration*5000))
+            if not defer_prune:db.execute('DELETE FROM candles WHERE symbol=? AND interval=? AND time<?',(symbol,interval,rows[-1]['time']-duration*5000))
             stored = [json.loads(r[0]) for r in db.execute(
                 'SELECT payload FROM candles WHERE symbol=? AND interval=? ORDER BY time', (symbol,interval))]
         if any(b['time']-a['time'] != duration for a,b in zip(stored,stored[1:])):
@@ -465,7 +470,7 @@ class Runner:
 
     def combined_order_block_sr_observation(self,symbol,cfg,rows,now):
         from .order_block_sr import combine
-        history=self.history(symbol,cfg.timeframe,rows)
+        history=self.history(symbol,cfg.timeframe,rows,defer_prune=True) if cfg.strategy==TWO_DIRECTION else self.history(symbol,cfg.timeframe,rows)
         if not history or history[-1]['time']!=int(now)//interval_seconds(cfg.timeframe)*interval_seconds(cfg.timeframe):
             raise ValueError('Current '+cfg.timeframe+' candle unavailable')
         errors={};branches={}
@@ -479,6 +484,10 @@ class Runner:
             if callable(held_reader) and not held_reader(symbol):
                 result.update(signal=None,entry_sources=[],entry_context=None,signal_diagnostic=None)
                 result['volume_delta_status']='Hourly entry window closed; tracking sources without queuing entries'
+        if cfg.strategy==TWO_DIRECTION and not errors:
+            # Keep a backfill bridge until BOTH source checkpoints have advanced.
+            with connect(self.history_path) as db:
+                db.execute('DELETE FROM candles WHERE symbol=? AND interval=? AND time<?',(symbol,cfg.timeframe,history[-1]['time']-60*5000))
         return result
 
     def early_hour_observation(self,symbol,cfg,rows,now):
@@ -711,11 +720,11 @@ class Runner:
             self.confirmation_epochs[symbol]=epoch
             rows,now=self.fresh_staged_minute(symbol,interval='1')
             result=self.combined_order_block_sr_observation(symbol,cfg,rows,now)
-            return {**result,'signal':None,'primary_events':[],
+            return {**result,'signal':None,'primary_events':[],'observation_channel':'minute_signal',
                 'volume_signal':result.get('signal'),'volume_sources':['htf:1:'+s for s in result.get('entry_sources',[])]}
         rows=packet.get('primary',{}).get('60')
         if isinstance(rows,Exception):raise rows
-        result=dict(time=now,mark=None,signal=None,primary_events=[],volume_signal=None,volume_sources=[],source_errors={},volume_checks={},
+        result=dict(time=now,mark=None,signal=None,primary_events=[],observation_channel='hour_permission',volume_signal=None,volume_sources=[],source_errors={},volume_checks={},
             volume_delta_status='1h :58–:03 / :28–:33 permission → 1m first entry, reverse, exit; S/R breakout + bounce/rejection')
         if rows is None:return result
         from .two_direction_gate import hourly_signal,window_start
@@ -813,11 +822,20 @@ class Runner:
                 obs=self.staged_observation(symbol,cfg,dict(primary={},minute_on_demand=True),time.time())
                 self.engine.market_observation(cfg.model_dump(),symbol,obs)
                 self.confirmation_checks+=1
+                last_detected=self.confirmation_statuses.get(symbol,{}).get('last_detected_signal')
+                if obs.get('volume_signal') in ('Long','Short'):
+                    last_detected=dict(observed_at=obs['time'],direction=obs['volume_signal'],sources=obs.get('volume_sources',[]))
                 self.confirmation_statuses[symbol]=dict(status='degraded' if obs.get('source_errors') else 'ok',
-                    observed_at=obs['time'],source_errors=obs.get('source_errors',{}),note=obs['volume_delta_status'])
+                    observed_at=obs['time'],source_errors=obs.get('source_errors',{}),note=obs['volume_delta_status'],
+                    signal=obs.get('volume_signal'),last_detected_signal=last_detected)
             except Exception as exc:
                 self.confirmation_statuses[symbol]=dict(status='error',observed_at=time.time(),message=str(exc)[:240])
-            finally:self.confirmation_last_checked[symbol]=time.monotonic()
+            finally:
+                recovery=getattr(self.engine,'staged_history_recovery_status',None)
+                if callable(recovery):
+                    report=recovery(symbol)
+                    if report:self.confirmation_statuses[symbol]['history_recovery']=report
+                self.confirmation_last_checked[symbol]=time.monotonic()
         duration=max(0.,time.monotonic()-started)
         self.previous_scan_seconds=max(duration,self.interval)*max(1,(len(armed)+3)//4)
         ages={s:time.monotonic()-self.confirmation_last_checked[s] for s in armed if s in self.confirmation_last_checked}

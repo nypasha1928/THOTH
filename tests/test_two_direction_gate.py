@@ -140,6 +140,7 @@ class TwoDirectionTests(unittest.TestCase):
                 now[0]=BAR+2001;minute.cycle() # fresh minute baseline, outside entry window
                 now[0]+=5;price[0]=102;minute.cycle();self.assertEqual(len(e.orders),1,s.state['events'][-5:]);self.fill_latest(s,e)
                 self.assertIn('htf:1:sr:long_resistance_major',s.state['owned']['BTCUSDT']['entry_sources'])
+                self.assertEqual(minute.health['symbols']['BTCUSDT']['last_detected_signal']['direction'],'Long')
                 now[0]+=5;price[0]=99;minute.cycle();self.assertTrue(list(e.orders.values())[-1]['reduceOnly'])
                 self.fill_latest(s,e);self.fill_latest(s,e)
                 self.assertEqual(s.state['owned']['BTCUSDT']['side'],'Sell')
@@ -214,3 +215,80 @@ class TwoDirectionTests(unittest.TestCase):
                     r.confirmation_symbol_cycles['BTCUSDT']=2
                     out=r.order_block_observation('BTCUSDT',cfg,rows(True),now+5)
                 self.assertEqual(out['signal'],side);self.assertIn('ob:'+kind,out['entry_sources']);self.assertEqual(out['volume_checks'],{})
+    def test_hour_update_cannot_discard_fresh_minute_result_finished_later(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            now[0]=BAR+2001;send() # Minute baseline.
+            now[0]=BAR+2007
+            s.apply_signals(cfg,{'BTCUSDT':dict(time=now[0],signal=None,mark=100,primary_events=[],volume_signal=None,volume_sources=[],observation_channel='hour_permission')})
+            now[0]=BAR+2008
+            s.apply_signals(cfg,{'BTCUSDT':dict(time=BAR+2006,signal=None,mark=100,primary_events=[],volume_signal='Long',volume_sources=['htf:1:ob:bullish_formed'],observation_channel='minute_signal')})
+            self.assertEqual(len(e.orders),1,s.state['events'][-5:])
+            self.assertEqual(list(e.orders.values())[-1]['side'],'Buy')
+    def test_separate_cursors_still_reject_minute_signal_before_replacement_permission(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            now[0]=BAR+3481
+            s.apply_signals(cfg,{'BTCUSDT':dict(time=now[0],signal=None,mark=100,primary_events=[event(now[0])],volume_signal=None,volume_sources=[],observation_channel='hour_permission')})
+            now[0]+=1
+            s.apply_signals(cfg,{'BTCUSDT':dict(time=BAR+3480,signal=None,mark=100,primary_events=[],volume_signal='Long',volume_sources=['htf:1:ob:bullish_formed'],observation_channel='minute_signal')})
+            self.assertFalse(e.orders)
+            now[0]+=1;send('Long');self.assertEqual(len(e.orders),1)
+    def test_minute_backfill_preserves_bridge_until_sources_advance_then_prunes(self):
+        import json
+        from thoth.database import connect
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            feed=FeedAdapter(s);r=Runner(feed,confirmation_only=True);settings=Settings(**cfg)
+            base=1790000000//60*60
+            def row(i):return dict(time=base+i*60,open=100,high=101,low=99,close=100,volume=1)
+            now[0]=base+199*60+5;r.confirmation_symbol_cycles['BTCUSDT']=1
+            r.combined_order_block_sr_observation('BTCUSDT',settings,[row(i) for i in range(200)],now[0])
+            now[0]=base+11000*60+5;calls=[];repaired=False
+            def fetch(symbol,interval,limit=1000,end=None):
+                self.assertEqual(interval,'1');calls.append((limit,end))
+                last=int((now[0]-base)//60) if end is None else (end//1000-base)//60
+                return [row(i) for i in range(last-limit+1,last+1)]
+            with patch.object(e,'candles',side_effect=fetch):
+                for _ in range(7):
+                    before=len(calls);rows=feed.staged_minute_inputs('BTCUSDT')
+                    self.assertLessEqual(len(calls)-before,3) # normal read + at most two backfill pages
+                    r.confirmation_symbol_cycles['BTCUSDT']+=1
+                    try:
+                        out=r.combined_order_block_sr_observation('BTCUSDT',settings,rows,now[0]);repaired=True;break
+                    except ValueError as exc:
+                        self.assertIn('gap',str(exc))
+                        with connect(r.history_path) as db:
+                            first=db.execute("SELECT MIN(time) FROM candles WHERE symbol='BTCUSDT' AND interval='1'").fetchone()[0]
+                        self.assertEqual(first,base) # Do not prune away the recovery bridge.
+                        # A chart refresh uses history() without defer_prune; it must also preserve the bridge.
+                        with self.assertRaisesRegex(ValueError,'gap'):r.history('BTCUSDT','1',[row(i) for i in range(10001,11001)])
+                        with connect(r.history_path) as db:
+                            self.assertEqual(db.execute("SELECT MIN(time) FROM candles WHERE symbol='BTCUSDT' AND interval='1'").fetchone()[0],base)
+                self.assertTrue(repaired);self.assertIsNone(out['signal']);self.assertFalse(e.orders)
+                self.assertFalse(feed.staged_history_recovery_status('BTCUSDT')['active'])
+                with connect(r.history_path) as db:
+                    count,first=db.execute("SELECT COUNT(*),MIN(time) FROM candles WHERE symbol='BTCUSDT' AND interval='1'").fetchone()
+                    stamps=[t for t, in db.execute("SELECT stamp FROM checkpoints WHERE symbol='BTCUSDT' AND interval='1'")]
+                    ob_stamp=db.execute("SELECT stamp FROM order_block_checkpoints WHERE symbol='BTCUSDT'").fetchone()[0]
+                self.assertEqual(count,5001);self.assertEqual(first,base+6000*60)
+                self.assertTrue(stamps and min(stamps)==base+10999*60);self.assertEqual(ob_stamp,base+10999*60)
+                before=len(calls);now[0]+=5
+                rows=feed.staged_minute_inputs('BTCUSDT');r.confirmation_symbol_cycles['BTCUSDT']+=1
+                r.combined_order_block_sr_observation('BTCUSDT',settings,rows,now[0]);self.assertEqual(len(calls)-before,1)
+    def test_unavailable_minute_backfill_waits_and_never_invents_or_trades(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now);feed=FeedAdapter(s);r=Runner(feed,confirmation_only=True)
+            base=1790000000//60*60
+            def row(i):return dict(time=base+i*60,open=100,high=101,low=99,close=100,volume=1)
+            r.history('BTCUSDT','1',[row(i) for i in range(200)])
+            now[0]=base+3000*60+5;calls=[]
+            def fetch(symbol,interval,limit=1000,end=None):
+                calls.append(end)
+                return [] if end is not None else [row(i) for i in range(2001,3001)]
+            with patch.object(e,'candles',side_effect=fetch):
+                rows=feed.staged_minute_inputs('BTCUSDT')
+                with self.assertRaisesRegex(ValueError,'gap'):r.combined_order_block_sr_observation('BTCUSDT',Settings(**cfg),rows,now[0])
+                self.assertIn('Backfill unavailable',feed.staged_history_recovery_status('BTCUSDT')['reason'])
+                self.assertFalse(e.orders);now[0]+=5;before=len(calls)
+                feed.staged_minute_inputs('BTCUSDT');self.assertEqual(len(calls)-before,1)
