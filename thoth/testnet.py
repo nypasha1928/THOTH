@@ -1187,7 +1187,8 @@ class TestnetSupervisor:
                     reason=('Third 1m Order Block / S/R direction (close only)' if observation.get('two_direction_action')=='exit' else 'Second 1m Order Block / S/R direction (reverse)') if current.strategy==TWO_DIRECTION else 'Opposite :30 Volume Delta signal' if current.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else 'Opposite CLOSED 1m Order Block / S/R signal' if current.strategy==HOUR_GATE else 'Opposite 1m Order Block / S/R signal' if current.strategy=='ob_sr_minute_hourly' else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and observation.get('two_direction_action')!='exit' and not self._schedule_entry_reason(current) and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
-                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
+                        replacement_context={**(entry_context or {}),'queued_reversal':True} if current.strategy==TWO_DIRECTION else entry_context
+                        self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=replacement_context)
                         self.event(symbol+': reverse '+observation['signal']+' queued; waiting for current position to close and settle')
                     elif current.opposite_action=='reverse' and observation.get('two_direction_action')!='exit':
                         self.event(symbol+': opposite-signal exit requested; replacement entry blocked: '+self._reversal_block_reason(symbol))
@@ -1334,7 +1335,11 @@ class TestnetSupervisor:
                 self._consume_hour_permission(symbol,gate)
             if gate.get('phase')!='armed' or not context or context.get('arm_id')!=gate.get('arm_id'):
                 self._signal_decision(symbol,'skipped: two-stage gate is not armed for this signal',dict(time=stamp,signal=side));return
-        if cfg.strategy in (HOUR_GATE,TWO_DIRECTION,'ob_sr_minute_hourly') and int(stamp)//60!=int(self.clock())//60:
+        if cfg.strategy==TWO_DIRECTION:
+            from .two_direction_gate import entry_fresh
+            if not entry_fresh(stamp,context,self.clock()):
+                self._signal_decision(symbol,'skipped: 1m entry signal expired',dict(time=stamp,signal=side));return
+        if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') and int(stamp)//60!=int(self.clock())//60:
             self._signal_decision(symbol,'skipped: 1m entry signal candle expired',dict(time=stamp,signal=side));return
         if symbol_paused(self.state['risk'],symbol,cfg,self.clock()):return
         if symbol in self.state['blocked_symbols']:return
@@ -1470,7 +1475,7 @@ class TestnetSupervisor:
             if cfg.strategy==TWO_DIRECTION:
                 from .two_direction_gate import reserve
                 gate=self.state['entry_gates'][symbol]
-                if int(stamp)//60!=int(self.clock())//60 or not 0<=self.clock()-stamp<=30:raise ValueError('Fresh 1m direction expired during checks')
+                if not entry_fresh(stamp,context,self.clock()):raise ValueError('Fresh 1m direction expired during checks')
                 if (context or {}).get('direction_index')!=len(gate['directions']):raise ValueError('Minute direction already consumed')
                 metadata.update(thoth_permission_arm_id=gate['arm_id'],thoth_permission_armed_at=gate['armed_at'],thoth_direction_index=len(gate['directions']))
                 reserve(gate,side,payload['orderLinkId'],(context or {})['arm_id']);self.save()
@@ -1525,7 +1530,7 @@ class TestnetSupervisor:
                     if reason:return reason
                     current_gate=self.state['entry_gates'][symbol]
                     if current_gate['phase']!='armed' or current_gate['arm_id']!=(context or {}).get('arm_id'):return 'Minute permission expired before submission'
-                    if int(stamp)//60!=int(self.clock())//60 or not 0<=self.clock()-stamp<=30:return 'Minute direction expired before submission'
+                    if not entry_fresh(stamp,context,self.clock()):return 'Minute direction expired before submission'
                     return None
             record=self.journal.submit(payload,cfg.stop_dollars,metadata,entry_guard=guard) if guard is not None else self.journal.submit(payload,cfg.stop_dollars,metadata)
             if cfg.strategy==TWO_DIRECTION and (record['phase']=='rejected' or record.get('result',{}).get('not_submitted')):

@@ -71,3 +71,9 @@ def hourly_signal(state,rows,cfg,now):
     sides={side for _,side in candidates}
     signal=next(iter(sides)) if len(sides)==1 and not ob['conflict'] and not native['conflict'] else None
     return dict(signal=signal,entry_sources=sorted({source for source,side in candidates if side==signal}) if signal else [])
+
+
+def entry_fresh(stamp,context,now):
+    """A queued direction-2 reversal may cross a minute while close settles; TTL stays 30s."""
+    queued_second=(context or {}).get('queued_reversal') is True and (context or {}).get('direction_index')==1
+    return 0<=now-stamp<=30 and (int(stamp)//60==int(now)//60 or queued_second)
