@@ -1152,7 +1152,12 @@ class TestnetSupervisor:
                 except Exception as exc:self._monitor_failure(exc)
             identity=hashlib.sha256(json.dumps(cfg,sort_keys=True).encode()).hexdigest()[:16]
             for symbol,observation in observations.items():
-                key=identity+':'+symbol;stamp=observation['time'];previous=self.state['cursors'].get(key)
+                key=identity+':'+symbol
+                if current.strategy==TWO_DIRECTION:
+                    channel=observation.get('observation_channel') or ('hour_permission' if observation.get('primary_events') else 'minute_signal')
+                    if channel not in ('hour_permission','minute_signal'):continue
+                    key+=':'+channel
+                stamp=observation['time'];previous=self.state['cursors'].get(key)
                 if previous is not None and stamp<=previous:continue
                 if current.strategy==TWO_DIRECTION and previous is None:observation={**observation,'volume_signal':None}
                 if current.strategy in STAGED_STRATEGIES:observation=self._staged_observation(symbol,observation,current)

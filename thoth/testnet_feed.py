@@ -14,6 +14,7 @@ class FeedAdapter:
         self.volume_delta_data={}
         self.volume_delta_25_data={}
         self.history_recovery={}
+        self.minute_history_recovery={}
 
     def snapshot(self):
         state=self.supervisor.load()
@@ -88,7 +89,16 @@ class FeedAdapter:
                         from .timeframes import interval_seconds
                         limit=min(1000,max(60,int((self.supervisor.clock()-row[0])//interval_seconds(interval))+3))
                 except sqlite3.OperationalError:pass
-        return self.supervisor.client.candles(symbol,interval,limit=limit)
+        rows=self.supervisor.client.candles(symbol,interval,limit=limit)
+        if cfg.strategy==TWO_DIRECTION:
+            from .history_backfill import recover
+            rows,status=recover(Path(self.path).with_suffix('.candles.sqlite'),symbol,interval,rows,
+                self.supervisor.client.candles,self.supervisor.clock(),self.minute_history_recovery.get(symbol))
+            self.minute_history_recovery[symbol]={'interval':interval,**status}
+        return rows
+
+    def staged_history_recovery_status(self,symbol):
+        return self.minute_history_recovery.get(symbol)
 
     def staged_history_limit(self,symbol,interval):
         """Bootstrap once, then refresh overlap plus any elapsed higher candles."""

@@ -63,3 +63,20 @@ Hover to see the signal type and direction; forming candles are identified as pr
 When both breakout and bounce qualify on one candle, both marker types are shown.
 Use **Chart appearance → S/R → Show S/R breakout, bounce/rejection arrows** to show/hide them.
 This display control does not change strategy settings or orders.
+
+## Minute-history recovery and independent workers
+
+An armed coin may still have unavailable minute data. The minute worker now recovers real
+missing candles with at most two extra 1,000-candle pages per check; failed backfills retry
+after 60 seconds. Partial progress is persisted, without fabricating prices or replaying old
+entry signals. The recovery bridge is retained until both OB and S/R checkpoints advance,
+then the normal 5,000-minute retention limit resumes. Chart refreshes respect that bridge.
+Trades, risk limits and the two-direction permission budget are not erased by recovery.
+
+Hourly permission updates and minute results use separate processing cursors, so a newer
+hourly update cannot discard a still-fresh minute result. Minute freshness and the requirement
+for a signal after the current permission still apply.
+
+`/api/runner` → `confirmation.symbols` includes per-coin `history_recovery` progress and
+`last_detected_signal` (time, direction and sources). Detection does not mean an order was
+accepted: account, schedule, cooldown, capacity and exchange checks remain independent.
