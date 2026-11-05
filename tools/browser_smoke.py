@@ -140,6 +140,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     page.select_option('#tf',interval);expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
    page.select_option('#tf','1');page.uncheck('#showSignals')
    expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
+   page.evaluate("()=>{window.savedSRMarkerRows=srAnalysis;const rows=chartRows.slice(-3);srAnalysis=rows.map((r,i)=>({time:r.time,signal:i===2?'Short':'Long',entry_sources:[['sr:long_resistance_major','sr_bounce:long_support_major','sr_rejection:long_resistance_major'][i]],provisional:i===2}));draw()}")
+   assert page.evaluate("srMarkerGroups({signal:'Long',entry_sources:['sr:long_resistance_major','sr_bounce:long_support_major']}).map(g=>g.kind)")==['breakout','bounce']
+   for kind,label in [('breakout','BO▲'),('bounce','B▲'),('rejection','R▼')]:
+    expect(page.locator('[data-sr-kind="'+kind+'"]')).to_contain_text(label)
+   expect(page.locator('[data-sr-kind="rejection"] title')).to_contain_text('Forming candle preview')
+   page.locator('[data-sr-kind="bounce"]').hover()
+   expect(page.locator('[data-signal-tooltip]')).to_contain_text('S/R Bounce')
+   page.evaluate("()=>{srAnalysis=window.savedSRMarkerRows;delete window.savedSRMarkerRows;draw()}")
    page.uncheck('#showSRSignals');expect(page.locator('[data-signal-source="S/R"]')).to_have_count(0)
    page.check('#showSRSignals');page.check('#showSignals')
    sr_preview[0]=True;page.click('#refresh')
@@ -472,10 +480,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert 'V'+str(int(hover_geometry['height']-55)) in hover_geometry['path'],hover_geometry
    page.get_by_label('Color candles on S/R signals',exact=True).check()
    assert page.locator('[data-sr-candle="Long"]').count()>0
-   page.get_by_label('Show S/R breakout arrows',exact=True).uncheck()
+   page.get_by_label('Show S/R breakout, bounce/rejection arrows',exact=True).uncheck()
    expect(page.locator('[data-signal-source="S/R"]')).to_have_count(0)
    assert page.locator('[data-sr-candle="Long"]').count()>0
-   page.get_by_label('Show S/R breakout arrows',exact=True).check()
+   page.get_by_label('Show S/R breakout, bounce/rejection arrows',exact=True).check()
    page.get_by_label('Color candles on S/R signals',exact=True).uncheck()
    expect(page.locator('[data-sr-candle="Long"]')).to_have_count(0)
    assert page.locator('[data-rsi-signal]').count()>0

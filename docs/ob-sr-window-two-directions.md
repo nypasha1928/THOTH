@@ -57,3 +57,9 @@ with its next action. Alerts/history identify hourly and minute sources separate
 Chart references show breakout plus bounce/rejection on 1h and 1m; they do not replay the live
 sequence. E/X markers show recorded trades. Market sampling may miss signals, and a market
 fill may arrive after a window ends. This implementation does not deploy or activate trading.
+
+Chart S/R markers use **BO▲/BO▼** for breakout, **B▲** for bounce, and **R▼** for rejection.
+Hover to see the signal type and direction; forming candles are identified as previews.
+When both breakout and bounce qualify on one candle, both marker types are shown.
+Use **Chart appearance → S/R → Show S/R breakout, bounce/rejection arrows** to show/hide them.
+This display control does not change strategy settings or orders.
