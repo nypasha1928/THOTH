@@ -171,8 +171,8 @@ class TestnetSupervisor:
             'blocked_symbols':s.get('blocked_symbols',{}),'sma_exit_blocks':s.get('sma_exit_blocks',{}),'order_block_exit_blocks':s.get('order_block_exit_blocks',{}),'monitor_error':s.get('monitor_error'),
             'monitor_failures':s.get('monitor_failures',[]),
             'entry_schedule':self._schedule_status(s),
-            'exit_rules':{'closed_1m_sma7':s['config']['strategy']=='volume_delta_1h_midpoint_sma7_exit','close_only':True},
-            'entry_filters':{'sma200':{'enabled':s['config']['strategy']=='order_block_sr_1h_early','period':200,'timeframe':'60','basis':'completed hourly candles','equality':'block','insufficient_data':'block'},'volume_delta':{'enabled':s['config']['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit'),'sma7_50':s['config']['volume_delta']['sma_filter'],'bull_type':s['config']['volume_delta']['bull_type'],'bear_type':s['config']['volume_delta']['bear_type'],'bullish':s['config']['volume_delta']['bullish'],'bearish':s['config']['volume_delta']['bearish']}},
+            'exit_rules':{'closed_1m_sma7_14_cross':s['config']['strategy']=='volume_delta_1h_windows_sma7_14_exit','closed_1m_sma7':s['config']['strategy']=='volume_delta_1h_midpoint_sma7_exit','close_only':True},
+            'entry_filters':{'sma200':{'enabled':s['config']['strategy']=='order_block_sr_1h_early','period':200,'timeframe':'60','basis':'completed hourly candles','equality':'block','insufficient_data':'block'},'volume_delta':{'enabled':s['config']['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit'),'sma7_50':s['config']['volume_delta']['sma_filter'],'bull_type':s['config']['volume_delta']['bull_type'],'bear_type':s['config']['volume_delta']['bear_type'],'bullish':s['config']['volume_delta']['bullish'],'bearish':s['config']['volume_delta']['bearish']}},
             'last_portfolio_stop':s.get('last_portfolio_stop'),
             'hourly_entry_slot':dict(enabled=s['config']['strategy']=='ob_sr_minute_hourly',
                 used_count=len(self._minute_hour_symbols(s)) if s['config']['strategy']=='ob_sr_minute_hourly' else 0,
@@ -660,7 +660,12 @@ class TestnetSupervisor:
         self.save();return True
 
     def _manage_closed_sma7_exit(self,symbol,owner,p):
-        from .closed_sma7_exit import observe
+        if owner.get('strategy')=='volume_delta_1h_windows_sma7_14_exit':
+            from .closed_sma7_14_exit import observe
+            limit=16
+        else:
+            from .closed_sma7_exit import observe
+            limit=8
         if owner['close_link'] or owner.get('signal_exit'):return
         tracker=owner.setdefault('sma_exit',{})
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
@@ -671,7 +676,7 @@ class TestnetSupervisor:
             # Missing fill timing must never fall back to the earlier order time.
             tracker['entry_confirmed_at']=filled if filled is not None and 0<filled<=self.clock() else self.clock()
         entered=tracker['entry_confirmed_at']
-        rows=self.client.candles(symbol,'1',limit=8)
+        rows=self.client.candles(symbol,'1',limit=limit)
         received_at=self.clock()
         reason=observe(tracker,rows,p['side'],self.clock(),entered,sampled_at=received_at)
         if tracker.get('waiting_for_candle') is not None:
@@ -688,8 +693,8 @@ class TestnetSupervisor:
         self.save()
 
     def _manage_sma_exit(self,symbol,owner,p,cfg):
-        if owner.get('strategy')=='volume_delta_1h_midpoint_sma7_exit':return self._manage_closed_sma7_exit(symbol,owner,p)
-        if owner.get('strategy') in ('ob_sr_minute_hourly','sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES):return
+        if owner.get('strategy') in ('volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit'):return self._manage_closed_sma7_exit(symbol,owner,p)
+        if owner.get('strategy') in ('ob_sr_minute_hourly','sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES):return
         if (not cfg.sma_exit_enabled and owner.get('strategy') not in HOURLY_MINUTE_STRATEGIES) or owner['close_link']:return
         tracker=owner.setdefault('sma_exit',{})
         if self.clock()<tracker.get('retry_after',0) or self.clock()-tracker.get('checked_at',0)<5:return
@@ -1135,7 +1140,9 @@ class TestnetSupervisor:
                 if owner:
                     if owner['side']==side:
                         self._signal_decision(symbol,'skipped: same-direction position already open',observation);continue
-                    reason='Opposite :30 Volume Delta signal' if current.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else 'Opposite CLOSED 1m Order Block / S/R signal' if current.strategy==HOUR_GATE else 'Opposite 1m Order Block / S/R signal' if current.strategy=='ob_sr_minute_hourly' else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
+                    if current.strategy=='volume_delta_1h_windows_sma7_14_exit' and (len(self.state['owned'])>=current.max_positions or self._reversal_block_reason(symbol)):
+                        self._signal_decision(symbol,'skipped: replacement entry unavailable; existing exits remain active',observation);continue
+                    reason='Opposite :30 Volume Delta signal' if current.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else 'Opposite CLOSED 1m Order Block / S/R signal' if current.strategy==HOUR_GATE else 'Opposite 1m Order Block / S/R signal' if current.strategy=='ob_sr_minute_hourly' else 'Opposite SMA 7/50 intrabar crossover' if current.strategy=='sma_7_50_intrabar' else 'Opposite S/R volume signal' if current.strategy=='sr_volume_intrabar' else 'Opposite Order Block / S/R signal' if current.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else 'Opposite Order Block signal' if current.strategy in (ORDER_BLOCK_STRATEGY,'order_block_intrabar') else 'Opposite Volume Delta signal' if current.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else 'Opposite inverse S/R signal' if current.strategy=='sr_inverse_intrabar' else 'Opposite Daily S/R or RSI signal' if current.strategy=='sr_rsi_daily' else 'Opposite RSI signal' if current.strategy=='rsi_hourly_intrabar' else 'Opposite combined S/R or SMA 7/50 signal' if current.strategy=='sr_sma_7_50' else 'Opposite SMA crossover' if current.strategy in ('sma_cross','sma_7_50') else 'Opposite breakout'
                     owner['signal_exit']=reason
                     if current.opposite_action=='reverse' and not self._schedule_entry_reason(current) and self.state['entries'] and self.state['status']=='running' and symbol not in self.state['blocked_symbols'] and not symbol_paused(self.state['risk'],symbol,current,self.clock()):
                         self.state['reversals'][symbol]=dict(side=observation['signal'],time=stamp,identity=identity,context=entry_context)
@@ -1167,11 +1174,16 @@ class TestnetSupervisor:
 
     def _sma_entry_ready(self,symbol,cfg):
         block=self.state['sma_exit_blocks'].get(symbol)
-        if cfg.strategy=='volume_delta_1h_midpoint_sma7_exit' and block:
+        if cfg.strategy in ('volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit') and block:
             if self.clock()<block['retry_after']:return False
             try:
-                from .closed_sma7_exit import observe
-                tracker={};rows=self.client.candles(symbol,'1',limit=8);received_at=self.clock()
+                if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
+                    from .closed_sma7_14_exit import observe
+                    limit=16
+                else:
+                    from .closed_sma7_exit import observe
+                    limit=8
+                tracker={};rows=self.client.candles(symbol,'1',limit=limit);received_at=self.clock()
                 observe(tracker,rows,'Buy',self.clock(),0,sampled_at=received_at)
                 if tracker.get('waiting_for_candle') is not None:return False
             except Exception:return False
@@ -1239,6 +1251,10 @@ class TestnetSupervisor:
         with self.journal.db() as db:
             return db.execute("SELECT 1 FROM execution WHERE phase!='rejected' AND COALESCE(json_extract(result,'$.not_submitted'),0)=0 AND json_extract(payload,'$.symbol')=? AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_midpoint_window')=? LIMIT 1",(symbol,bar)).fetchone() is not None
 
+    def _volume_window_used(self,symbol,start):
+        with self.journal.db() as db:
+            return db.execute("SELECT 1 FROM execution WHERE phase!='rejected' AND COALESCE(json_extract(result,'$.not_submitted'),0)=0 AND json_extract(payload,'$.symbol')=? AND json_extract(payload,'$.reduceOnly')=0 AND json_extract(instrument,'$.thoth_volume_window')=? LIMIT 1",(symbol,start)).fetchone() is not None
+
     def _entry(self,symbol,side,stamp,identity,cfg,context=None):
         from .tradfi import EXCLUDED_SYMBOLS
         if symbol in EXCLUDED_SYMBOLS:return
@@ -1247,6 +1263,10 @@ class TestnetSupervisor:
         if scheduled:
             self._signal_decision(symbol,'skipped: '+scheduled,dict(time=stamp,signal=side));return
         reservations={key:deepcopy(self.state.get(key)) for key in ('entry_gates','early_entry_windows','sr_volume_entry_windows','minute_hour_entries')} if (cfg.entry_daily_enabled or cfg.entry_weekend_enabled or cfg.strategy=='order_block_sr_1h_early') else {}
+        if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
+            from .volume_delta_windows import fresh as window_fresh,window_start
+            if not window_fresh(context or {},cfg,self.clock()) or self._volume_window_used(symbol,window_start(self.clock())):
+                self._signal_decision(symbol,'skipped: Volume Delta window decision expired or this coin already entered this window',dict(time=stamp,signal=side));return
         if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit'):
             from .volume_delta_midpoint import window as midpoint_window
             observed=(context or {}).get('midpoint_observed_at')
@@ -1335,14 +1355,19 @@ class TestnetSupervisor:
             with self.db() as db:entry_sources=recorded_source_map(db,payload['orderLinkId']).get(payload['orderLinkId'],[])
             if not entry_sources and cfg.strategy in ('sma_cross','sma_7_50'):
                 entry_sources=['sma:7_200' if cfg.strategy=='sma_cross' else 'sma:7_50']
-            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else (context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly','volume_delta_1h_midpoint_sma7_exit') else 'none' if cfg.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
+            metadata={**instrument,'thoth_entry_sources':entry_sources,'thoth_take_profit':{'enabled':cfg.take_profit_enabled,'dollars':cfg.take_profit_dollars},'thoth_strategy':cfg.strategy,'thoth_entry_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly') else (context or {}).get('primary_timeframe',cfg.timeframe),'thoth_exit_timeframe':'1' if cfg.strategy in (HOUR_GATE,'ob_sr_minute_hourly','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit') else 'none' if cfg.strategy in ('sma_7_50_intrabar','sr_volume_intrabar','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early',*STAGED_STRATEGIES) else '1' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else cfg.timeframe,'thoth_trailing':{key:getattr(cfg,key) for key in TRAILING_FIELDS}}
             if (context or {}).get('signal_stretch'):metadata['thoth_signal_stretch']=context['signal_stretch']
             metadata['thoth_entry_diagnostics']={**((context or {}).get('entry_diagnostics') or {}),
                 'checks_started_at':checks_started_at,'checks_completed_at':self.clock(),**check_timing}
-            if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit'):
-                from .volume_delta_midpoint import recheck as midpoint_recheck
+            if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit'):
+                if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
+                    from .volume_delta_windows import recheck as midpoint_recheck
+                    minute_limit=61
+                else:
+                    from .volume_delta_midpoint import recheck as midpoint_recheck
+                    minute_limit=32
                 fresh=self.client.candles(symbol,'60',limit=2)
-                lower=self.client.candles(symbol,'1',limit=32)
+                lower=self.client.candles(symbol,'1',limit=minute_limit)
                 checked=midpoint_recheck(fresh,lower,cfg,side,context or {},self.clock())
                 price=dec(fresh[-1]['close'])
                 payload=order_payload(symbol,side,cfg.position_value,price,instrument,identity+':'+symbol+':'+str(stamp))
@@ -1352,8 +1377,11 @@ class TestnetSupervisor:
                     reference=price if cfg.trailing_distance_basis=='price' else price/cfg.leverage
                     if reference*dec(cfg.trailing_distance_pct)/100<dec(instrument['priceFilter']['tickSize']):raise ValueError('Trailing distance is smaller than one price tick')
                 metadata.update(thoth_midpoint_window=int(self.clock())//3600*3600,thoth_entry_sources=checked['entry_sources'],thoth_volume_delta_decision=checked)
+                if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
+                    metadata['thoth_volume_window']=(context or {})['volume_window'];metadata.pop('thoth_midpoint_window',None)
                 from .signal_stretch import snapshot
-                metrics=snapshot((context or {})['midpoint_history'][:-1]+[fresh[-1]],side,checked['entry_sources'])
+                history=(context or {}).get('source_history') if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit' else (context or {})['midpoint_history']
+                metrics=snapshot(history[:-1]+[fresh[-1]],side,checked['entry_sources'])
                 if metrics:
                     metrics.update(provisional=True,observed_at=self.clock(),atr_basis='Wilder ATR14 including forming hourly candle')
                     metadata['thoth_signal_stretch']=metrics
@@ -1436,6 +1464,12 @@ class TestnetSupervisor:
                     if reason:return reason
                     if not midpoint_window(self.clock()) or not 0<=self.clock()-(context or {})['midpoint_observed_at']<=30:return 'Volume Delta :30–:31 window or fresh decision expired before submission'
                     return None
+            if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
+                def guard():
+                    reason=self._schedule_entry_reason(cfg)
+                    if reason:return reason
+                    if not window_fresh(context or {},cfg,self.clock()):return 'Volume Delta window, source hour or fresh decision expired before submission'
+                    return None
             record=self.journal.submit(payload,cfg.stop_dollars,metadata,entry_guard=guard) if guard is not None else self.journal.submit(payload,cfg.stop_dollars,metadata)
             if record['phase']=='cancelled' and record.get('result',{}).get('not_submitted'):
                 for key,value in reservations.items():
@@ -1451,7 +1485,7 @@ class TestnetSupervisor:
                 code=record.get('result',{}).get('exchange_code')
                 self.event(symbol+': entry rejected by Bybit'+(' (code '+str(code)+')' if code is not None else '')+'; skipped this coin, other coins continue')
                 self.save();return
-            self.event(symbol+(': 1h Volume Delta :30 decision' if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else ': Early 1h Order Block / S/R :55–:00 signal' if cfg.strategy=='order_block_sr_1h_early' else ': Intrabar 1m Order Block / S/R hourly-limited entry' if cfg.strategy=='ob_sr_minute_hourly' else ': CLOSED 1h permission / intrabar 1m Order Block or S/R' if cfg.strategy==HOUR_GATE else ': 1h CLOSED NORMAL Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_close' else ': 1h CLOSED INVERTED Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_inverted_close' else ': '+('1h' if cfg.timeframe=='60' else '4h')+' Order Block / S/R volume-qualified signal' if cfg.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else ': 4h Order Block intrabar signal' if cfg.strategy=='order_block_intrabar' else ': 4h SMA 7/50 intrabar crossover' if cfg.strategy=='sma_7_50_intrabar' else ': S/R volume MA breakout' if cfg.strategy=='sr_volume_intrabar' else ': Two-stage Order Block confirmation' if cfg.strategy==ORDER_BLOCK_STRATEGY else ': Two-stage Volume Delta confirmation' if cfg.strategy in STAGED_STRATEGIES else ': Volume Delta signal' if cfg.strategy=='volume_delta_intrabar' else ': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
+            self.event(symbol+(': 1h Volume Delta :28/:58 window decision' if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit' else ': 1h Volume Delta :30 decision' if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else ': Early 1h Order Block / S/R :55–:00 signal' if cfg.strategy=='order_block_sr_1h_early' else ': Intrabar 1m Order Block / S/R hourly-limited entry' if cfg.strategy=='ob_sr_minute_hourly' else ': CLOSED 1h permission / intrabar 1m Order Block or S/R' if cfg.strategy==HOUR_GATE else ': 1h CLOSED NORMAL Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_close' else ': 1h CLOSED INVERTED Order Block / S/R signal' if cfg.strategy=='order_block_sr_1h_inverted_close' else ': '+('1h' if cfg.timeframe=='60' else '4h')+' Order Block / S/R volume-qualified signal' if cfg.strategy in ('order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else ': 4h Order Block intrabar signal' if cfg.strategy=='order_block_intrabar' else ': 4h SMA 7/50 intrabar crossover' if cfg.strategy=='sma_7_50_intrabar' else ': S/R volume MA breakout' if cfg.strategy=='sr_volume_intrabar' else ': Two-stage Order Block confirmation' if cfg.strategy==ORDER_BLOCK_STRATEGY else ': Two-stage Volume Delta confirmation' if cfg.strategy in STAGED_STRATEGIES else ': Volume Delta signal' if cfg.strategy=='volume_delta_intrabar' else ': Inverse S/R signal' if cfg.strategy=='sr_inverse_intrabar' else ': Daily S/R + fixed RSI signal' if cfg.strategy=='sr_rsi_daily' else ': RSI intrabar signal' if cfg.strategy=='rsi_hourly_intrabar' else ': SMA 7/50 crossover' if cfg.strategy=='sma_7_50' else ': S/R + SMA 7/50 signal' if cfg.strategy=='sr_sma_7_50' else ': SMA 7/200 crossover' if cfg.strategy=='sma_cross' else ': intrabar S/R breakout' if cfg.strategy in HOURLY_MINUTE_STRATEGIES else ': S/R breakout')+' order submitted; awaiting fill/protection')
         except ValueError as exc:
             self._signal_decision(symbol,'entry skipped: '+str(exc),{'time':stamp,'signal':side})
         except AmbiguousOrder:

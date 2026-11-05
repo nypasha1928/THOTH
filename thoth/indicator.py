@@ -56,7 +56,7 @@ def evaluate(rows, cfg, now=None):
         from .rsi import RSIState
         state=RSIState(cfg.rsi)
         return [state.step(row,duration) for row in rows if row['time']+duration<=now]
-    if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit'):
+    if cfg.strategy in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit'):
         from .volume_delta import signal
         output=[]
         for i,row in enumerate(rows):
