@@ -218,6 +218,27 @@ class ApiTests(unittest.TestCase):
         saved=self.client.get('/api/live').json()['config']
         self.assertEqual(saved,cfg);self.assertFalse(self.client.get('/api/live').json()['entries'])
 
+    def test_two_direction_window_profile_preserves_risk_and_exposes_both_sr_modes(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_windows_two_direction',
+            'timeframe':'D','opposite_action':'close_only','sma_enabled':True,'sma_exit_enabled':True})
+        self.assertEqual(response.status_code,200,response.text)
+        body=response.json();cfg=body['config']
+        self.assertEqual((cfg['timeframe'],cfg['opposite_action']),('1','reverse'))
+        self.assertFalse(cfg['sma_enabled'] or cfg['sma_exit_enabled'] or cfg['order_block']['filter_breaks'])
+        for key in ('stop_dollars','leverage','max_positions','daily_loss_pct','saved_symbol_lists','symbols','trailing_enabled','entry_daily_enabled','entry_weekend_enabled'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertFalse(body['entries'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=ob_sr_windows_two_direction').status_code,200)
+        from test_order_block_sr import ob_rows,NOW
+        rows=ob_rows();start=int(NOW)//3600*3600
+        rows=[{**row,'time':start-(len(rows)-index-1)*3600} for index,row in enumerate(rows)]
+        with patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=NOW+20):
+            chart=self.client.get('/api/chart/BTCUSDT?interval=60&environment=live&include_order_block=true').json()
+        self.assertIn('breakout AND Bounce/Rejection',chart['sr_reference_status'])
+        self.assertIn('two-direction',chart['order_block_status'])
+        self.assertIn('first entry, one reversal, then close only',chart['indicator_status'])
+
     def test_hour_gate_preserves_risk_and_all_lists_with_main50_selected(self):
         before=self.client.get('/api/live').json()['config']
         leaders=self.client.get('/api/live/market-leaders').json()['main_leaders']

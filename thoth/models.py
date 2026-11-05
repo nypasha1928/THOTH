@@ -62,7 +62,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|volume_delta_1h_midpoint|volume_delta_1h_midpoint_sma7_exit|volume_delta_1h_windows_sma7_14_exit|volume_delta_1h_windows_no_sma_exit|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|order_block_sr_1h_early|ob_sr_hour_gate|ob_sr_minute_hourly|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|volume_delta_1h_midpoint|volume_delta_1h_midpoint_sma7_exit|volume_delta_1h_windows_sma7_14_exit|volume_delta_1h_windows_no_sma_exit|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|order_block_sr_1h_early|ob_sr_hour_gate|ob_sr_windows_two_direction|ob_sr_minute_hourly|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -168,6 +168,10 @@ class Settings(BaseModel):
             self.timeframe='1';self.sma_exit_enabled=False;self.opposite_action='close_only'
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=False
             self.order_block=OrderBlockSettings(filter_breaks=False)
+        if self.strategy=='ob_sr_windows_two_direction':
+            self.timeframe='1';self.sma_exit_enabled=False;self.opposite_action='reverse'
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=False
+            self.loss_streak_scope='per_coin';self.order_block=OrderBlockSettings(filter_breaks=False)
         if self.strategy=='ob_sr_hour_gate':
             self.timeframe='1';self.sma_exit_enabled=False;self.opposite_action='close_only'
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.major=True;self.minor=False
