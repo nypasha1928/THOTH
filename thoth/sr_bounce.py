@@ -26,13 +26,14 @@ def evaluate(row,previous_close,levels,cfg):
 
 def observe(tracker,rows,levels,cfg,now,max_gap):
     """Existing causal live protections: baseline, fresh samples and once per level/bar."""
-    start=int(now)//60*60
-    if len(rows)<2 or rows[-1]['time']!=start or rows[-2]['time']!=start-60:
+    from .timeframes import interval_seconds
+    duration=interval_seconds(cfg.timeframe);start=int(now)//duration*duration
+    if len(rows)<2 or rows[-1]['time']!=start or rows[-2]['time']!=start-duration:
         raise ValueError('Current and previous minute candles required for Bounce/Rejection')
     raw=evaluate(rows[-1],rows[-2]['close'],levels,cfg)
     same=tracker.get('bar')==start
     fired=set(tracker.get('fired',[])) if same else set()
-    continuous=(0<now-tracker.get('observed_at',0)<=max_gap and tracker.get('bar') in (start,start-60))
+    continuous=(0<now-tracker.get('observed_at',0)<=max_gap and tracker.get('bar') in (start,start-duration))
     candidates=[]
     for source in raw['entry_sources']:
         key=source.split(':',1)[1]

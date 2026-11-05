@@ -848,6 +848,22 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate("() => {lv.entry_gates={ETHUSDT:{phase:'consumed',losses:1,primary_timeframe:'60'}};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('Permission USED')
    expect(page.locator('#entryGateList')).to_contain_text('NEW CLOSED 1h')
+   page.select_option('#strategyLogic','ob_sr_windows_two_direction')
+   expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#oppositeAction')).to_have_value('reverse');expect(page.locator('#oppositeAction')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('third opposite closes ONLY')
+   expect(page.locator('#strategyDescription')).to_contain_text('RESTARTS the sequence')
+   expect(page.locator('#strategyDescription')).to_contain_text('BOTH breakout')
+   expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_windows_two_direction'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   expect(page.locator('#activeEntryFilter')).to_contain_text('ENTRY → REVERSE → EXIT ONLY')
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_windows_two_direction')
+   page.evaluate("()=>{lv.entry_gates={ETHUSDT:{phase:'armed',directions:[{side:'Long'},{side:'Short'}]}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('Direction 2 · next opposite 1m signal EXIT ONLY')
+   page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
+
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'
    assert page.evaluate("signalAlertSources({entry_sources:['htf:1:sr:short_resistance_major']})")=='1-minute S/R short-term major resistance'
    assert page.evaluate("signalAlertSources({entry_sources:['htf:240:ob:bearish_formed']})")=='4-hour Bearish Order Block formed'
