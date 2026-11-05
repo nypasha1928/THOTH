@@ -44,7 +44,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if array=='analysis':
      for level in row['levels'].values():level['pivot_time']=1700006400+max(0,(i//100)*100-20)*86400
   chart_intervals={'1':chart,'D':chart_daily}
-  for interval,duration in [('5',300),('60',3600),('240',14400)]:
+  for interval,duration in [('5',300),('30',1800),('60',3600),('240',14400)]:
    item=copy.deepcopy(chart);origin=1792300000//duration*duration
    for array in ('candles','analysis','sma','rsi_analysis'):
     for i,row in enumerate(item[array]):
@@ -136,7 +136,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    # S/R visibility is independent of bot filters/timeframe and other arrow layers.
-   for interval in ['1','5','60','240','D']:
+   for interval in ['1','5','30','60','240','D']:
     page.select_option('#tf',interval);expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
    page.select_option('#tf','1');page.uncheck('#showSignals')
    expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
@@ -344,7 +344,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-time-tick]').first).to_have_attribute('data-time-tick',str(chart_daily['candles'][-70]['time']))
    ticks=page.locator('[data-time-tick]').evaluate_all('(nodes) => nodes.map(n=>Number(n.dataset.timeTick))')
    assert all(b-a==86400 for a,b in zip(ticks,ticks[1:]))
-   for interval,label,duration in [('5','5m',300),('60','1h',3600),('240','4h',14400)]:
+   for interval,label,duration in [('5','5m',300),('30','30m',1800),('60','1h',3600),('240','4h',14400)]:
     page.select_option('#tf',interval);expect(page.locator('#title')).to_contain_text(label)
     ticks=page.locator('[data-time-tick]').evaluate_all('(nodes)=>nodes.map(n=>Number(n.dataset.timeTick))')
     assert all(b-a==duration for a,b in zip(ticks,ticks[1:]))
@@ -870,6 +870,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_windows_two_direction')
    page.evaluate("()=>{lv.entry_gates={ETHUSDT:{phase:'armed',directions:[{side:'Long'},{side:'Short'}]}};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('Direction 2 · next opposite 1m signal EXIT ONLY')
+   page.select_option('#strategyLogic','ob_sr_30m_close_two_direction')
+   expect(page.locator('#strategyDescription')).to_contain_text('NEW CLOSED 30m')
+   expect(page.locator('#strategyDescription')).to_contain_text('NO MINOR signals')
+   expect(page.locator('#strategyDescription')).to_contain_text('next opposite CLOSED 1m signal')
+   expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_30m_close_two_direction'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   expect(page.locator('#activeEntryFilter')).to_contain_text('CLOSED 30m permission → CLOSED 1m')
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('ob_sr_30m_close_two_direction')
+   page.evaluate("()=>{lv.entry_gates={ETHUSDT:{phase:'armed',directions:[{side:'Long'},{side:'Short'}],primary_timeframe:'30'}};renderRiskOverview()}")
+   expect(page.locator('#entryGateList')).to_contain_text('next opposite CLOSED 1m signal EXIT ONLY')
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:30:sr:long_support_major']})").startswith('30-minute')
+   assert page.evaluate("candleCountdown(0,'30')")=='30:00'
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'
