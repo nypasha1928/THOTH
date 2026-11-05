@@ -634,9 +634,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#strategyLogic','volume_delta_1h_windows_sma7_14_exit')
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
    expect(page.locator('#strategyDescription')).to_contain_text(':58–:03')
-   expect(page.locator('#volumeDeltaDescription')).to_contain_text('SMA7 crossing below SMA14')
+   expect(page.locator('#volumeDeltaDescription')).to_contain_text('SMA7 crossing below SMA30')
    page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='volume_delta_1h_windows_sma7_14_exit'")
-   expect(page.locator('#activeEntryFilter')).to_contain_text('CLOSED 1m SMA7/14 crossover')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('CLOSED 1m SMA7/30 crossover')
    assert {key:writes[-1][1][key] for key in before_new_exit_risk}==before_new_exit_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('volume_delta_1h_windows_sma7_14_exit')
 

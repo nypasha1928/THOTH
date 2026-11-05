@@ -15,7 +15,7 @@ from test_volume_delta_midpoint import BAR,data
 
 def minutes(now,price=99):
     latest=int(now)//60*60-60
-    return [dict(time=latest-(14-i)*60,close=100 if i<14 else price) for i in range(15)]+[dict(time=latest+60,close=1000)]
+    return [dict(time=latest-(30-i)*60,close=100 if i<30 else price) for i in range(31)]+[dict(time=latest+60,close=1000)]
 
 class WindowTests(unittest.TestCase):
     def test_boundaries_and_source_hour_expiration(self):
@@ -41,6 +41,15 @@ class WindowTests(unittest.TestCase):
         self.assertIsNone(observe({},rows,'Buy',now,BAR,sampled_at=now)) # already below, no new cross
         with self.assertRaises(ExitDataError):observe({},minutes(now)[1:],'Buy',now,BAR,sampled_at=now)
         with self.assertRaises(ExitDataError):observe({},minutes(now),'Buy',now+60,BAR,sampled_at=now)
+    def test_crossing_sma14_alone_does_not_exit(self):
+        now=BAR+1861
+        for side,older,last in [('Buy',80,99),('Sell',120,101)]:
+            rows=minutes(now,last)
+            for row in rows[:17]:row['close']=older
+            tracker={}
+            self.assertIsNone(observe(tracker,rows,side,now,BAR,sampled_at=now))
+            self.assertIn('sma30',tracker)
+
     def fixture(self,tmp,now):
         e=Exchange(lambda:now[0]);s=TestnetSupervisor(Path(tmp)/'live.sqlite',enabled=True,password_configured=True,client_factory=lambda *a,**k:e,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
         s.configure(TestnetSettings(strategy=STRATEGY,symbols=['BTCUSDT'],dedicated_account=True,daily_loss_pct=90,max_positions=1))
