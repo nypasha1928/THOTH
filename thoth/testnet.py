@@ -662,7 +662,7 @@ class TestnetSupervisor:
     def _manage_closed_sma7_exit(self,symbol,owner,p):
         if owner.get('strategy')=='volume_delta_1h_windows_sma7_14_exit':
             from .closed_sma7_14_exit import observe
-            limit=16
+            limit=32
         else:
             from .closed_sma7_exit import observe
             limit=8
@@ -1179,7 +1179,7 @@ class TestnetSupervisor:
             try:
                 if cfg.strategy=='volume_delta_1h_windows_sma7_14_exit':
                     from .closed_sma7_14_exit import observe
-                    limit=16
+                    limit=32
                 else:
                     from .closed_sma7_exit import observe
                     limit=8

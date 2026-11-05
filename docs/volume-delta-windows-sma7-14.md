@@ -1,7 +1,7 @@
-# Volume Delta: two entry windows and closed-minute SMA7/14 exit
+# Volume Delta: two entry windows and closed-minute SMA7/30 exit
 
 New separate profile: `volume_delta_1h_windows_sma7_14_exit`.
-Choose **Volume Delta · 1h · :28/:58 · Closed 1m SMA7/14 Exit** in Settings.
+Choose **Volume Delta · 1h · :28/:58 · Closed 1m SMA7/30 Exit** in Settings.
 The existing :30 profiles keep their original behavior and history labels.
 
 Uses the existing forming 1h Volume Delta calculation, accumulated minute candle-volume proxy,
@@ -20,8 +20,8 @@ then may reverse subject to all existing checks and Maximum Positions. A full ac
 skips that opposite decision and leaves the existing position managed by its exits.
 No position beyond Maximum Positions is added, including queued/reconciling entries.
 
-The mandatory minute exit uses two consecutive calculations from 15 completed 1m closes:
-Long exits on SMA7 crossing from at/above to below SMA14; Short exits from at/below to above.
+The mandatory minute exit uses two consecutive calculations from 31 completed 1m closes:
+Long exits on SMA7 crossing from at/above to below SMA30; Short exits from at/below to above.
 Equality holds. A relationship already adverse without a fresh cross does not exit.
 The deciding minute must close after observed fill; forming candles are excluded.
 This minute rule only closes; it never opens or reverses. Missing/stale data blocks that
@@ -30,3 +30,5 @@ coin's new entries and retries monitoring. Stops, configured trailing and risk e
 The fixed :25 versus :30 observation panel remains for the fixed :30 profiles;
 it does not label this first-qualifying-window strategy as a fixed :30 observation.
 No live account has been activated by adding this profile.
+
+The persisted strategy identifier retains `sma7_14` for saved-setting and history compatibility; the active exit now calculates SMA7/SMA30. Existing positions owned by this profile use the updated exit after deployment.
