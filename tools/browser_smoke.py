@@ -125,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=payloads[path]
     if path=='live':result={**result,'server_time':time.time()}
    elif path.endswith('/settings') and method=='PUT':
-    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['exit_rules']={'closed_1m_sma7':cfg['strategy']=='volume_delta_1h_midpoint_sma7_exit'};payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'},'volume_delta':{'enabled':cfg['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit'),'sma7_50':cfg['volume_delta']['sma_filter'],'bull_type':cfg['volume_delta']['bull_type'],'bear_type':cfg['volume_delta']['bear_type'],'bullish':cfg['volume_delta']['bullish'],'bearish':cfg['volume_delta']['bearish']}};writes.append((target,cfg));result=payloads[target]
+    target=path.split('/')[0];cfg=req.request.post_data_json;payloads[target]['config']=cfg;payloads[target]['exit_rules']={'closed_1m_sma7':cfg['strategy']=='volume_delta_1h_midpoint_sma7_exit'};payloads[target]['entry_filters']={'sma200':{'enabled':cfg['strategy']=='order_block_sr_1h_early'},'volume_delta':{'enabled':cfg['strategy'] in ('volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit'),'sma7_50':cfg['volume_delta']['sma_filter'],'bull_type':cfg['volume_delta']['bull_type'],'bear_type':cfg['volume_delta']['bear_type'],'bullish':cfg['volume_delta']['bullish'],'bearish':cfg['volume_delta']['bearish']}};writes.append((target,cfg));result=payloads[target]
    elif path.endswith('/activate'):
     activation.append(path);req.fulfill(status=400,json={'detail':'Fixture refuses trading'});return
    else:raise AssertionError((method,path))
@@ -639,6 +639,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#activeEntryFilter')).to_contain_text('CLOSED 1m SMA7/30 crossover')
    assert {key:writes[-1][1][key] for key in before_new_exit_risk}==before_new_exit_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('volume_delta_1h_windows_sma7_14_exit')
+
+   page.select_option('#strategyLogic','volume_delta_1h_windows_no_sma_exit')
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('NO SMA exit')
+   expect(page.locator('#volumeDeltaDescription')).to_contain_text('NO SMA exit')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='volume_delta_1h_windows_no_sma_exit'")
+   expect(page.locator('#activeEntryFilter')).to_contain_text('NO SMA EXIT')
+   assert {key:writes[-1][1][key] for key in before_new_exit_risk}==before_new_exit_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('volume_delta_1h_windows_no_sma_exit')
 
    page.select_option('#strategyLogic','sr_rsi_volume_gate')
    expect(page.locator('#strategyTf')).to_have_value('1');expect(page.locator('#strategyTf')).to_be_disabled()

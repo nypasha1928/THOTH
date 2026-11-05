@@ -106,3 +106,19 @@ class WindowTests(unittest.TestCase):
             now[0]=BAR+3601;rows=[{**r,'time':r['time']+3600} for r in rows]
             feed.volume_delta_data['BTCUSDT']=dict(interval='60',bar=BAR+3600,rows=[{**lower[0],'time':BAR+3600}])
             self.assertIsNone(Runner(feed,fetch=feed.fetch).volume_delta_windows_observation('BTCUSDT',cfg,rows,now[0])['signal'])
+    def test_no_sma_exit_profile_enters_same_window_and_never_fetches_exit_candles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1681];s,e,cfg,feed,runner=self.fixture(tmp,now)
+            s.pause();s.configure(TestnetSettings(**{**s.state['config'],'strategy':'volume_delta_1h_windows_no_sma_exit','sma_exit_enabled':True}));s.activate(s.confirmation)
+            cfg=TestnetSettings(**s.state['config']);self.assertFalse(cfg.sma_exit_enabled)
+            rows,lower=data();lower=lower[:29]
+            self.assertEqual(evaluate(rows,lower,cfg,now[0])['signal'],'Long')
+            feed.volume_delta_data['BTCUSDT']=dict(interval='60',bar=BAR,rows=lower)
+            ob=runner.volume_delta_windows_observation('BTCUSDT',cfg,rows,now[0]);self.assertEqual(ob['signal'],'Long')
+            def fetch(symbol,interval,limit=1000,**kw):return rows[-limit:] if interval=='60' else lower[-limit:]
+            with patch.object(e,'candles',side_effect=fetch):s._entry('BTCUSDT','Long',now[0],'noexit',cfg,ob['entry_context'])
+            self.assertEqual(len(e.orders),1,s.state['events'][-3:]);e.fill(next(iter(e.orders)))
+            with patch.object(e,'candles',side_effect=AssertionError('No minute exit downloads for this profile')):
+                s.monitor();now[0]+=60;s.monitor()
+            self.assertEqual(len(e.orders),1);self.assertEqual(s.state['owned']['BTCUSDT']['exit_timeframe'],'none')
+            self.assertFalse(s.state['sma_exit_blocks']);self.assertFalse(s.snapshot()['exit_rules']['closed_1m_sma7_14_cross'])
