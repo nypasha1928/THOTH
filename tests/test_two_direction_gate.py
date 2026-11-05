@@ -292,3 +292,36 @@ class TwoDirectionTests(unittest.TestCase):
                 self.assertIn('Backfill unavailable',feed.staged_history_recovery_status('BTCUSDT')['reason'])
                 self.assertFalse(e.orders);now[0]+=5;before=len(calls)
                 feed.staged_minute_inputs('BTCUSDT');self.assertEqual(len(calls)-before,1)
+    def test_queued_reverse_survives_minute_rollover_while_still_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            now[0]+=2;send('Long');self.fill_latest(s,e)
+            now[0]=BAR+1915;send('Short') # :31:55
+            self.assertEqual(len(e.orders),2)
+            now[0]=BAR+1924;self.fill_latest(s,e) # :32:04, after confirmed close/reconciliation
+            self.assertEqual(len(e.orders),3,s.state['events'][-6:])
+            self.assertEqual(list(e.orders.values())[-1]['side'],'Sell')
+    def test_rollover_allowance_does_not_extend_reversal_ttl_or_apply_to_first_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            now[0]=BAR+1915
+            obs=s._two_direction_observation('BTCUSDT',dict(time=now[0],volume_signal='Long',volume_sources=[],primary_events=[]),TestnetSettings(**s.state['config']))
+            now[0]=BAR+1924
+            s._entry('BTCUSDT','Long',BAR+1915,'first-late',TestnetSettings(**s.state['config']),obs['entry_context'])
+            self.assertFalse(e.orders) # First entry still needs the current minute.
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            now[0]+=2;send('Long');self.fill_latest(s,e)
+            now[0]=BAR+1915;send('Short');now[0]=BAR+1946;self.fill_latest(s,e)
+            self.assertEqual(len(e.orders),2);self.assertFalse(s.state['reversals'])
+            self.assertTrue(any('reverse signal expired' in v['message'] for v in s.state['events']))
+    def test_rollover_reversal_still_respects_loss_cooldown_after_reconciliation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now=[BAR+1679];s,e,cfg,send=self.fixture(tmp,now)
+            now[0]+=2;send('Long');self.fill_latest(s,e)
+            s.state['risk']['symbols']['BTCUSDT']=dict(streak=s.state['config']['consecutive_losses']-1,pause_until=None);s.save()
+            e.prices['BTCUSDT']=99
+            now[0]=BAR+1915;send('Short');now[0]=BAR+1924;self.fill_latest(s,e)
+            self.assertEqual(len(e.orders),2);self.assertFalse(s.state['reversals'])
+            self.assertGreater(s.state['risk']['symbols']['BTCUSDT']['pause_until'],now[0])
+            self.assertTrue(any('replacement entry blocked' in v['message'] and 'cooldown' in v['message'] for v in s.state['events']))

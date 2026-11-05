@@ -80,3 +80,13 @@ for a signal after the current permission still apply.
 `/api/runner` → `confirmation.symbols` includes per-coin `history_recovery` progress and
 `last_detected_signal` (time, direction and sources). Detection does not mean an order was
 accepted: account, schedule, cooldown, capacity and exchange checks remain independent.
+
+## Queued reversal across a minute boundary
+
+A direction-2 reversal already queued while direction 1 is open may submit after the
+minute changes, provided closing/reconciliation and all entry checks finish within the
+existing 30-second signal lifetime. Merely crossing :59 → :00 no longer cancels that
+queued replacement. Ordinary first entries still require the current signal minute.
+A new permission, expired signal, loss cooldown, schedule or account protection can still
+block direction 2. In particular, a loss on direction 1 counts toward the existing per-coin
+consecutive-loss limit; a newly triggered cooldown is not bypassed to complete the sequence.
