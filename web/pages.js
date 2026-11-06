@@ -89,9 +89,8 @@ function renderHistoryPages(){
 }
 function historyTrailingReason(reason,report){
  const node=document.createElement('div');node.append(reason);
- if(!report)return node;
  const details=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('pre');
- summary.textContent='Per-coin trailing diagnostics';body.style.whiteSpace='pre-wrap';body.textContent=JSON.stringify(report,null,2);
+ summary.textContent='Per-coin trailing diagnostics'+(report?'':' · Not recorded');body.style.whiteSpace='pre-wrap';body.textContent=report?JSON.stringify(report,null,2):'No retained trailing diagnostic record for this trade. Older records cannot be reconstructed. If this trade closed after the diagnostics update was deployed, copy all trades and check the deployed server version.';
  details.append(summary,body);node.append(details);return node;
 }
 function historyBlockStrengthCell(trade){const node=document.createElement('div');node.className='ob-strength-comparison';node.stretch=trade.signal_stretch;node.sources=trade.entry_sources;node.append(blockStrengthCell(trade.signal_stretch,historyOBMinimum(),trade.entry_sources));return node}
