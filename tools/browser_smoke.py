@@ -109,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
    elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
    elif path in ('live/history','live/history/export'):
-    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross'),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
+    result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross',trailing_diagnostics=dict(version=1,samples=12,maximum_observed_pnl='.56',max_sample_gap_seconds=7,events=[dict(kind='activated',time=1792300000)])),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
     if history_many:
      params=parse_qs(url.split('?',1)[1] if '?' in url else '')
      offset=int(params.get('offset',['0'])[0]);result=dict(items=history_many[offset:offset+50],total=len(history_many),offset=offset,limit=50)
@@ -1154,6 +1154,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.reload();expect(page.locator('#page-comparison')).to_be_visible()
    page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
    expect(page.locator('#historyRows')).to_contain_text('S/R Breakout')
+   diagnostic=page.locator('#historyRows details').filter(has=page.locator('summary',has_text='Per-coin trailing diagnostics'))
+   expect(diagnostic).to_have_count(1);assert not diagnostic.evaluate('(el)=>el.open')
+   diagnostic.locator('summary').click();expect(diagnostic.locator('pre')).to_contain_text('maximum_observed_pnl')
+   diagnostic.locator('summary').click()
    expect(page.locator('#historyRows tr').first.locator('time').first).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
    expect(page.locator('#historyRows tr').first.locator('time').first).to_contain_text('EDT')
    expect(page.locator('#historyRows .reason-cell').filter(has_text='SMA 7/50 (EXIT)')).to_have_count(2)

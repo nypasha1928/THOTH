@@ -84,3 +84,39 @@ class CoinTrailingTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):self.service.monitor()
         self.assertTrue(any(o['reduceOnly'] for o in self.exchange.orders.values()))
         self.assertTrue(self.service.load()['owned']['BTCUSDT']['coin_pnl_trailing']['triggered'])
+
+    def test_diagnostics_survive_restart_and_closed_history(self):
+        self.enter();self.exchange.prices['BTCUSDT']=100.8;self.service.monitor()
+        report=self.service.load()['owned']['BTCUSDT']['trailing_diagnostics']
+        self.assertAlmostEqual(float(report['maximum_observed_pnl']),.4)
+        self.now[0]+=8;self.exchange.prices['BTCUSDT']=101;self.service.monitor()
+        self.service=self.create();self.service.activate('ENABLE TESTNET ORDERS',recovery=True)
+        self.now[0]+=5;self.exchange.prices['BTCUSDT']=100.94;self.service.monitor()
+        self.fill_closes()
+        report=self.service.history()['items'][0]['trailing_diagnostics']
+        self.assertGreaterEqual(report['max_sample_gap_seconds'],8)
+        self.assertEqual(dec(report['maximum_observed_pnl']),dec('.5'))
+        self.assertEqual(report['exit_reason'],'Per-coin Trailing Stop')
+        for kind in ('activated','triggered','close_attempt','close_submission_result'):
+            self.assertIn(kind,[event['kind'] for event in report['events']])
+
+    def test_diagnostics_retain_reset_and_close_error(self):
+        self.enter();self.exchange.prices['BTCUSDT']=101;self.service.monitor()
+        self.service.pause();self.service.configure(self.cfg.model_copy(update={'coin_pnl_trailing_drop_dollars':.04}))
+        owner=self.service.state['owned']['BTCUSDT']
+        self.assertIn('settings_reset',[e['kind'] for e in owner['trailing_diagnostics']['events']])
+        self.service.monitor();self.exchange.prices['BTCUSDT']=100.9
+        with patch.object(self.service.journal,'submit',side_effect=RuntimeError('fixture submission failed')):
+            with self.assertRaises(RuntimeError):self.service.monitor()
+        report=self.service.load()['owned']['BTCUSDT']['trailing_diagnostics']
+        self.assertIn('close_error',[e['kind'] for e in report['events']])
+        self.assertTrue(report['state']['triggered'])
+
+    def test_bounded_diagnostics_and_old_history_are_not_fabricated(self):
+        from thoth.trailing_diagnostics import event
+        owner={}
+        for i in range(50):event(owner,'monitor_error',i)
+        self.assertEqual(len(owner['trailing_diagnostics']['events']),40)
+        self.assertEqual(owner['trailing_diagnostics']['dropped_events'],10)
+        self.service._record_trade('legacy:fixture',dict(symbol='BTCUSDT',closed_at=self.now[0],pnl=0))
+        self.assertNotIn('trailing_diagnostics',self.service.history()['items'][0])
