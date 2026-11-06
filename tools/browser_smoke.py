@@ -1155,7 +1155,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.click('[data-page-link=history]');expect(page.locator('#historyRows')).to_contain_text('ETHUSDT');expect(page.locator('#historyRows')).to_contain_text('SMA 7/200')
    expect(page.locator('#historyRows')).to_contain_text('S/R Breakout')
    diagnostic=page.locator('#historyRows details').filter(has=page.locator('summary',has_text='Per-coin trailing diagnostics'))
-   expect(diagnostic).to_have_count(1);assert not diagnostic.evaluate('(el)=>el.open')
+   expect(diagnostic).to_have_count(3);diagnostic=diagnostic.first;assert not diagnostic.evaluate('(el)=>el.open')
    diagnostic.locator('summary').click();expect(diagnostic.locator('pre')).to_contain_text('maximum_observed_pnl')
    diagnostic.locator('summary').click()
    expect(page.locator('#historyRows tr').first.locator('time').first).to_have_attribute('datetime','2026-10-18T05:05:00.123Z')
