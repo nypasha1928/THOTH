@@ -5,6 +5,7 @@ a dedicated account acknowledgement and a server-side feature flag are required.
 After a restart only risk management resumes; new entries need manual activation.
 """
 
+from . import trailing_diagnostics
 from .database import connect
 from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE,TWO_DIRECTION,CLOSED_TWO_DIRECTION,TWO_DIRECTION_STRATEGIES,DELAYED_30M
 from copy import deepcopy
@@ -188,7 +189,7 @@ class TestnetSupervisor:
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason',''),'protection_error':r['result'].get('protection_error')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
-        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources','signal_stretch')
+        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources','signal_stretch','trailing_diagnostics')
         record={key:trade[key] for key in allowed if key in trade}
         if link.startswith('legacy:') and 'strategy' not in record:record['strategy']='sr_breakout'
         with self.db() as db:
@@ -246,7 +247,9 @@ class TestnetSupervisor:
             coin_keys=('coin_pnl_trailing_enabled','coin_pnl_trailing_activation_dollars','coin_pnl_trailing_drop_dollars')
             if any(self.state['config'].get(key)!=getattr(cfg,key) for key in coin_keys):
                 for owner in self.state['owned'].values():
-                    if not owner.get('coin_pnl_trailing',{}).get('triggered'):owner['coin_pnl_trailing']=new_pnl_trailing()
+                    if not owner.get('coin_pnl_trailing',{}).get('triggered'):
+                        trailing_diagnostics.event(owner,'settings_reset',self.clock(),previous_state=deepcopy(owner.get('coin_pnl_trailing',{})))
+                        owner['coin_pnl_trailing']=new_pnl_trailing()
             for period in EQUITY_PERIODS:
                 key=period+'_equity_trailing_enabled'
                 if not self.state['equity_trailing'].get(period,{}).get('triggered') and bool(self.state['config'].get(key))!=getattr(cfg,key):
@@ -494,8 +497,15 @@ class TestnetSupervisor:
         identifier=owner['link']+':close:'+str(owner['close_attempt'])
         payload=self.client.close_payload(symbol,'Long' if p['side']=='Buy' else 'Short',p['size'],identifier)
         owner.update(close_link=payload['orderLinkId'],reason=reason)
+        trailing_diagnostics.event(owner,'close_attempt',self.clock(),reason=reason,link=payload['orderLinkId'],attempt=owner['close_attempt'])
         self.save()  # Preserve deterministic close identity before submission.
-        self.journal.submit(payload)
+        try:
+            result=self.journal.submit(payload)
+            trailing_diagnostics.event(owner,'close_submission_result',self.clock(),phase=result.get('phase') if isinstance(result,dict) else None)
+        except Exception as exc:
+            trailing_diagnostics.event(owner,'close_error',self.clock(),details=failure_details(exc,'close'))
+            self.save()
+            raise
         self.event(symbol+': reduce-only close requested ('+reason+')')
         self.save()
 
@@ -530,7 +540,10 @@ class TestnetSupervisor:
         if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
             self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
         trade=dict(link=owner['link'],symbol=symbol,side='Long' if owner['side']=='Buy' else 'Short',entry=float(owner['entry']),qty=float(owner['qty']),opened_at=owner['opened_ms']/1000,
-            signal_stretch=owner.get('signal_stretch'),entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
+            trailing_diagnostics=deepcopy(owner.get('trailing_diagnostics')),signal_stretch=owner.get('signal_stretch'),entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
+        if trade.get('trailing_diagnostics') is not None:
+            trade['trailing_diagnostics']['settled_at']=self.clock()
+            trade['trailing_diagnostics']['exit_reason']=trade['reason']
         self._record_trade(owner['link'],trade)
         self.state['closures']=(self.state['closures']+[trade])[-200:]
         # Mark entry terminal so startup does not treat old fills as pending ownership.
@@ -552,6 +565,8 @@ class TestnetSupervisor:
 
     def _monitor_failure(self,exc):
         details=failure_details(exc,'account_monitor')
+        for owner in self.state['owned'].values():
+            trailing_diagnostics.event(owner,'monitor_error',self.clock(),details=details)
         self.state['monitor_error']=details
         self.state['monitor_failures']=(self.state.get('monitor_failures',[])+[dict(time=self.clock(),details=details)])[-100:]
         if isinstance(exc,BybitError) and exc.code==10006 and getattr(exc,'thoth_method',None)=='GET' and self.state['status'] in ('running','cooldown','paused','rate_limited'):
@@ -732,6 +747,7 @@ class TestnetSupervisor:
             updated=advance_pnl_trailing(before,p['unrealisedPnl'],True,cfg.coin_pnl_trailing_enabled,
                 cfg.coin_pnl_trailing_activation_dollars,cfg.coin_pnl_trailing_drop_dollars,self.clock())
             owner['coin_pnl_trailing']=updated
+            trailing_diagnostics.sample(owner,before,updated,p,cfg,self.clock())
             if updated['active'] and not before['active']:self.event(symbol+': per-coin P&L trailing activated')
             if updated['triggered']:
                 # Durable symbol-only close obligation; retries use the normal close reconciler.

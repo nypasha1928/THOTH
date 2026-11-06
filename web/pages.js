@@ -69,8 +69,8 @@ async function copyAllHistory(){
    'Exported: '+new Date().toISOString(),
    'Trades: '+data.items.length+' · Unique traded coins: '+new Set(data.items.map(t=>t.symbol)).size,
    'Previously pruned records are unavailable. Rejected orders are not closed trades.',
-   ['Opened (New York)','Closed (New York)','Symbol','Side','Entry','Quantity','Realized P&L (USDT)','Reason','Strategy','Entry signal source','Signal candle / entry distance','OB strength / ATR · trial check'].join('\t')];
-  for(const t of data.items)lines.push([tradeTimestamp(t.opened_at),tradeTimestamp(t.closed_at),t.symbol,t.side,t.entry,t.qty,t.pnl,t.reason,strategyName(t.strategy),t.entry_source_label||'Source not recorded',signalStretchText(t.signal_stretch),blockStrengthText(t.signal_stretch,minimum,t.entry_sources)].map(clean).join('\t'));
+   ['Opened (New York)','Closed (New York)','Symbol','Side','Entry','Quantity','Realized P&L (USDT)','Reason','Strategy','Entry signal source','Signal candle / entry distance','OB strength / ATR · trial check','Per-coin trailing diagnostics'].join('\t')];
+  for(const t of data.items)lines.push([tradeTimestamp(t.opened_at),tradeTimestamp(t.closed_at),t.symbol,t.side,t.entry,t.qty,t.pnl,t.reason,strategyName(t.strategy),t.entry_source_label||'Source not recorded',signalStretchText(t.signal_stretch),blockStrengthText(t.signal_stretch,minimum,t.entry_sources),t.trailing_diagnostics?JSON.stringify(t.trailing_diagnostics):'Not recorded'].map(clean).join('\t'));
   const report=lines.join('\n');
   try{await navigator.clipboard.writeText(report);status.textContent='Copied all '+data.items.length+' closed trades. Paste them into the chat.'}
   catch(_){fallback.value=report;fallback.hidden=false;fallback.focus();fallback.select();status.textContent='Clipboard unavailable. Copy the selected report below.'}
@@ -86,6 +86,13 @@ function renderHistoryPages(){
   const button=document.createElement('button');button.type='button';button.textContent=page;button.setAttribute('aria-label','History page '+page);if(page===current)button.setAttribute('aria-current','page');button.onclick=()=>goHistoryPage(page);nav.append(button);last=page;
  }
  $('historyPageNumber').value=current;$('historyPageNumber').max=total;$('historyPageCount').textContent='of '+total;
+}
+function historyTrailingReason(reason,report){
+ const node=document.createElement('div');node.append(reason);
+ if(!report)return node;
+ const details=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('pre');
+ summary.textContent='Per-coin trailing diagnostics';body.style.whiteSpace='pre-wrap';body.textContent=JSON.stringify(report,null,2);
+ details.append(summary,body);node.append(details);return node;
 }
 function historyBlockStrengthCell(trade){const node=document.createElement('div');node.className='ob-strength-comparison';node.stretch=trade.signal_stretch;node.sources=trade.entry_sources;node.append(blockStrengthCell(trade.signal_stretch,historyOBMinimum(),trade.entry_sources));return node}
 async function loadHistory({background=false,reconnect=false}={}){
@@ -105,7 +112,7 @@ async function loadHistory({background=false,reconnect=false}={}){
   for(const trade of data.items){const row=document.createElement('tr');row.classList.toggle('trade-loss',Number(trade.pnl)<0);row.classList.toggle('trade-win',Number(trade.pnl)>0);
    const symbolButton=document.createElement('button');symbolButton.type='button';symbolButton.textContent=trade.symbol;symbolButton.onclick=()=>openChartSymbol(trade.symbol);
    const reason=trade.reason==='Open P&L trailing stop'?'Combined Trailing Stop':/^(Inverse )?SMA 7 crossed (below|above) SMA 50 \(intrabar exit\)$/.test(trade.reason||'')?(trade.reason.startsWith('Inverse ')?'Inverse SMA 7/50 (EXIT)':'SMA 7/50 (EXIT)'):trade.reason||'—';
-   const cells=[tradeTimestamp(trade.opened_at),tradeTimestamp(trade.closed_at,false,false),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),reason,strategyName(trade.strategy),trade.entry_source_label||'Source not recorded',signalStretchCell(trade.signal_stretch),historyBlockStrengthCell(trade)];
+   const cells=[tradeTimestamp(trade.opened_at),tradeTimestamp(trade.closed_at,false,false),symbolButton,trade.side||'—',trade.entry!=null?marketPrice(trade.entry)+' / '+trade.qty:'—',money(trade.pnl),historyTrailingReason(reason,trade.trailing_diagnostics),strategyName(trade.strategy),trade.entry_source_label||'Source not recorded',signalStretchCell(trade.signal_stretch),historyBlockStrengthCell(trade)];
    for(const [index,value] of cells.entries()){const cell=document.createElement('td');if(index===6){cell.classList.add('reason-cell');cell.title=trade.reason||'';}if(index===5){if(Number(trade.pnl)<0)cell.classList.add('pnl-loss');else if(Number(trade.pnl)>0)cell.classList.add('pnl-win');}if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('historyRows').append(row);
   }
   historyRenderedKey=renderKey;}
