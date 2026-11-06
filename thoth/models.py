@@ -88,6 +88,15 @@ class Settings(BaseModel):
     three_day_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     weekly_equity_trailing_enabled: bool = False
     weekly_equity_trailing_drop_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
+    coin_breakeven_enabled: bool = False
+    coin_breakeven_trigger_dollars: float = Field(default=.2,gt=0,le=1000000,allow_inf_nan=False)
+    coin_breakeven_action_dollars: float = Field(default=.1,ge=0,le=1000000,allow_inf_nan=False)
+    @model_validator(mode='after')
+    def validate_breakeven(self):
+        if self.coin_breakeven_action_dollars>=self.coin_breakeven_trigger_dollars:
+            raise ValueError('Breakeven action must be below its trigger')
+        return self
+
     coin_pnl_trailing_enabled: bool = False
     coin_pnl_trailing_activation_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     coin_pnl_trailing_drop_dollars: float = Field(default=.1,gt=0,le=1000000,allow_inf_nan=False)

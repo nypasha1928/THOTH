@@ -6,6 +6,7 @@ After a restart only risk management resumes; new entries need manual activation
 """
 
 from . import trailing_diagnostics
+from .breakeven import advance as advance_breakeven
 from .database import connect
 from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE,TWO_DIRECTION,CLOSED_TWO_DIRECTION,TWO_DIRECTION_STRATEGIES,DELAYED_30M
 from copy import deepcopy
@@ -189,7 +190,7 @@ class TestnetSupervisor:
             'execution': [{'symbol':r['payload']['symbol'],'phase':r['phase'],'reason':r['result'].get('reason',''),'protection_error':r['result'].get('protection_error')} for r in self.journal.records()] if self.journal else []}
 
     def _record_trade(self,link,trade):
-        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources','signal_stretch','trailing_diagnostics')
+        allowed=('symbol','side','entry','qty','opened_at','closed_at','pnl','reason','strategy','entry_timeframe','exit_timeframe','protection_confirmed','entry_sources','signal_stretch','trailing_diagnostics','coin_breakeven')
         record={key:trade[key] for key in allowed if key in trade}
         if link.startswith('legacy:') and 'strategy' not in record:record['strategy']='sr_breakout'
         with self.db() as db:
@@ -244,6 +245,12 @@ class TestnetSupervisor:
             if any(self.state['config'][key]!=getattr(cfg,key) for key in pnl_keys) and not self.state['pnl_trailing']['triggered']:
                 self.state['pnl_trailing']=new_pnl_trailing()
                 self.event('Open P&L trailing settings changed; a new trailing cycle starts at the next verified position sample')
+            breakeven_keys=('coin_breakeven_enabled','coin_breakeven_trigger_dollars','coin_breakeven_action_dollars')
+            if any(self.state['config'].get(key)!=getattr(cfg,key) for key in breakeven_keys):
+                for owner in self.state['owned'].values():
+                    if not owner.get('coin_breakeven',{}).get('triggered'):
+                        owner['coin_breakeven']={}
+                        trailing_diagnostics.event(owner,'breakeven_settings_reset',self.clock())
             coin_keys=('coin_pnl_trailing_enabled','coin_pnl_trailing_activation_dollars','coin_pnl_trailing_drop_dollars')
             if any(self.state['config'].get(key)!=getattr(cfg,key) for key in coin_keys):
                 for owner in self.state['owned'].values():
@@ -540,7 +547,7 @@ class TestnetSupervisor:
         if cfg.loss_streak_scope=='per_coin' and coin_pause and coin_pause!=previous_pause:
             self.event(symbol+': consecutive-loss cooldown started; new entries paused for '+str(cfg.pause_minutes)+' minutes, exits remain managed')
         trade=dict(link=owner['link'],symbol=symbol,side='Long' if owner['side']=='Buy' else 'Short',entry=float(owner['entry']),qty=float(owner['qty']),opened_at=owner['opened_ms']/1000,
-            trailing_diagnostics=deepcopy(owner.get('trailing_diagnostics')),signal_stretch=owner.get('signal_stretch'),entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
+            coin_breakeven=deepcopy(owner.get('coin_breakeven')),trailing_diagnostics=deepcopy(owner.get('trailing_diagnostics')),signal_stretch=owner.get('signal_stretch'),entry_sources=owner.get('entry_sources',[]),strategy=owner.get('strategy','sr_breakout'),entry_timeframe=owner.get('entry_timeframe'),exit_timeframe=owner.get('exit_timeframe'),pnl=pnl,closed_at=self.clock(),reason=owner['reason'] or 'Exchange stop/close',protection_confirmed=owner.get('protection_confirmed',False),source_fingerprint=owner.get('source_fingerprint'),execution_fingerprint=owner.get('execution_fingerprint'),strategy_fingerprint=owner.get('strategy_fingerprint'),real_exchange=owner.get('real_exchange',False))
         if trade.get('trailing_diagnostics') is not None:
             trade['trailing_diagnostics']['settled_at']=self.clock()
             trade['trailing_diagnostics']['exit_reason']=trade['reason']
@@ -738,6 +745,24 @@ class TestnetSupervisor:
             self.state['pending_signals'].pop(symbol,None)
             self.save()
             self._close(symbol,p,reason)
+
+    def _manage_coin_breakeven(self,active,cfg):
+        for symbol,p in active.items():
+            owner=self.state['owned'][symbol]
+            if owner.get('close_link') or owner.get('signal_exit'):continue
+            before=owner.get('coin_breakeven',{})
+            updated=advance_breakeven(before,p['unrealisedPnl'],cfg.coin_breakeven_enabled,
+                cfg.coin_breakeven_trigger_dollars,cfg.coin_breakeven_action_dollars,self.clock())
+            owner['coin_breakeven']=updated
+            if updated.get('active') and not before.get('active'):
+                self.event(symbol+': breakeven armed; fixed close floor '+updated['action']+' USDT')
+                trailing_diagnostics.event(owner,'breakeven_armed',self.clock(),state=deepcopy(updated))
+            if updated.get('triggered'):
+                owner['signal_exit']='Per-coin Breakeven'
+                self.state['pending_signals'].pop(symbol,None);self.state['reversals'].pop(symbol,None)
+                self.event(symbol+': breakeven floor reached; closing only this position')
+                trailing_diagnostics.event(owner,'breakeven_triggered',self.clock(),state=deepcopy(updated))
+            self.save()
 
     def _manage_coin_pnl_trailing(self,active,cfg):
         for symbol,p in active.items():
@@ -941,6 +966,7 @@ class TestnetSupervisor:
                         if prior!=details:self.event(symbol+': SMA exit monitoring unavailable; only this coin’s new entries blocked · '+failure_summary(details))
                         self.save()
 
+            self._manage_coin_breakeven(active,cfg)
             self._manage_coin_pnl_trailing(active,cfg)
             # Exit obligations run before wallet/transfer reads, which can fail independently.
             for symbol,owner in list(self.state['owned'].items()):
@@ -952,7 +978,7 @@ class TestnetSupervisor:
             risk=sample(self.state['risk'],equity,self.transfers(),cfg,self.clock())
             if self.state['risk']['day']!=previous_day:
                 self.event('New UTC daily period '+self.state['risk']['day']+': starting equity '+format(equity,'.2f')+' USDT; fresh allowance '+format(self.state['risk']['loss_allowance'],'.2f')+' USDT; prior daily loss usage cleared')
-            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},coin_pnl_trailing=self.state['owned'].get(s,{}).get('coin_pnl_trailing',new_pnl_trailing()),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
+            self.state.update(equity=equity,last_monitor=self.clock(),positions=[dict(symbol=s,side='Long' if p['side']=='Buy' else 'Short',qty=p['size'],entry=p['avgPrice'],mark=p.get('markPrice'),pnl=float(p.get('unrealisedPnl','0')),stop=p.get('stopLoss'),stop_dollars=self.state['owned'].get(s,{}).get('stop_dollars'),take_profit={**self.state['owned'].get(s,{}).get('take_profit',{'enabled':False}),'exchange_price':p.get('takeProfit')},coin_breakeven=self.state['owned'].get(s,{}).get('coin_breakeven',{}),coin_pnl_trailing=self.state['owned'].get(s,{}).get('coin_pnl_trailing',new_pnl_trailing()),trailing=self.state['owned'].get(s,{}).get('trailing',{'enabled':False}),opened_at=self.state['owned'].get(s,{}).get('opened_ms')) for s,p in active.items()])
             self._manage_equity_trailing(equity,cfg)
             self._manage_pnl_trailing(active,cfg)
             if risk=='daily_stop':

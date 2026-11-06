@@ -580,6 +580,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.select_option('#oppositeAction','close_only');page.click('#saveSymbols')
    page.wait_for_function("() => lv.config.strategy==='sma_cross' && lv.config.opposite_action==='close_only'")
    assert writes[-1][1]['strategy']=='sma_cross' and writes[-1][1]['opposite_action']=='close_only'
+   page.check('#coin_breakeven_enabled');page.fill('#coin_breakeven_trigger_dollars','0.20');page.fill('#coin_breakeven_action_dollars','0.10');page.click('#saveSymbols')
+   page.wait_for_function('() => lv.config.coin_breakeven_enabled && lv.config.coin_breakeven_trigger_dollars===0.2 && lv.config.coin_breakeven_action_dollars===0.1')
+   page.reload();expect(page.locator('#coin_breakeven_enabled')).to_be_checked();expect(page.locator('#coin_breakeven_action_dollars')).to_have_value('0.1')
+   page.uncheck('#coin_breakeven_enabled');page.click('#saveSymbols');page.wait_for_function('() => !lv.config.coin_breakeven_enabled')
    page.check('#coin_pnl_trailing_enabled');page.fill('#coin_pnl_trailing_activation_dollars','0.5');page.fill('#coin_pnl_trailing_drop_dollars','0.025');page.click('#saveSymbols')
    page.wait_for_function('() => lv.config.coin_pnl_trailing_enabled && lv.config.coin_pnl_trailing_activation_dollars===0.5 && lv.config.coin_pnl_trailing_drop_dollars===0.025')
    expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
@@ -673,7 +677,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate("() => {lv.entry_gates.ETHUSDT={phase:'cooldown',losses:3,cooldown_until:Date.now()/1000+3600};renderRiskOverview()}")
    expect(page.locator('#entryGateList')).to_contain_text('LOCKED · cooldown')
    payloads['live']['entry_gates']={}
-   protected_fields=['daily_loss_pct','stop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','coin_pnl_trailing_enabled','daily_equity_trailing_enabled','three_day_equity_trailing_enabled','weekly_equity_trailing_enabled','consecutive_losses','pause_minutes']
+   protected_fields=['coin_breakeven_enabled','coin_breakeven_trigger_dollars','coin_breakeven_action_dollars','daily_loss_pct','stop_dollars','pnl_trailing_enabled','pnl_trailing_activation_dollars','pnl_trailing_drop_dollars','coin_pnl_trailing_enabled','daily_equity_trailing_enabled','three_day_equity_trailing_enabled','weekly_equity_trailing_enabled','consecutive_losses','pause_minutes']
    before_ob_risk={key:payloads['live']['config'][key] for key in protected_fields}
    page.select_option('#strategyLogic','order_block_intrabar')
    expect(page.locator('#strategyTf')).to_have_value('240');expect(page.locator('#strategyTf')).to_be_disabled()
