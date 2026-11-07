@@ -232,8 +232,8 @@ class ApiTests(unittest.TestCase):
         source=[{**row,'time':start-(len(data)-i-1)*1800} for i,row in enumerate(data)]
         with patch('thoth.app.candles',return_value=source),patch('time.time',return_value=NOW+20):
             chart=self.client.get('/api/chart/BTCUSDT?interval=30&environment=live&include_order_block=true').json()
-        self.assertIn('15 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
-        self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':15/:45',chart['order_block_status'])
+        self.assertIn('7 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
+        self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':07/:37',chart['order_block_status'])
 
     def test_closed_30m_two_direction_profile_and_native_chart_interval(self):
         before=self.client.get('/api/live').json()['config']

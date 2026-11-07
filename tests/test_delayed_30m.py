@@ -5,17 +5,22 @@ from thoth.models import Settings
 BASE=1790000000//3600*3600
 
 class DelayScheduleTests(unittest.TestCase):
-    def test_due_is_fixed_fifteen_minutes_after_actual_close_not_detection(self):
+    def test_due_is_fixed_seven_minutes_after_actual_close_not_detection(self):
         cfg=Settings()
         for close in (BASE,BASE+1800):
             obs=dict(signal='Long',closed_bar=close-1800,entry_sources=['ob:bullish_formed'])
             item=candidate(obs,cfg,close+75)
-            self.assertEqual(item['due_at'],close+900)
-            self.assertFalse(ready(item,cfg,close+899));self.assertTrue(ready(item,cfg,close+900))
-            self.assertTrue(ready(item,cfg,close+959));self.assertFalse(ready(item,cfg,close+960))
+            self.assertEqual(item['due_at'],close+420)
+            self.assertFalse(ready(item,cfg,close+419));self.assertTrue(ready(item,cfg,close+420))
+            self.assertTrue(ready(item,cfg,close+479));self.assertFalse(ready(item,cfg,close+480))
+    def test_old_quarter_hour_candidate_cannot_execute(self):
+        cfg=Settings();item=candidate(dict(signal='Long',closed_bar=BASE-1800),cfg,BASE+5)
+        item.update(due_at=BASE+900,expires_at=BASE+960)
+        self.assertFalse(ready(item,cfg,BASE+900))
+
     def test_late_future_off_grid_or_absent_signal_is_not_scheduled(self):
         cfg=Settings();obs=dict(signal='Short',closed_bar=BASE-1800,entry_sources=[])
-        for bad,now in [(obs,BASE+900),(obs,BASE-1),({**obs,'closed_bar':BASE-1799},BASE+5),({**obs,'signal':None},BASE+5)]:
+        for bad,now in [(obs,BASE+420),(obs,BASE-1),({**obs,'closed_bar':BASE-1799},BASE+5),({**obs,'signal':None},BASE+5)]:
             self.assertIsNone(candidate(bad,cfg,now))
 
 import tempfile
@@ -46,15 +51,15 @@ class DelayedExecutionTests(unittest.TestCase):
             now=[BASE+5];s,e,cfg,capture=self.fixture(tmp,now)
             self.assertEqual(cfg['timeframe'],'30');self.assertFalse(cfg['sma_exit_enabled'])
             with patch.object(e,'candles',side_effect=AssertionError('No minute candles needed for scheduled execution')):
-                capture();self.assertEqual(s.state['delayed_30m']['BTCUSDT']['due_at'],BASE+900)
-                now[0]=BASE+899;s.monitor();self.assertFalse(e.orders)
-                e.prices['BTCUSDT']=125;now[0]=BASE+900;s.monitor();self.assertEqual(len(e.orders),1,s.state['events'][-5:])
+                capture();self.assertEqual(s.state['delayed_30m']['BTCUSDT']['due_at'],BASE+420)
+                now[0]=BASE+419;s.monitor();self.assertFalse(e.orders)
+                e.prices['BTCUSDT']=125;now[0]=BASE+420;s.monitor();self.assertEqual(len(e.orders),1,s.state['events'][-5:])
                 order=self.fill(s,e);self.assertEqual(order['side'],'Buy');self.assertAlmostEqual(float(order['qty']),.4)
                 self.assertEqual(s.state['owned']['BTCUSDT']['entry_timeframe'],'30');self.assertEqual(s.state['owned']['BTCUSDT']['exit_timeframe'],'none')
                 now[0]=BASE+1805;capture('Short');self.assertEqual(len(e.orders),1)
-                self.assertEqual(s.state['delayed_30m']['BTCUSDT']['due_at'],BASE+2700)
-                now[0]=BASE+2699;s.monitor();self.assertEqual(len(e.orders),1)
-                now[0]=BASE+2700;s.monitor();self.assertTrue(list(e.orders.values())[-1]['reduceOnly'])
+                self.assertEqual(s.state['delayed_30m']['BTCUSDT']['due_at'],BASE+2220)
+                now[0]=BASE+2219;s.monitor();self.assertEqual(len(e.orders),1)
+                now[0]=BASE+2220;s.monitor();self.assertTrue(list(e.orders.values())[-1]['reduceOnly'])
                 self.fill(s,e);self.assertEqual(self.fill(s,e)['side'],'Sell');self.assertEqual(len(e.orders),3)
                 now[0]+=5;s.monitor();self.assertEqual(len(e.orders),3)
                 self.assertIn('htf:30:ob:bearish_formed',s.state['owned']['BTCUSDT']['entry_sources'])
@@ -66,7 +71,7 @@ class DelayedExecutionTests(unittest.TestCase):
                 elif mode=='restart':
                     s=TestnetSupervisor(s.path,enabled=True,password_configured=True,client_factory=lambda *a,**k:e,credentials=lambda:('fixture','fixture'),clock=lambda:now[0])
                     s.activate(s.confirmation,recovery=True)
-                now[0]=BASE+(961 if mode=='expired' else 900)
+                now[0]=BASE+(481 if mode=='expired' else 420)
                 if mode=='schedule':
                     with patch.object(s,'_schedule_entry_reason',return_value='Daily schedule blocks entry'):s.monitor()
                 else:s.monitor()
@@ -76,15 +81,15 @@ class DelayedExecutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             now=[BASE+5];s,e,cfg,capture=self.fixture(tmp,now,['BTCUSDT','ETHUSDT'])
             capture();now[0]+=1;capture(symbol='ETHUSDT')
-            now[0]=BASE+900;s.monitor();self.assertEqual(len(e.orders),1)
+            now[0]=BASE+420;s.monitor();self.assertEqual(len(e.orders),1)
             self.fill(s,e);self.assertIn('ETHUSDT',s.state['delayed_30m']);self.assertEqual(len(e.active),1)
-            now[0]=BASE+960;s.monitor();self.assertEqual(len(e.orders),1);self.assertFalse(s.state['delayed_30m'])
+            now[0]=BASE+480;s.monitor();self.assertEqual(len(e.orders),1);self.assertFalse(s.state['delayed_30m'])
     def test_final_guard_rejects_order_after_execution_minute_expires(self):
         with tempfile.TemporaryDirectory() as tmp:
             now=[BASE+5];s,e,cfg,capture=self.fixture(tmp,now);capture();original=e.reconcile
             def reconcile(symbol,link):
-                answer=original(symbol,link);now[0]=BASE+960.1;return answer
-            now[0]=BASE+959.8
+                answer=original(symbol,link);now[0]=BASE+480.1;return answer
+            now[0]=BASE+479.8
             with patch.object(e,'reconcile',side_effect=reconcile):s.monitor()
             self.assertFalse(e.orders);self.assertTrue(s.journal.records()[0]['result']['not_submitted'])
     def test_closed_source_schedules_but_monitor_not_market_scan_places_due_entry(self):
@@ -98,13 +103,13 @@ class DelayedExecutionTests(unittest.TestCase):
                 main.cycle(paced=False);self.assertFalse(s.state['delayed_30m'])
                 now[0]=BASE+5;main.cycle(paced=False);self.assertIn('BTCUSDT',s.state['delayed_30m']);self.assertFalse(e.orders)
                 minute.cycle();self.assertEqual(minute.health['status'],'not_required')
-                now[0]=BASE+900;s.monitor();self.assertEqual(len(e.orders),1,s.state['events'][-5:])
+                now[0]=BASE+420;s.monitor();self.assertEqual(len(e.orders),1,s.state['events'][-5:])
                 self.assertEqual(list(e.orders.values())[-1]['side'],'Buy');self.assertTrue(calls and all(frame=='30' for frame in calls))
     def test_loss_cooldown_after_delayed_reversal_close_blocks_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
-            now=[BASE+5];s,e,cfg,capture=self.fixture(tmp,now);capture();now[0]=BASE+900;s.monitor();self.fill(s,e)
+            now=[BASE+5];s,e,cfg,capture=self.fixture(tmp,now);capture();now[0]=BASE+420;s.monitor();self.fill(s,e)
             s.state['risk']['symbols']['BTCUSDT']=dict(streak=s.state['config']['consecutive_losses']-1,pause_until=None);s.save()
             now[0]=BASE+1805;capture('Short');e.prices['BTCUSDT']=99
-            now[0]=BASE+2700;s.monitor();self.fill(s,e)
+            now[0]=BASE+2220;s.monitor();self.fill(s,e)
             self.assertEqual(len(e.orders),2);self.assertFalse(s.state['reversals']);self.assertFalse(s.state['owned'])
             self.assertGreater(s.state['risk']['symbols']['BTCUSDT']['pause_until'],now[0])
