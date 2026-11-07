@@ -24,13 +24,15 @@ function renderRSISettings(config){
   if(type==='checkbox')input.checked=config[id]??fallback;else input.value=config[id]??fallback;
   if(type==='number'){input.min=min;input.max=max;input.step=step||1}row.append(input);section.append(row);
  }
- section.hidden=['ob_sr_minute_hourly','ob_sr_hour_gate','ob_sr_windows_two_direction','ob_sr_30m_close_two_direction','ob_sr_30m_delayed','sr_order_block_gate','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'].includes($('strategyLogic').value);section.open=['rsi_hourly_intrabar','sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);syncDailyRSIControls();
+ section.hidden=['ob_sr_minute_hourly','ob_sr_hour_gate','ob_sr_windows_two_direction','ob_sr_30m_close_two_direction','ob_sr_30m_delayed','sr_order_block_gate','sr_volume_intrabar','sma_7_50_intrabar','order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'].includes($('strategyLogic').value);section.open=['rsi_hourly_intrabar','sr_rsi_daily','sr_rsi_volume_gate','sr_rsi_30m_delayed'].includes($('strategyLogic').value);syncDailyRSIControls();
 }
 function collectRSISettings(){return Object.fromEntries(rsiControls.map(([id,,type])=>[id,type==='checkbox'?$('rsi_'+id).checked:type==='number'?Number($('rsi_'+id).value):$('rsi_'+id).value]))}
 
 function syncDailyRSIControls(){
- const daily=['sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);
+ const six=$('strategyLogic').value==='sr_rsi_30m_delayed';
+ const daily=six||['sr_rsi_daily','sr_rsi_volume_gate'].includes($('strategyLogic').value);
+ if(six&&$('rsiSettings')){$('rsiSettings').hidden=false;$('rsiSettings').open=true;}
  for(const id of ['sma_enabled','sma_7_50_filter_enabled','rsi_volume_filter','rsi_volume_for_static','rsi_vwap_filter','rsi_sma_filter','rsi_histogram_filter'])if($(id)){$(id).disabled=daily;if(daily)$(id).checked=false;}
- for(const [id,value]of [['rsi_calculation_mode','fixed'],['rsi_signal_rules','eight_crossings']])if($(id)){$(id).disabled=daily;if(daily)$(id).value=value;}
+ for(const [id,value]of [['rsi_calculation_mode','fixed'],['rsi_signal_rules',six?'original_six':'eight_crossings']])if($(id)){$(id).disabled=daily;if(daily)$(id).value=value;}
  for(const id of ['rsi_static_signals','rsi_ml_signals'])if($(id)){$(id).disabled=daily;if(daily)$(id).checked=true;}
 }

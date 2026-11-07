@@ -235,6 +235,23 @@ class ApiTests(unittest.TestCase):
         self.assertIn('7 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
         self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':07/:37',chart['order_block_status'])
 
+    def test_closed_sr_rsi_delayed_profile_and_chart(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'sr_rsi_30m_delayed','timeframe':'1','minor':True,'major':False,'rsi':{**before['rsi'],'calculation_mode':'uploaded_pine','signal_rules':'eight_crossings','volume_filter':True}})
+        self.assertEqual(response.status_code,200,response.text);cfg=response.json()['config']
+        self.assertEqual(cfg['timeframe'],'30');self.assertFalse(cfg['minor'] or cfg['sma_exit_enabled'])
+        self.assertEqual(cfg['rsi']['signal_rules'],'original_six');self.assertEqual(cfg['rsi']['calculation_mode'],'fixed');self.assertFalse(cfg['rsi']['volume_filter'])
+        for key in ('stop_dollars','leverage','max_positions','daily_loss_pct','coin_breakeven_enabled','coin_pnl_trailing_enabled','opposite_action','symbols'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=sr_rsi_30m_delayed').status_code,200)
+        from test_order_block_sr import ob_rows,NOW
+        data=ob_rows();start=int(NOW)//1800*1800;source=[{**row,'time':start-(len(data)-i-1)*1800} for i,row in enumerate(data)]
+        with patch('thoth.app.candles',return_value=source),patch('time.time',return_value=NOW+20):
+            response=self.client.get('/api/chart/BTCUSDT?interval=30&environment=live&include_rsi=true&include_order_block=true')
+        self.assertEqual(response.status_code,200,response.text);chart=response.json()
+        self.assertIn('six fixed RSI',chart['indicator_status']);self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn('display only',chart['order_block_status'])
+        self.assertTrue(chart['rsi_analysis'])
+
     def test_closed_30m_two_direction_profile_and_native_chart_interval(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'ob_sr_30m_close_two_direction','timeframe':'D','minor':True,'major':False,'sma_exit_enabled':True})
