@@ -51,6 +51,7 @@ async function copyAllSignalAlerts(){
  finally{button.disabled=false}
 }
 function signalAlertSources(item){
+ if(item.source_status==='no_qualifying_signal')return 'No qualifying S/R or RSI signal';
  const d=item.diagnostic||{},names={static30_up:'RSI over 30',static30_down:'RSI below 30',static70_up:'RSI over 70',static70_down:'RSI below 70',ml_long_up:'RSI over Long',ml_long_down:'RSI below Long',ml_short_up:'RSI over Short',ml_short_down:'RSI below Short'};
  const recorded=(item.entry_sources||[]).map(source=>{
   if(source.startsWith('htf:')){const [,frame,...parts]=source.split(':');return ({'1':'1-minute','5':'5-minute','30':'30-minute','60':'1-hour','240':'4-hour','D':'Daily'}[frame]||frame)+' '+signalAlertSources({entry_sources:[parts.join(':')]});}

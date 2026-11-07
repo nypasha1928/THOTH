@@ -783,6 +783,8 @@ class Runner:
         report=observe(self,symbol,cfg,rows,now,'30')
         self.observe_trend_pullback(symbol,cfg,rows,packet.get('sample_received_at',now))
         capture=report if report['signal'] and 0<=now-packet.get('sample_received_at',now)<=30 else None
+        if report['signal'] and capture is None and report.get('signal_diagnostic'):
+            report={**report,'signal_diagnostic':{**report['signal_diagnostic'],'reason':'stale CLOSED 30m source snapshot'}}
         return {**report,'signal':None,'observation_channel':'delayed_capture','delayed_capture':capture,
             'volume_delta_status':('CLOSED 30m Major S/R OR six RSI signals' if cfg.strategy==RSI_STRATEGY else 'CLOSED 30m OB / Major S/R')+' · saved signal executes :07 / :37 · no 1m entry or exit'}
 

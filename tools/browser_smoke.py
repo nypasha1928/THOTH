@@ -917,6 +917,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_rsi_30m_delayed')
    expect(page.locator('#activeEntryFilter')).to_contain_text('six fixed RSI signals')
    assert page.evaluate("signalAlertSources({entry_sources:['htf:30:rsi:ml_short_up']})")=='30-minute RSI over Short'
+   assert page.evaluate("signalAlertSources({strategy:'sr_rsi_30m_delayed',source_status:'no_qualifying_signal'})")=='No qualifying S/R or RSI signal'
+   assert 'source not recorded' in page.evaluate("signalAlertSources({strategy:'sr_rsi_30m_delayed'})")
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'

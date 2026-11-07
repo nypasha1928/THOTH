@@ -32,10 +32,17 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
             groups[key]={**item,'id':identity,'update_id':identity,'original_reason':item['reason']}
         else:
             previous=groups[key]
-            groups[key]={**previous,'reason':item['reason'],'time':item['time'],'update_id':identity,
+            duplicate_capture=(item.get('strategy')=='sr_rsi_30m_delayed' and item['reason']=='skipped: closed 30m source' and previous['reason']!=item['reason'])
+            groups[key]={**previous,'reason':previous['reason'] if duplicate_capture else item['reason'],'time':item['time'],'update_id':identity,
                 'diagnostic':previous.get('diagnostic') or item.get('diagnostic')}
         if not item.get('alert_key') and item['reason'].startswith('queued:'):
             groups[key]['reason']='Historical queued update; final outcome not linked'
+    for item in groups.values():
+        d=item.get('diagnostic') or {}
+        if (item.get('strategy')=='sr_rsi_30m_delayed' and not item.get('entry_sources') and d.get('candle') and d.get('signal') is None
+                and not d.get('conflict') and not any(d.get(k) for k in ('rsi_events','sr_sources','bounce_sources'))):
+            item['source_status']='no_qualifying_signal'
+            if item['reason']=='skipped: closed 30m source':item['reason']='skipped: no qualifying CLOSED 30m S/R or RSI signal'
     items=sorted(groups.values(),key=lambda item:item['update_id'],reverse=True)
     selected=items[offset:] if limit is None else items[offset:offset+limit]
     watched=[item for item in items if item['id'] in watch_ids]
