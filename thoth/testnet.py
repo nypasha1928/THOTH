@@ -1174,7 +1174,7 @@ class TestnetSupervisor:
         raw=observation.get('delayed_capture')
         blocked=self._reversal_block_reason(symbol) or ('close-all in progress' if self.state['flatten_reason'] else '')
         if raw and blocked:
-            self._signal_decision(symbol,'skipped: delayed 30m signal capture blocked: '+blocked,dict(time=observation['time'],signal=None,entry_sources=['htf:30:'+source for source in raw.get('entry_sources',[])]))
+            self._signal_decision(symbol,'skipped: delayed 30m signal capture blocked: '+blocked,dict(time=observation['time'],signal=None,signal_diagnostic=raw.get('signal_diagnostic'),entry_sources=['htf:30:'+source for source in raw.get('entry_sources',[])]))
         if raw and not blocked:
             item=candidate(raw,cfg,self.clock())
             if item:
@@ -1184,7 +1184,10 @@ class TestnetSupervisor:
                 at=datetime.fromtimestamp(item['due_at'],ZoneInfo('America/New_York')).strftime('%H:%M New York')
                 self._signal_decision(symbol,'CLOSED 30m '+item['side']+' saved; scheduled entry '+at+' (:07 / :37)',
                     dict(time=observation['time'],signal=None,signal_diagnostic=item.get('diagnostic'),entry_sources=['htf:30:'+source for source in item['sources']]))
-        return {**observation,'signal':None}
+            else:
+                self._signal_decision(symbol,'skipped: delayed signal outside capture window',dict(time=observation['time'],signal=raw.get('signal'),signal_diagnostic=raw.get('signal_diagnostic'),entry_sources=['htf:30:'+source for source in raw.get('entry_sources',[])]))
+        # Capture/block decisions above already contain the full source; do not overwrite them.
+        return {**observation,'signal':None,'signal_diagnostic':None if raw else observation.get('signal_diagnostic')}
 
     def _release_delayed_30m(self,cfg):
         if cfg.strategy not in DELAYED_STRATEGIES:return
@@ -1195,11 +1198,11 @@ class TestnetSupervisor:
             if now<item['due_at']:continue
             if not ready(item,cfg,now):
                 self.state['delayed_30m'].pop(symbol,None)
-                self._signal_decision(symbol,'skipped: delayed :07 / :37 entry window expired or settings changed',dict(time=now,signal=item['side']));continue
+                self._signal_decision(symbol,'skipped: delayed :07 / :37 entry window expired or settings changed',dict(time=now,signal=item['side'],entry_sources=['htf:30:'+source for source in item['sources']],signal_diagnostic=item.get('diagnostic')));continue
             blocked=self._reversal_block_reason(symbol)
             if blocked or self.state['flatten_reason']:
                 self.state['delayed_30m'].pop(symbol,None)
-                self._signal_decision(symbol,'skipped: delayed entry blocked: '+(blocked or 'close-all in progress'),dict(time=now,signal=item['side']));continue
+                self._signal_decision(symbol,'skipped: delayed entry blocked: '+(blocked or 'close-all in progress'),dict(time=now,signal=item['side'],entry_sources=['htf:30:'+source for source in item['sources']],signal_diagnostic=item.get('diagnostic')));continue
             owner=self.state['owned'].get(symbol)
             if not owner and (len(self.state['owned'])>=cfg.max_positions or any(r['phase'] in ('prepared','unknown','submitted','partial','stop_error','mismatch') for r in self.journal.records())):continue
             self.state['delayed_30m'].pop(symbol,None);self.save() # Consume before any exchange write or crash.

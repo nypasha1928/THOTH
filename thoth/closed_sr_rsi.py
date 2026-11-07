@@ -22,7 +22,7 @@ def combine_closed(rsi,sr,row,previous_close,cfg):
         signal_diagnostic=dict(entry_bar=row['time'],candle=dict(row),rsi=rsi.get('rsi'),
             thresholds=rsi.get('thresholds',{}),previous_rsi=rsi.get('previous_rsi'),previous_thresholds=rsi.get('previous_thresholds',{}),rsi_events=[e['kind'] for e in rsi['events']],
             sr_levels=sorted({source.split(':',1)[1] for source in sr.get('entry_sources',[])+native['entry_sources']}),sr_level_values=sr.get('levels',{}),sr_sources=sr.get('entry_sources',[]),bounce_sources=native['entry_sources'],
-            conflict=bool(conflict),reason='opposing source signals' if conflict else 'closed 30m source',signal=side))
+            conflict=bool(conflict),reason='opposing source signals' if conflict else 'closed 30m source' if side else 'no qualifying CLOSED 30m S/R or RSI signal',signal=side))
 
 
 def observe(runner,symbol,cfg,rows,now,interval):
