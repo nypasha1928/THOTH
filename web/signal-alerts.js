@@ -14,7 +14,7 @@ function signalStretchCell(m){const cell=document.createElement('div');cell.clas
 // Saved signal-status updates. Alerts are observations, not order/fill receipts.
 let signalAlertOffset=0,signalAlertTotal=0,signalAlertRequest=0,signalAlertBusy=false;
 let signalAlertNewest=null,signalAlertAudio=null;
-function signalAlertsMarkup(){return `<section class="card"><h2>Signal alerts</h2>
+function signalAlertsMarkup(){return `<section class="card"><h2>Signal alerts</h2><p class="note">Signals and their entry outcomes only. Routine no-signal checks are under Analysis → Candle checks.</p>
 <p class="note">Saved signal-status updates for your selected trading strategy and coins, including skipped signals during managed pauses. Linked signals show their latest known outcome; queued does not mean filled. Historical chart arrows are not backfilled. Latest 5,000 updates retained. New standalone 1h Bar Close entries include candle stretch and entry distance measurements; these do not predict exhaustion or change trading.</p>
 <label>Coin<input id="signalAlertSymbol" type="search" placeholder="All coins or JCTUSDT" aria-label="Signal alert coin"></label>
 <div class="row"><button id="refreshSignalAlerts" type="button">Refresh alerts</button><button id="copyAllSignalAlerts" type="button">Copy all signal alerts</button><label><input id="signalAlertSound" type="checkbox"> Sound for new updates</label></div>
@@ -170,4 +170,23 @@ function blockStrengthCell(m,minimum,sources){
  else if(measured.length===1&&refs.length===1)summary.textContent=Number(measured[0].block_width_atr14).toFixed(3)+' ATR · '+(trial?(measured[0].block_width_atr14>=minimum?'PASS':'BELOW MINIMUM'):'no trial cutoff');
  else {const passed=measured.filter(r=>r.block_width_atr14>=minimum).length;summary.textContent=trial?passed+' pass / '+(measured.length-passed)+' below minimum':measured.length+' block measurements';if(refs.length>measured.length)summary.textContent+=' · '+(refs.length-measured.length)+' not recorded';}
  text.textContent=report;text.style.whiteSpace='pre-line';text.style.maxWidth='40ch';details.append(summary,text);return details;
+}
+
+let scanChecksOffset=0,scanChecksBusy=false,scanChecksRequest=0;
+function scanChecksMarkup(){return `<details class="card" id="scanChecksPanel"><summary>Candle checks · Analysis only</summary><p class="note">Routine checks with no qualifying signal belong here. They do not enter the trade queue or produce signal alerts. Missing historical diagnostics cannot be reconstructed.</p><div class="row"><button id="scanChecksRefresh">Refresh checks</button><button id="scanChecksCopy">Copy all checks</button></div><p id="scanChecksStatus" role="status"></p><div class="table-scroll"><table><thead><tr><th>Observed (New York)</th><th>Coin</th><th>Strategy</th><th>Check result</th><th>Evidence</th></tr></thead><tbody id="scanChecksRows"></tbody></table></div><div class="row"><button id="scanChecksPrevious">← Newer</button><span id="scanChecksPage"></span><button id="scanChecksNext">Older →</button></div><textarea id="scanChecksFallback" hidden readonly aria-label="Candle checks to copy"></textarea></details>`}
+function bindScanChecks(){
+ $('scanChecksRefresh').onclick=()=>{scanChecksOffset=0;loadScanChecks()};
+ $('scanChecksPrevious').onclick=()=>{scanChecksOffset=Math.max(0,scanChecksOffset-50);loadScanChecks()};
+ $('scanChecksNext').onclick=()=>{scanChecksOffset+=50;loadScanChecks()};
+ $('scanChecksPanel').ontoggle=()=>{if($('scanChecksPanel').open)loadScanChecks()};
+ $('scanChecksCopy').onclick=async()=>{try{const data=await api('live/scan-checks/export'),text=JSON.stringify(data,null,2);try{await navigator.clipboard.writeText(text);$('scanChecksStatus').textContent='Copied retained candle checks for analysis.'}catch{const box=$('scanChecksFallback');box.value=text;box.hidden=false;box.focus();box.select()}}catch(error){$('scanChecksStatus').textContent=error.message}};
+}
+async function loadScanChecks({background=false}={}){
+ if(background&&scanChecksBusy)return;scanChecksBusy=true;const request=++scanChecksRequest;
+ try{const data=await api('live/scan-checks?limit=50&offset='+scanChecksOffset);if(request!==scanChecksRequest)return;$('scanChecksRows').replaceChildren();
+  for(const item of data.items){const row=document.createElement('tr'),details=document.createElement('details'),title=document.createElement('summary'),text=document.createElement('pre');title.textContent='Show check details';text.style.whiteSpace='pre-wrap';text.textContent=JSON.stringify(item.diagnostic||{},null,2);details.append(title,text);
+   for(const value of [tradeTimestamp(item.observed_at??item.time),item.symbol,strategyName(item.strategy),item.reason,details]){const cell=document.createElement('td');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('scanChecksRows').append(row)}
+  $('scanChecksStatus').textContent=data.total+' retained checks · Analysis only; these are not trading signals.';$('scanChecksPage').textContent='Page '+(Math.floor(scanChecksOffset/50)+1)+' of '+Math.max(1,Math.ceil(data.total/50));$('scanChecksPrevious').disabled=scanChecksOffset===0;$('scanChecksNext').disabled=scanChecksOffset+50>=data.total;
+ }catch(error){if(request===scanChecksRequest)$('scanChecksStatus').textContent='Candle checks unavailable: '+error.message}
+ finally{if(request===scanChecksRequest)scanChecksBusy=false}
 }

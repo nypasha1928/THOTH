@@ -1,7 +1,7 @@
 import tempfile,unittest
 from unittest.mock import patch
 from thoth.models import Settings,TestnetSettings
-from thoth.signal_alerts import read_alerts
+from thoth.signal_alerts import read_alerts,read_scan_checks
 import test_delayed_30m as fixtures
 
 class ClosedAlertReasons(unittest.TestCase):
@@ -36,7 +36,8 @@ class ClosedAlertReasons(unittest.TestCase):
     def test_legacy_no_signal_is_explicit_but_unknown_source_is_not_invented(self):
         self.s._signal_decision('BTCUSDT','skipped: closed 30m source',self.observation(None))
         self.now[0]+=1;self.s._signal_decision('ETHUSDT','skipped: old status',dict(time=self.now[0],signal=None))
-        rows=read_alerts(self.s.path)['items'];unknown,empty=rows
+        rows=read_alerts(self.s.path)['items'];self.assertEqual(len(rows),1);unknown=rows[0]
+        empty=read_scan_checks(self.s.path)['items'][0]
         self.assertNotIn('source_status',unknown)
         self.assertEqual(empty['source_status'],'no_qualifying_signal');self.assertIn('no qualifying',empty['reason'])
     def test_future_expired_window_retains_the_captured_rsi_source(self):
@@ -45,3 +46,21 @@ class ClosedAlertReasons(unittest.TestCase):
         row=read_alerts(self.s.path)['items'][0]
         self.assertIn('window expired',row['reason']);self.assertEqual(row['entry_sources'],['htf:30:rsi:ml_long_up'])
         self.assertEqual(row['diagnostic']['rsi_events'],['ml_long_up']);self.assertFalse(self.exchange.orders)
+
+    def test_no_signal_checks_do_not_create_events_or_reduce_alert_retention(self):
+        before=len(self.s.state['events'])
+        self.s._signal_decision('BTCUSDT','skipped: no qualifying CLOSED 30m S/R or RSI signal',self.observation(None))
+        self.assertEqual(len(self.s.state['events']),before)
+        self.assertEqual(read_alerts(self.s.path)['total'],0)
+        self.assertEqual(read_scan_checks(self.s.path)['total'],1)
+        with self.s.db() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_decisions').fetchone()[0],0)
+
+    def test_legacy_empty_rows_are_filtered_before_pagination_and_export(self):
+        import json
+        old={**self.observation(None),'alert_key':'legacy-empty','strategy':'sr_rsi_30m_delayed','symbol':'BTCUSDT','reason':'skipped: closed 30m source','diagnostic':self.observation(None)['signal_diagnostic']}
+        with self.s.db() as db:db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',(self.now[0],'BTCUSDT',json.dumps(old)))
+        for coin in ('BTCUSDT','ETHUSDT'):
+            self.now[0]+=1;self.s._signal_decision(coin,'skipped: maximum positions reached',dict(time=self.now[0],signal='Long',entry_sources=['htf:30:rsi:ml_long_up']))
+        first=read_alerts(self.s.path,limit=1);second=read_alerts(self.s.path,limit=1,offset=1)
+        self.assertEqual(first['total'],2);self.assertEqual(first['items'][0]['symbol'],'ETHUSDT');self.assertEqual(second['items'][0]['symbol'],'BTCUSDT')
+        self.assertEqual(len(read_alerts(self.s.path,limit=None)['items']),2);self.assertEqual(read_scan_checks(self.s.path)['total'],1)

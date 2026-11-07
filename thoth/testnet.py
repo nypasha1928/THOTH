@@ -69,6 +69,7 @@ class TestnetSupervisor:
             db.execute('CREATE TABLE IF NOT EXISTS trade_history(link TEXT PRIMARY KEY,symbol TEXT NOT NULL,closed_at REAL NOT NULL,payload TEXT NOT NULL)')
             db.execute('CREATE INDEX IF NOT EXISTS history_symbol_time ON trade_history(symbol,closed_at)')
             db.execute('CREATE TABLE IF NOT EXISTS signal_decisions(id INTEGER PRIMARY KEY,time REAL,symbol TEXT,payload TEXT)')
+            db.execute('CREATE TABLE IF NOT EXISTS scan_checks(id INTEGER PRIMARY KEY,time REAL,symbol TEXT,payload TEXT)')
         # Only S/R existed before strategy-tagged history was introduced.
         # Repair imported legacy rows without changing explicit strategy tags.
         with self.db() as db:
@@ -1081,6 +1082,12 @@ class TestnetSupervisor:
             signal_stretch=(observation.get('entry_context') or {}).get('signal_stretch'),
             entry_diagnostics=(observation.get('entry_context') or {}).get('entry_diagnostics'),
             observed_at=observation.get('time'),diagnostic=observation.get('signal_diagnostic'),source_signal=observation.get('source_signal'),entry_sources=observation.get('entry_sources',[]))
+        from .signal_alerts import is_no_signal_check
+        if is_no_signal_check(details):
+            with self.db() as db:
+                db.execute('INSERT INTO scan_checks(time,symbol,payload) VALUES(?,?,?)',(details['time'],symbol,json.dumps(details,allow_nan=False)))
+                db.execute('DELETE FROM scan_checks WHERE id NOT IN (SELECT id FROM scan_checks ORDER BY id DESC LIMIT 5000)')
+            return  # Analysis diagnostics do not create signal events or notifications.
         with self.db() as db:
             db.execute('INSERT INTO signal_decisions(time,symbol,payload) VALUES(?,?,?)',
                 (details['time'],symbol,json.dumps(details,allow_nan=False)))

@@ -109,6 +109,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=report()
    elif path=='live/watchlist-review':result=dict(items=[dict(symbol='WLDUSDT',trades=5,wins=3,losses=2,realized_pnl=.5,signal_events=8,skipped_events=2,rejected_orders=1,rejection_events=1,entry_check_failures=1,median_check_gap_seconds=192.6,median_qualified_to_submit_seconds=4,latest_speed=None,review_note='Review recorded rejection/check failure',rejection_codes={'110126':1})],selected=1,traded=1,closed_trades=5,realized_pnl=.5,scope=parse_qs(url.split('?',1)[1] if '?' in url else '').get('scope',['current'])[0],strategy='order_block_sr_intrabar',limitations='Retained records only; no automatic changes.')
    elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
+   elif path in ('live/scan-checks','live/scan-checks/export'):
+    result=dict(total=1,items=[dict(symbol='BTCUSDT',strategy='sr_rsi_30m_delayed',time=1792300000,reason='No qualifying S/R or RSI signal',diagnostic=dict(rsi_events=[],sr_sources=[]))])
    elif path in ('live/trend-pullback','live/trend-pullback/export','live/trend-pullback/settings'):
     if method=='PUT':research_settings.update(req.request.post_data_json);research_writes.append(dict(research_settings))
     result=dict(enabled=research_settings['enabled'],settings=research_settings,total=1,items=[dict(symbol='ETHUSDT',bar=1792300000,group='Main watchlist',reason='Would enter: trend + Major pullback confirmed',position=dict(status='closed',exit_reason='Simulated trailing',net_usdt=.25,net_r=.625))],summary=dict(closed=1,wins=1,open=0,interrupted=0,net_usdt=.25),collection_supported=True,market_connected=True,last_sample=1792301805,limitations='Synthetic observation fixture; no orders.',dropped=0,error=None)
@@ -1327,6 +1329,14 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
 
 
    page.click('[data-page-link=analysis]');
+   assert not page.locator('#scanChecksPanel').evaluate('(el)=>el.open')
+   page.locator('#scanChecksPanel > summary').click()
+   expect(page.locator('#scanChecksRows')).to_contain_text('No qualifying S/R or RSI signal')
+   expect(page.locator('#scanChecksStatus')).to_contain_text('Analysis only')
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.checksCopied=text}})")
+   page.click('#scanChecksCopy');expect(page.locator('#scanChecksStatus')).to_contain_text('Copied retained candle checks')
+   assert 'BTCUSDT' in page.evaluate('window.checksCopied')
+   page.locator('#scanChecksPanel > summary').click()
    research_live_writes=len(writes)
    page.locator('#trendPullbackPanel > summary').click()
    expect(page.locator('#trendPullbackStatus')).to_contain_text('ON')
