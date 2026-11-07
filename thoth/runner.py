@@ -761,9 +761,16 @@ class Runner:
         if isinstance(rows,Exception):raise rows
         if rows is None:return dict(time=now,mark=None,signal=None,observation_channel='hour_permission',primary_events=[],volume_signal=None,volume_sources=[],source_errors={},volume_delta_status='Waiting for NEW CLOSED 30m permission')
         result=observe(self,symbol,cfg,rows,now,'30');primary=[]
+        self.observe_trend_pullback(symbol,cfg,rows,packet.get('sample_received_at',now))
         if result['signal'] and 0<=now-packet.get('sample_received_at',now)<=30:
             primary=[dict(id='closed-30:'+str(result['closed_bar']),time=now,signal=result['signal'],timeframe='30',closed_bar=result['closed_bar'],sources=['htf:30:'+s for s in result['entry_sources']])]
         return {**result,'signal':None,'observation_channel':'hour_permission','primary_events':primary,'volume_signal':None,'volume_sources':[]}
+
+    def observe_trend_pullback(self,symbol,cfg,rows,observed_at):
+        observer=getattr(self,'trend_pullback_observer',None)
+        if observer and rows:
+            try:observer.submit(symbol,cfg,self.history_path,rows[-1],observed_at)
+            except Exception:pass  # Observation must never alter LIVE decisions.
 
     def delayed_30m_observation(self,symbol,cfg,packet,now):
         if cfg.strategy==RSI_STRATEGY:
@@ -774,6 +781,7 @@ class Runner:
         if isinstance(rows,Exception):raise rows
         if rows is None:raise ValueError('CLOSED 30m source snapshot unavailable')
         report=observe(self,symbol,cfg,rows,now,'30')
+        self.observe_trend_pullback(symbol,cfg,rows,packet.get('sample_received_at',now))
         capture=report if report['signal'] and 0<=now-packet.get('sample_received_at',now)<=30 else None
         return {**report,'signal':None,'observation_channel':'delayed_capture','delayed_capture':capture,
             'volume_delta_status':('CLOSED 30m Major S/R OR six RSI signals' if cfg.strategy==RSI_STRATEGY else 'CLOSED 30m OB / Major S/R')+' · saved signal executes :07 / :37 · no 1m entry or exit'}

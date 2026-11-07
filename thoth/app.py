@@ -26,6 +26,7 @@ from .trailing_observation import TrailingObservation,ObservationSettings
 from .push_notifications import PushNotifications
 from .late_hour_comparison import LateHourComparison,ComparisonSettings
 from .volume_delta_comparison import VolumeDeltaComparison
+from .trend_pullback import TrendPullbackObservation,ResearchSettings
 
 ROOT = Path(__file__).resolve().parent.parent
 live_feed = None
@@ -39,6 +40,7 @@ async def lifespan(app):
     trailing_observation.start()
     late_hour_comparison.start()
     volume_delta_comparison.start()
+    trend_pullback.start()
     live.trailing_observer=trailing_observation
     live.start()
     adapter=FeedAdapter(live)
@@ -46,6 +48,7 @@ async def lifespan(app):
     live_feed=Runner(adapter,fetch=adapter.fetch)
     live_feed.late_hour_observer=late_hour_comparison
     live_feed.volume_delta_comparison=volume_delta_comparison
+    live_feed.trend_pullback_observer=trend_pullback
     live_feed.start()
     try:
         yield
@@ -55,6 +58,7 @@ async def lifespan(app):
         trailing_observation.stop()
         late_hour_comparison.stop()
         volume_delta_comparison.stop()
+        trend_pullback.stop()
         phone_alerts.stop()
 
 
@@ -67,6 +71,7 @@ live = ProductionSupervisor(DATA/'live.sqlite',enabled=os.environ.get('THOTH_ENA
 trailing_observation=TrailingObservation(DATA/'trailing-observation.sqlite',DATA/'live.sqlite')
 late_hour_comparison=LateHourComparison(DATA/'late-hour-comparison.sqlite',DATA/'live.sqlite')
 volume_delta_comparison=VolumeDeltaComparison(DATA/'volume-delta-comparison.sqlite')
+trend_pullback=TrendPullbackObservation(DATA/'trend-pullback-observation.sqlite')
 phone_alerts=PushNotifications(DATA/'phone-alerts.sqlite',DATA/'live.sqlite',
     'https://'+PUBLIC_HOST if PUBLIC_HOST else 'mailto:operator@localhost')
 
@@ -158,6 +163,25 @@ def exchange_status(request: Request):
     result=live.snapshot()
     result['feed_health']=live_feed.health if live_feed else None
     return result
+
+
+@app.get('/api/live/trend-pullback/export')
+def trend_pullback_export():
+    return trend_pullback.report(-1,0)
+
+
+@app.get('/api/live/trend-pullback')
+def trend_pullback_report(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0)):
+    from .trend_pullback import SUPPORTED
+    report=trend_pullback.report(limit,offset)
+    report.update(collection_supported=live.state['config']['strategy'] in SUPPORTED,
+        market_connected=bool(live.client and live.state['management']),selected_strategy=live.state['config']['strategy'])
+    return report
+
+
+@app.put('/api/live/trend-pullback/settings')
+def trend_pullback_settings(settings: ResearchSettings):
+    return trend_pullback.configure(settings)
 
 
 @app.get('/api/live/volume-delta-comparison/export')
