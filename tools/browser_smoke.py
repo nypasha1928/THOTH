@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright,expect
 root=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(root))
 from thoth.analytics import analyze
+from thoth.trend_pullback import ResearchSettings
 with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
  env={k:v for k,v in os.environ.items() if not k.startswith('THOTH_')};env['THOTH_DB']=d+'/paper.sqlite'
  log=open(d+'/server.log','w')
@@ -62,6 +63,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
   delta_timing_enabled=[True];delta_timing_writes=[];late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();late_total=[1]
+  research_settings=ResearchSettings().model_dump();research_writes=[]
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
@@ -107,6 +109,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     result=report()
    elif path=='live/watchlist-review':result=dict(items=[dict(symbol='WLDUSDT',trades=5,wins=3,losses=2,realized_pnl=.5,signal_events=8,skipped_events=2,rejected_orders=1,rejection_events=1,entry_check_failures=1,median_check_gap_seconds=192.6,median_qualified_to_submit_seconds=4,latest_speed=None,review_note='Review recorded rejection/check failure',rejection_codes={'110126':1})],selected=1,traded=1,closed_trades=5,realized_pnl=.5,scope=parse_qs(url.split('?',1)[1] if '?' in url else '').get('scope',['current'])[0],strategy='order_block_sr_intrabar',limitations='Retained records only; no automatic changes.')
    elif path=='live/fast-movers':result=dict(items=[dict(symbol='WLDUSDT',change_pct=1.2,speed_pct_per_minute=.4,gap_seconds=180,age_seconds=12)],total_ranked=1,tracked=1,stale_excluded=0,strategy='order_block_intrabar')
+   elif path in ('live/trend-pullback','live/trend-pullback/export','live/trend-pullback/settings'):
+    if method=='PUT':research_settings.update(req.request.post_data_json);research_writes.append(dict(research_settings))
+    result=dict(enabled=research_settings['enabled'],settings=research_settings,total=1,items=[dict(symbol='ETHUSDT',bar=1792300000,group='Main watchlist',reason='Would enter: trend + Major pullback confirmed',position=dict(status='closed',exit_reason='Simulated trailing',net_usdt=.25,net_r=.625))],summary=dict(closed=1,wins=1,open=0,interrupted=0,net_usdt=.25),collection_supported=True,market_connected=True,last_sample=1792301805,limitations='Synthetic observation fixture; no orders.',dropped=0,error=None)
    elif path=='live/entry-diagnostics':result=dict(items=entry_delay_items,total=len(entry_delay_items),limit=50,offset=0)
    elif path in ('live/history','live/history/export'):
     result=dict(items=[dict(symbol='ETHUSDT',side='Long',entry=2400,qty=.02,opened_at=1792299900.123,closed_at=1792300000,pnl=.24,reason='SMA 7 crossed below SMA 50 (intrabar exit)',strategy='sma_cross',trailing_diagnostics=dict(version=1,samples=12,maximum_observed_pnl='.56',max_sample_gap_seconds=7,events=[dict(kind='activated',time=1792300000)])),dict(symbol='BTCUSDT',side='Short',entry=60000,qty=.001,closed_at=1792299900,pnl=-.31,reason='SMA 7 crossed above SMA 50 (intrabar exit)',strategy='sr_breakout',entry_source_label='S/R short-term minor support'),dict(symbol='SOLUSDT',side='Long',entry=100,qty=.5,closed_at=1792299800,pnl=0,reason='Open P&L trailing stop',strategy='sr_breakout')],total=3,offset=0,limit=50)
@@ -1319,7 +1324,21 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    history_many.clear();page.evaluate('refreshVisibleData()');expect(page.locator('#historyRows tr')).to_have_count(3)
 
 
-   page.click('[data-page-link=analysis]');expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
+   page.click('[data-page-link=analysis]');
+   research_live_writes=len(writes)
+   page.locator('#trendPullbackPanel > summary').click()
+   expect(page.locator('#trendPullbackStatus')).to_contain_text('ON')
+   expect(page.locator('#trendPullbackRows')).to_contain_text('Simulated trailing')
+   expect(page.locator('#trendPullbackSummary')).to_contain_text('$0.25')
+   page.locator('#trendPullbackSettings').locator('..').locator('summary').click()
+   page.fill('#research_risk_usdt','0.30');page.locator('#trendPullbackSettings button').click()
+   expect(page.locator('#research_risk_usdt')).to_have_value('0.3')
+   assert research_writes[-1]['risk_usdt']==.3 and len(writes)==research_live_writes
+   page.evaluate("() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.researchCopied=text}})")
+   page.click('#trendPullbackCopy');expect(page.locator('#trendPullbackStatus')).to_contain_text('Copied all retained observations')
+   assert 'Simulated trailing' in page.evaluate('window.researchCopied')
+   page.locator('#trendPullbackPanel > summary').click()
+   expect(page.locator('#analysisStatus')).to_contain_text('3 confirmed')
    expect(page.locator('#deltaTimingBadge')).to_contain_text('ON')
    assert not page.locator('#deltaTimingPanel').evaluate('(el)=>el.open')
    page.locator('#deltaTimingPanel > summary').click()

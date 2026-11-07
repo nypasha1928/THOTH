@@ -23,6 +23,20 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_trend_pullback_observation_settings_and_exports_do_not_change_live(self):
+        from thoth.trend_pullback import TrendPullbackObservation
+        observer=TrendPullbackObservation(Path(self.tmp.name)/'research.sqlite')
+        before=self.client.get('/api/live').json()
+        with patch('thoth.app.trend_pullback',observer):
+            response=self.client.get('/api/live/trend-pullback');self.assertEqual(response.status_code,200)
+            data=response.json();self.assertTrue(data['enabled']);self.assertEqual(data['summary']['closed'],0)
+            update={**data['settings'],'risk_usdt':.3}
+            self.assertEqual(self.client.put('/api/live/trend-pullback/settings',json=update).status_code,200)
+            self.assertEqual(self.client.get('/api/live/trend-pullback/export').json()['settings']['risk_usdt'],.3)
+            self.assertEqual(self.client.put('/api/live/trend-pullback/settings',json={**update,'risk_usdt':0}).status_code,422)
+        after=self.client.get('/api/live').json()
+        self.assertEqual(before['config'],after['config']);self.assertEqual(before['entries'],after['entries'])
+
     def test_entry_schedule_save_is_independent_and_readiness_exposes_block(self):
         from thoth.app import live
         from thoth.verification import strategy_fingerprint
