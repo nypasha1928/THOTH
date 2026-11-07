@@ -2,6 +2,8 @@
 from .verification import strategy_fingerprint
 
 STRATEGY='ob_sr_30m_delayed'
+RSI_STRATEGY='sr_rsi_30m_delayed'
+DELAYED_STRATEGIES=(STRATEGY,RSI_STRATEGY)
 
 
 def candidate(observation,cfg,now):
@@ -10,7 +12,7 @@ def candidate(observation,cfg,now):
     closed_at=bar+1800;due_at=closed_at+420
     if bar!=int(now)//1800*1800-1800 or not closed_at<=now<due_at:return None
     return dict(closed_bar=bar,closed_at=closed_at,due_at=due_at,expires_at=due_at+60,side=side,
-        sources=list(observation.get('entry_sources',[])),captured_at=now,strategy_fingerprint=strategy_fingerprint(cfg))
+        sources=list(observation.get('entry_sources',[])),diagnostic=observation.get('signal_diagnostic'),captured_at=now,strategy_fingerprint=strategy_fingerprint(cfg))
 
 
 def ready(item,cfg,now):

@@ -901,6 +901,17 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate("()=>{const now=lv.server_time||Date.now()/1000;lv.delayed_30m={ETHUSDT:{side:'Long',due_at:now+600,expires_at:now+660}};renderRiskOverview()}")
    expect(page.locator('#entryGateStatus summary')).to_have_text('Scheduled 30m signals')
    expect(page.locator('#entryGateList')).to_contain_text('Long · entry due in')
+   page.select_option('#strategyLogic','sr_rsi_30m_delayed')
+   expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#rsiSettings')).to_be_visible();expect(page.locator('#rsi_signal_rules')).to_have_value('original_six');expect(page.locator('#rsi_signal_rules')).to_be_disabled()
+   expect(page.locator('#rsi_calculation_mode')).to_have_value('fixed');expect(page.locator('#rsi_static_signals')).to_be_checked();expect(page.locator('#rsi_ml_signals')).to_be_checked()
+   expect(page.locator('#rsi_volume_filter')).not_to_be_checked();expect(page.locator('#rsi_volume_filter')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('Order Block is not used')
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='sr_rsi_30m_delayed'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_rsi_30m_delayed')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('six fixed RSI signals')
+   assert page.evaluate("signalAlertSources({entry_sources:['htf:30:rsi:ml_short_up']})")=='30-minute RSI over Short'
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'

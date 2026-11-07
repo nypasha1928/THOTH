@@ -1,7 +1,7 @@
 """Reuse causal market replay on testnet prices, with a separate account engine."""
 
 from .database import connect
-from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE,TWO_DIRECTION,CLOSED_TWO_DIRECTION,TWO_DIRECTION_STRATEGIES,DELAYED_30M
+from .staged_entry import STAGED_STRATEGIES,ORDER_BLOCK_STRATEGY,HOUR_GATE,TWO_DIRECTION,CLOSED_TWO_DIRECTION,TWO_DIRECTION_STRATEGIES,DELAYED_30M,DELAYED_STRATEGIES,RSI_STRATEGY
 from .models import Settings,TestnetSettings
 import sqlite3
 import json
@@ -63,7 +63,7 @@ class FeedAdapter:
 
     def staged_armed_symbols(self):
         state=self.supervisor.load()
-        if state['config']['strategy'] not in STAGED_STRATEGIES or state['config']['strategy']==DELAYED_30M or not state['management']:return []
+        if state['config']['strategy'] not in STAGED_STRATEGIES or state['config']['strategy'] in DELAYED_STRATEGIES or not state['management']:return []
         return [symbol for symbol in state['config']['symbols']
             if state.get('entry_gates',{}).get(symbol,{}).get('phase')=='armed' or (state['config']['strategy'] in (HOUR_GATE,*TWO_DIRECTION_STRATEGIES) and symbol in state['owned'])]
 
@@ -153,7 +153,7 @@ class FeedAdapter:
                 try:primary[timeframe]=self.staged_primary_inputs(symbol,timeframe)
                 except Exception as exc:primary[timeframe]=exc
             return dict(primary=primary)
-        if cfg.strategy==DELAYED_30M:
+        if cfg.strategy in DELAYED_STRATEGIES:
             return dict(primary={'30':self.staged_primary_inputs(symbol,'30')},sample_received_at=self.supervisor.clock())
         if cfg.strategy in TWO_DIRECTION_STRATEGIES:
             primary={}
