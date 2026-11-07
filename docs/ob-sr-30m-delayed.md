@@ -1,4 +1,4 @@
-# Order Block + S/R · 30m Close · Delayed :15/:45
+# Order Block + S/R · 30m Close · Delayed :07/:37
 
 Separate profile: `ob_sr_30m_delayed`. Earlier two-direction and intrabar strategies keep
 their behavior.
@@ -11,12 +11,12 @@ same closed-source calculation as the prior 30m profile:
 - S/R includes breakout/breakdown AND native bounce/rejection.
 - NO MINOR signals, SMA, Volume MA, opposing-wick, ATR-distance or strength entry filters.
 
-Save the confirmed direction and delay the entry until 15 minutes after candle close:
+Save the confirmed direction and delay the entry until 7 minutes after candle close:
 
 | Candle closes | Scheduled entry |
 | --- | --- |
-| :00 | :15 |
-| :30 | :45 |
+| :00 | :07 |
+| :30 | :37 |
 
 The time is anchored to candle close, not when a scan finishes detecting the signal.
 At the due time, enter DIRECTLY in the saved Long/Short direction using current market
@@ -26,7 +26,7 @@ a position are skipped. An opposite delayed 30m signal uses the selected Reversa
 action; reversal confirms flat and reconciles P&L before a replacement order.
 
 The account monitor releases due signals independently of the full market scan. Order
-requests must pass final checks during :15–:16 or :45–:46 (end exclusive). A full account
+requests must pass final checks during :07–:08 or :37–:38 (end exclusive). A full account
 can wait for capacity within that minute; missed windows are discarded, not replayed.
 Fills may arrive later. Capturing a signal and submitting its order are separate events.
 
