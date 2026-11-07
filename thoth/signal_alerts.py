@@ -20,11 +20,18 @@ PHASES={
 }
 
 
-def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
-    with connect(f'file:{path}?mode=ro',uri=True) as db:
-        saved=db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()
-        state=json.loads(saved[0]) if saved else {}
-        records=db.execute('SELECT id,payload FROM signal_decisions'+(' WHERE symbol=?' if symbol else '')+' ORDER BY id', (symbol,) if symbol else ()).fetchall()
+def is_no_signal_check(item):
+    """Only hide a check when the saved record establishes that no event fired."""
+    d=item.get('diagnostic') or {}
+    if item.get('signal') in ('Long','Short') or item.get('entry_sources'):return False
+    if d.get('signal') in ('Long','Short') or d.get('conflict'):return False
+    if any(d.get(k) for k in ('rsi_events','sr_sources','bounce_sources','sr_levels','source_checks','raw_sources','sr_signal','rsi_signal')):return False
+    if item.get('source_status')=='no_qualifying_signal':return True
+    if item.get('strategy')=='sr_rsi_30m_delayed' and d.get('candle'):return True
+    return bool(item.get('strategy','').startswith('volume_delta') and 'no qualifying signal' in item.get('reason','').lower())
+
+
+def decision_groups(records):
     groups={}
     for identity,payload in records:
         item=json.loads(payload);key=item.get('alert_key') or 'legacy-'+str(identity)
@@ -43,7 +50,16 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
                 and not d.get('conflict') and not any(d.get(k) for k in ('rsi_events','sr_sources','bounce_sources'))):
             item['source_status']='no_qualifying_signal'
             if item['reason']=='skipped: closed 30m source':item['reason']='skipped: no qualifying CLOSED 30m S/R or RSI signal'
-    items=sorted(groups.values(),key=lambda item:item['update_id'],reverse=True)
+    return groups
+
+
+def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
+    with connect(f'file:{path}?mode=ro',uri=True) as db:
+        saved=db.execute('SELECT payload FROM supervisor WHERE id=1').fetchone()
+        state=json.loads(saved[0]) if saved else {}
+        records=db.execute('SELECT id,payload FROM signal_decisions'+(' WHERE symbol=?' if symbol else '')+' ORDER BY id', (symbol,) if symbol else ()).fetchall()
+    groups=decision_groups(records)
+    items=sorted((item for item in groups.values() if not is_no_signal_check(item)),key=lambda item:item['update_id'],reverse=True)
     selected=items[offset:] if limit is None else items[offset:offset+limit]
     watched=[item for item in items if item['id'] in watch_ids]
     candidates={item['id']:item for item in selected+watched}
@@ -75,3 +91,14 @@ def read_alerts(path,symbol=None,limit=50,offset=0,watch_ids=()):
             intent_key=('thoth-'+hashlib.sha256((intent['identity']+':'+item['symbol']+':'+str(intent['time'])).encode()).hexdigest()[:28]) if intent else None
             if intent_key!=key:item['reason']='No longer queued; no linked order outcome recorded'
     return dict(items=selected,updates=watched,total=len(items),limit=limit,offset=offset)
+
+
+def read_scan_checks(path,limit=50,offset=0):
+    with connect(f'file:{path}?mode=ro',uri=True) as db:
+        legacy=db.execute('SELECT id,payload FROM signal_decisions ORDER BY id').fetchall()
+        exists=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_checks'").fetchone()
+        current=db.execute('SELECT id,payload FROM scan_checks ORDER BY id').fetchall() if exists else []
+    items=[item for rows in (legacy,current) for item in decision_groups(rows).values() if is_no_signal_check(item)]
+    items.sort(key=lambda item:(item.get('observed_at') or item['time'],item['id']),reverse=True)
+    return dict(items=items[offset:] if limit is None else items[offset:offset+limit],total=len(items),limit=limit,offset=offset,
+        note='Routine checks only; not trade signals. Retained diagnostics, not a complete historical scan log.')

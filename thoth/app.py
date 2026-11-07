@@ -245,6 +245,18 @@ def signal_alerts(symbol: str | None = Query(None,pattern=r'^[A-Z0-9]{1,30}USDT$
     return read_alerts(live.path,symbol,limit,offset,{int(value) for value in watch_ids.split(',')} if watch_ids else set())
 
 
+@app.get('/api/live/scan-checks/export')
+def scan_checks_export():
+    from .signal_alerts import read_scan_checks
+    return read_scan_checks(live.path,limit=None)
+
+
+@app.get('/api/live/scan-checks')
+def scan_checks_report(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0)):
+    from .signal_alerts import read_scan_checks
+    return read_scan_checks(live.path,limit,offset)
+
+
 @app.get('/api/live/signal-alerts/export')
 def export_signal_alerts():
     # One retained snapshot, independent of dashboard filter/page. No new orders.

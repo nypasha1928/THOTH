@@ -566,6 +566,20 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(result.json()['items'],[dict(symbol='JCTUSDT',reason='skipped: recovery baseline')])
         self.assertEqual(self.client.get('/api/live/signal-decisions?limit=201').status_code,422)
 
+    def test_empty_scan_checks_are_analysis_only_in_api_and_exports(self):
+        from thoth.app import live
+        before=self.client.get('/api/live').json()['config']
+        cfg={**before,'strategy':'sr_rsi_30m_delayed'}
+        self.assertEqual(self.client.put('/api/live/settings',json=cfg).status_code,200)
+        live._signal_decision('BTCUSDT','skipped: no qualifying CLOSED 30m S/R or RSI signal',dict(time=1,signal=None,signal_diagnostic=dict(candle={'time':0},signal=None,rsi_events=[],sr_sources=[],bounce_sources=[],conflict=False)))
+        live._signal_decision('ETHUSDT','skipped: maximum positions reached',dict(time=2,signal='Long',entry_sources=['htf:30:rsi:ml_long_up']))
+        alerts=self.client.get('/api/live/signal-alerts').json()
+        self.assertEqual(alerts['total'],1);self.assertEqual(alerts['items'][0]['symbol'],'ETHUSDT')
+        self.assertEqual(self.client.get('/api/live/signal-alerts/export').json()['total'],1)
+        checks=self.client.get('/api/live/scan-checks').json();self.assertEqual(checks['total'],1);self.assertEqual(checks['items'][0]['symbol'],'BTCUSDT')
+        self.assertEqual(self.client.get('/api/live/scan-checks/export').json()['total'],1)
+        self.assertFalse(self.client.get('/api/live').json()['entries'])
+
     def test_signal_alert_export_includes_all_pages_and_linked_outcomes_without_writes(self):
         import json,sqlite3
         from thoth.app import live
