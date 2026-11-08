@@ -114,7 +114,7 @@ class FeedAdapter:
         try:
             with connect(f'file:{path}?mode=ro',uri=True) as db:
                 count,last=db.execute('SELECT COUNT(*),MAX(time) FROM candles WHERE symbol=? AND interval=?',(symbol,interval)).fetchone()
-            if count<50 or last is None or last>self.supervisor.clock():return 1000
+            if count<(401 if interval=='30' and self.supervisor.load()['config']['strategy']=='trend_major_pullback_30m_close' else 50) or last is None or last>self.supervisor.clock():return 1000
             return min(1000,max(3,int((self.supervisor.clock()-last)//interval_seconds(interval))+3))
         except sqlite3.OperationalError:return 1000
 
@@ -168,6 +168,8 @@ class FeedAdapter:
                     received[timeframe]=self.supervisor.clock()
                 except Exception as exc:primary[timeframe]=exc
             return dict(primary=primary,sample_received_at=self.supervisor.clock(),primary_received_at=received)
+        if cfg.strategy=='trend_major_pullback_30m_close':
+            return dict(primary={'30':self.staged_primary_inputs(symbol,'30')},sample_received_at=self.supervisor.clock())
         if cfg.strategy in DELAYED_STRATEGIES:
             return dict(primary={'30':self.staged_primary_inputs(symbol,'30')},sample_received_at=self.supervisor.clock())
         if cfg.strategy in TWO_DIRECTION_STRATEGIES:

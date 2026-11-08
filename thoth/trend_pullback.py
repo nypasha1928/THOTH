@@ -1,5 +1,6 @@
 """Isolated prospective research. No exchange client, private API or live writes."""
 import hashlib,json,queue,threading,time
+from math import fsum,isfinite
 from pathlib import Path
 from pydantic import BaseModel,ConfigDict,Field,model_validator
 from .database import connect
@@ -9,7 +10,7 @@ from .indicator_stream import IndicatorState,validate
 from .sr_bounce import evaluate as bounce
 from .entry_schedule import reason as schedule_reason,daily_exit_period,FIELDS as SCHEDULE_FIELDS
 
-SUPPORTED=('price_sma50_30m_close','ob_sr_30m_delayed','sr_rsi_30m_delayed','ob_sr_30m_close_two_direction')
+SUPPORTED=('trend_major_pullback_30m_close','price_sma50_30m_close','ob_sr_30m_delayed','sr_rsi_30m_delayed','ob_sr_30m_close_two_direction')
 
 class ResearchSettings(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -51,42 +52,53 @@ def atr14(rows):
     return atr
 
 
-def setup(rows,price,cfg,rules):
+def qualify(rows,price,cfg,max_distance_atr=.25,slippage_bps=2,*,context_rsi=False):
     """Only closed data; use levels known BEFORE the deciding candle."""
+    price=float(price)
+    if not isfinite(price) or price<=0:raise ValueError('Pullback entry price must be positive and finite')
     result=dict(signal=None,reason='Insufficient closed hourly history')
     hours=hourly(rows)
     if len(hours)<200:return result
     hours=hours[-200:]
     if any(b['time']-a['time']!=3600 for a,b in zip(hours,hours[1:])):return result
-    sma=sum(r['close'] for r in hours)/200;trend=hours[-1]['close']
+    sma=fsum(r['close'] for r in hours)/200;trend=hours[-1]['close']
     result.update(sma200=sma,hour_close=trend,hour_closed_at=hours[-1]['time']+3600)
     if trend==sma:return {**result,'reason':'Hourly close equals SMA200'}
     direction='Long' if trend>sma else 'Short';sign=1 if direction=='Long' else -1
     source=cfg.model_copy(update=dict(strategy='sr_breakout',timeframe='30',major=True,minor=False,sma_enabled=False,sma_7_50_filter_enabled=False))
     machine=IndicatorState(source);levels={}
     for row in rows[:-1]:levels=machine.step(row)['levels']
-    context_rsi=RSIState(RSISettings(smooth=False))
-    context=None
-    for candle in rows:context=context_rsi.step(candle,1800)
-    result['context_rsi14']=context['rsi']
+    if context_rsi:
+        context=RSIState(RSISettings(smooth=False));item=None
+        for candle in rows:item=context.step(candle,1800)
+        result['context_rsi14']=item['rsi']
     last=rows[-1];raw=bounce(last,rows[-2]['close'],levels,source)
     atr=atr14(rows);result.update(trend=direction,atr14=atr,signal_candle=last,levels_before=levels,sources=raw['entry_sources'])
     if raw['conflict'] or raw['signal']!=direction:return {**result,'reason':'No trend-aligned Major bounce/rejection'}
     if not atr or atr<=0:return {**result,'reason':'ATR unavailable'}
-    entry=price*(1+sign*rules.slippage_bps/10000)
+    entry=price*(1+sign*slippage_bps/10000)
+    result.update(observed_entry_price=price,modeled_entry_price=entry,max_distance_atr=max_distance_atr,entry_buffer_bps=slippage_bps,source_distances=[])
     refs=[]
     for src in raw['entry_sources']:
         key=src.split(':',1)[1];value=levels[key]['value'];distance=sign*(entry-value)/atr
-        if 0<=distance<=rules.max_distance_atr:refs.append((distance,src,value))
+        result['source_distances'].append(dict(source=src,boundary=value,distance_atr=distance))
+        if 0<=distance<=max_distance_atr:refs.append((distance,src,value))
     if not refs:return {**result,'reason':'Entry outside allowed ATR distance'}
     distance,src,boundary=min(refs)
+    return {**result,'signal':direction,'reason':'Would enter: trend + Major pullback confirmed','source':src,'boundary':boundary,'distance_atr':distance,'entry':entry}
+
+
+def setup(rows,price,cfg,rules):
+    result=qualify(rows,price,cfg,rules.max_distance_atr,rules.slippage_bps,context_rsi=True)
+    if not result['signal']:return result
+    direction=result['signal'];sign=1 if direction=='Long' else -1
+    last=rows[-1];boundary=result['boundary'];entry=result['entry'];atr=result['atr14']
     stop=min(last['low'],boundary)-rules.stop_buffer_atr*atr if sign==1 else max(last['high'],boundary)+rules.stop_buffer_atr*atr
     risk_unit=sign*(entry-stop)
-    if stop<=0 or risk_unit<=0:return {**result,'reason':'Invalid structural stop'}
+    if stop<=0 or risk_unit<=0:return {**result,'signal':None,'reason':'Invalid structural stop'}
     qty=rules.risk_usdt/risk_unit
-    if qty*entry>rules.max_notional_usdt:return {**result,'reason':'Risk sizing exceeds simulated notional cap'}
-    return {**result,'signal':direction,'reason':'Would enter: trend + Major pullback confirmed','source':src,'boundary':boundary,
-        'distance_atr':distance,'entry':entry,'observed_entry_price':price,'stop':stop,'qty':qty,'risk':rules.risk_usdt,
+    if qty*entry>rules.max_notional_usdt:return {**result,'signal':None,'reason':'Risk sizing exceeds simulated notional cap'}
+    return {**result,'stop':stop,'qty':qty,'risk':rules.risk_usdt,
         'entry_notional':entry*qty}
 
 

@@ -954,6 +954,21 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#activeEntryFilter')).to_contain_text('Major S/R breakout + bounce/rejection')
    assert 'INTRABAR 4h OR Daily' in page.evaluate("()=>{const reason=lv.reason;lv.reason='';render();const text=$('status').textContent;lv.reason=reason;render();return text}")
 
+   page.select_option('#strategyLogic','trend_major_pullback_30m_close')
+   expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('CLOSED 1h price above SMA200')
+   expect(page.locator('#strategyDescription')).to_contain_text('0.25 ATR14')
+   expect(page.locator('#major')).to_be_checked();expect(page.locator('#major')).to_be_disabled()
+   for control in ('minor','sma_enabled','sma_7_50_filter_enabled','sma_exit_enabled'):
+    expect(page.locator('#'+control)).not_to_be_checked();expect(page.locator('#'+control)).to_be_disabled()
+   expect(page.locator('#rsiSettings')).not_to_be_visible();expect(page.locator('#sma_length')).not_to_be_visible()
+   expect(page.locator('#oppositeAction')).to_be_enabled()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='trend_major_pullback_30m_close'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('trend_major_pullback_30m_close')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('CLOSED 1h SMA200 direction + CLOSED 30m Major bounce/rejection')
+   assert 'CLOSED 30m Major pullback' in page.evaluate("()=>{const reason=lv.reason;lv.reason='';render();const text=$('status').textContent;lv.reason=reason;render();return text}")
+
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'
