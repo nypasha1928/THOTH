@@ -145,7 +145,7 @@ class StagedAccountTests(unittest.TestCase):
             return dict(signal=None)
         def fetch(symbol,tf,**kw):
             from thoth.timeframes import interval_seconds
-            return minute if tf=='1' else [dict(time=int(self.now[0])//interval_seconds(tf)*interval_seconds(tf))]
+            return minute if tf=='1' else [dict(time=int(self.now[0])//interval_seconds(tf)*interval_seconds(tf),open=100,high=101,low=99,close=100,volume=10)]
         with patch.object(self.exchange,'candles',side_effect=fetch),patch.object(runner,'history',return_value=[]),patch.object(runner,'analysis',return_value=([],100)),patch.object(runner,'daily_sr_rsi_observation',side_effect=source),patch('thoth.runner.time.time',side_effect=lambda:self.now[0]):
             runner.cycle(paced=False)
             self.assertFalse(self.exchange.orders)
