@@ -249,6 +249,26 @@ class ApiTests(unittest.TestCase):
         self.assertIn('7 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
         self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':07/:37',chart['order_block_status'])
 
+    def test_live_trend_breakout_is_separate_and_preserves_risk_and_chart_sources(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'trend_major_breakout_30m_close','timeframe':'1','major':False,'minor':True,'sma_enabled':True,'sma_exit_enabled':True})
+        self.assertEqual(response.status_code,200,response.text);data=response.json();cfg=data['config']
+        self.assertEqual(cfg['timeframe'],'30');self.assertTrue(cfg['major']);self.assertFalse(cfg['minor'] or cfg['sma_exit_enabled'] or cfg['sma_enabled'] or cfg['sma_7_50_filter_enabled'])
+        for key in ('position_value','stop_dollars','leverage','max_positions','daily_loss_pct','coin_breakeven_enabled','coin_pnl_trailing_enabled','pnl_trailing_enabled','opposite_action','symbols','entry_weekend_enabled','entry_daily_enabled'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertFalse(data['entries']);self.assertTrue(data['entry_filters']['sma200']['enabled']);self.assertTrue(data['entry_filters']['trend_breakout']['enabled']);self.assertFalse(data['entry_filters']['trend_pullback']['enabled'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=trend_major_breakout_30m_close').status_code,200)
+        self.assertFalse(self.client.get('/api/live/trend-pullback').json()['collection_supported'])
+        start=1793275200//1800*1800;d=1800;lv={'long_resistance_major':dict(value=100.5,pivot_time=start-5*d),'short_support_major':dict(value=100,pivot_time=start-5*d)}
+        rows=[dict(time=start-2*d,open=100,high=100,low=100,close=100,volume=0),dict(time=start-d,open=100,high=102,low=99,close=101,volume=0),dict(time=start,open=101,high=102,low=98,close=99,volume=0)]
+        old=[dict(time=r['time'],levels=lv,signal=None,entry_sources=[],sma=None) for r in rows[:-1]]
+        with patch('thoth.app.candles',return_value=rows),patch('thoth.app.evaluate',return_value=old),patch('time.time',return_value=start+10):chart=self.client.get('/api/chart/BTCUSDT?interval=30').json()
+        self.assertIn('Major breakout',chart['indicator_status']);self.assertIn('not proof of orders',chart['sr_reference_status'])
+        self.assertEqual(chart['sr_analysis'][-2]['entry_sources'],['sr:long_resistance_major']);self.assertEqual(chart['sr_analysis'][-1]['entry_sources'],['sr:short_support_major'])
+        # Switching back still exposes only the pullback profile's required rule set.
+        back=self.client.put('/api/live/settings',json={**cfg,'strategy':'trend_major_pullback_30m_close'}).json()
+        self.assertTrue(back['entry_filters']['trend_pullback']['enabled']);self.assertFalse(back['entry_filters']['trend_breakout']['enabled'])
+
     def test_live_trend_pullback_profile_risk_observer_status_and_chart(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'trend_major_pullback_30m_close','timeframe':'1','major':False,'minor':True,'sma_enabled':True,'sma_exit_enabled':True,'sma_7_50_filter_enabled':True})
