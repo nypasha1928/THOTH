@@ -111,7 +111,7 @@ class Runner:
             checkpoint=db.execute('SELECT MAX(stamp) FROM checkpoints WHERE symbol=? AND interval=?',(symbol,interval)).fetchone()[0]
             if checkpoint is not None:
                 existing={r[0]:json.loads(r[1]) for r in db.execute('SELECT time,payload FROM candles WHERE symbol=? AND interval=? AND time>=? AND time<=?',(symbol,interval,rows[0]['time'],checkpoint))}
-                if any(r['time'] in existing and existing[r['time']]!=r for r in rows if r['time']<=checkpoint):
+                if any(r['time'] not in existing or existing[r['time']]!=r for r in rows if r['time']<=checkpoint):
                     db.execute('DELETE FROM checkpoints WHERE symbol=? AND interval=?',(symbol,interval))
                     db.execute('DELETE FROM analyses WHERE symbol=? AND interval=?',(symbol,interval))
             db.executemany('INSERT OR REPLACE INTO candles VALUES(?,?,?,?)',
@@ -119,8 +119,9 @@ class Runner:
             if not defer_prune:db.execute('DELETE FROM candles WHERE symbol=? AND interval=? AND time<?',(symbol,interval,rows[-1]['time']-duration*5000))
             stored = [json.loads(r[0]) for r in db.execute(
                 'SELECT payload FROM candles WHERE symbol=? AND interval=? ORDER BY time', (symbol,interval))]
-        if any(b['time']-a['time'] != duration for a,b in zip(stored,stored[1:])):
-            raise ValueError('Candle history contains a gap; no automatic entries')
+        for a,b in zip(stored,stored[1:]):
+            if b['time']-a['time'] != duration:
+                raise ValueError(f"Candle history contains a gap; no automatic entries ({interval}: {a['time']} to {b['time']}; expected {duration}s)")
         return stored
 
     def analysis(self,symbol,cfg,history,now,*,latest_only=False):
@@ -958,6 +959,9 @@ class Runner:
             observations[symbol]=observation
             statuses[symbol]=dict(status='degraded' if observation.get('source_errors') else 'ok',bar=int(observation['time'])//60*60,
                 signal=observation['signal'],note=observation['volume_delta_status'],source_errors=observation.get('source_errors',{}),volume_checks=observation.get('volume_checks',{}))
+            if cfg.strategy in ('sr_4h_daily_unfiltered','sr_volume_intrabar'):
+                recovery=getattr(self.engine,'history_recovery_status',None)
+                if callable(recovery):statuses[symbol]['history_recovery']=recovery(symbol)
             if cfg.strategy in (HOUR_GATE,'order_block_sr_1h_close','order_block_sr_1h_early','order_block_sr_1h_inverted_close'):
                 statuses[symbol]['sampling']=observation.get('sampling',{})
             if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observation)

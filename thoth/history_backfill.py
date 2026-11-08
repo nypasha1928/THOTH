@@ -79,6 +79,13 @@ def recover(path,symbol,interval,fresh,fetch,now,previous=None,max_pages=2):
     """
     path=Path(path);duration=interval_seconds(interval)
     validate_hourly(fresh,interval)
+    if interval in ('240','D'):
+        previous_stamp=None
+        for row in fresh:
+            stamp=row['time']
+            if type(stamp) not in (int,float) or not isfinite(stamp) or stamp%duration or (previous_stamp is not None and stamp<=previous_stamp):
+                raise ValueError('Invalid '+interval+' candle timestamps; no history repair')
+            validate(row);previous_stamp=stamp
     if not fresh:return fresh,dict(active=False,reason='Fresh candles unavailable')
     if not path.exists():return fresh,dict(active=False,reason='Initial history bootstrap')
     try:
@@ -88,6 +95,8 @@ def recover(path,symbol,interval,fresh,fetch,now,previous=None,max_pages=2):
     if not times:return fresh,dict(active=False,reason='Initial symbol bootstrap')
     if interval=='60' and any(t%3600 for t in times):
         raise ValueError('Mixed-resolution hourly cache requires quarantine before backfill')
+    if interval in ('240','D') and any(t%duration for t in times):
+        raise ValueError('Mixed-resolution '+interval+' cache; off-grid timestamps require inspection before backfill')
     known=set(times)|{r['time'] for r in fresh}
     missing=gaps(known,duration)
     status=dict(active=bool(missing),gap_count=len(missing),recovered_bars=0,pages=0,reason='History contiguous' if not missing else 'Backfill pending')

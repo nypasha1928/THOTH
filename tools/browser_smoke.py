@@ -952,6 +952,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
    page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_4h_daily_unfiltered')
    expect(page.locator('#activeEntryFilter')).to_contain_text('Major S/R breakout + bounce/rejection')
+   assert 'INTRABAR 4h OR Daily' in page.evaluate("()=>{const reason=lv.reason;lv.reason='';render();const text=$('status').textContent;lv.reason=reason;render();return text}")
 
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 

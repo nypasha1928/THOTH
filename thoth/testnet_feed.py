@@ -17,6 +17,7 @@ class FeedAdapter:
         self.history_recovery={}
         self.minute_history_recovery={}
         self.primary_history_recovery={}
+        self.primary_frame_recovery={}
 
     def snapshot(self):
         state=self.supervisor.load()
@@ -120,10 +121,13 @@ class FeedAdapter:
     def staged_primary_inputs(self,symbol,timeframe):
         if not self.supervisor.client:raise ValueError('Account is not connected')
         rows=self.supervisor.client.candles(symbol,timeframe,limit=self.staged_history_limit(symbol,timeframe))
-        if timeframe=='30':
+        if timeframe in ('30','240','D'):
             from .history_backfill import recover
-            rows,status=recover(Path(self.path).with_suffix('.candles.sqlite'),symbol,timeframe,rows,self.supervisor.client.candles,self.supervisor.clock(),self.primary_history_recovery.get(symbol))
-            self.primary_history_recovery[symbol]={'interval':timeframe,**status}
+            key=(symbol,timeframe)
+            rows,status=recover(Path(self.path).with_suffix('.candles.sqlite'),symbol,timeframe,rows,self.supervisor.client.candles,self.supervisor.clock(),self.primary_frame_recovery.get(key))
+            self.primary_frame_recovery[key]=status
+            frames={tf:report for (coin,tf),report in list(self.primary_frame_recovery.items()) if coin==symbol and (tf=='30')==(timeframe=='30')}
+            self.primary_history_recovery[symbol]={'interval':timeframe,**status,'active':any(report.get('active') for report in frames.values()),'frames':frames}
         return rows
 
     def closed_hour_inputs(self,symbol):

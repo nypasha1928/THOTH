@@ -59,3 +59,23 @@ change does not enable schedules or orders.
 Chart BO/B/R arrows on 4h and Daily show breakout and bounce/rejection references.
 Forming previews can change. Candle-based historical references cannot reconstruct
 every live sampled event and are not proof that an order was placed.
+
+## Historical gap recovery
+
+Recent overlap downloads alone cannot repair an older internal candle gap.
+The higher-timeframe download path now uses the existing bounded Bybit backfill
+for 4h and Daily history as well as 30m. It fetches only missing real candles,
+up to two 1,000-candle pages per source frame per scan. It preserves the cache,
+account records and risk settings. Partial progress persists through the normal
+history writer; a missing/unavailable page waits 60 seconds before retrying.
+Restoring a missing candle before an existing indicator checkpoint invalidates
+that checkpoint and its analysis so levels are rebuilt from the complete history.
+Each frame keeps its own retry state so a healthy Daily scan cannot clear a
+4h retry delay.
+
+The runner report includes per-frame recovery progress. An incomplete source
+remains blocked by full continuity checks; another healthy source can still
+qualify independently. Recovered sources establish a fresh observation baseline,
+so repairs cannot replay historical entries. Shifted or mixed-resolution 4h/Daily
+cache timestamps are reported for inspection rather than interpreted as valid
+missing candles. No synthetic OHLC or inferred prices are used.
