@@ -77,5 +77,13 @@ The runner report includes per-frame recovery progress. An incomplete source
 remains blocked by full continuity checks; another healthy source can still
 qualify independently. Recovered sources establish a fresh observation baseline,
 so repairs cannot replay historical entries. Shifted or mixed-resolution 4h/Daily
-cache timestamps are reported for inspection rather than interpreted as valid
-missing candles. No synthetic OHLC or inferred prices are used.
+cache timestamps are repaired using the existing hourly quarantine mechanism.
+Before archiving anything, THOTH downloads and validates a clean 1,000-bar
+replacement window. Failed, empty or wrong-interval downloads leave the original
+cache intact for retry, including across restarts. Original wrong-interval rows
+and affected aligned neighbors are retained in `candle_quarantine`; aligned
+neighbors may also have been overwritten by the wrong-resolution source.
+Affected source checkpoints are invalidated and the normal bounded backfill
+repairs any remaining older holes. The runner report includes quarantine and
+replacement-download counts for the repair scan. No account/order/risk storage
+is changed, and no synthetic OHLC or inferred prices are used.

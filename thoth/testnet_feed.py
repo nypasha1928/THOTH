@@ -122,10 +122,19 @@ class FeedAdapter:
         if not self.supervisor.client:raise ValueError('Account is not connected')
         rows=self.supervisor.client.candles(symbol,timeframe,limit=self.staged_history_limit(symbol,timeframe))
         if timeframe in ('30','240','D'):
-            from .history_backfill import recover
-            key=(symbol,timeframe)
-            rows,status=recover(Path(self.path).with_suffix('.candles.sqlite'),symbol,timeframe,rows,self.supervisor.client.candles,self.supervisor.clock(),self.primary_frame_recovery.get(key))
-            self.primary_frame_recovery[key]=status
+            from .history_backfill import recover,quarantine_interval,validate_higher,has_mixed_interval
+            key=(symbol,timeframe);path=Path(self.path).with_suffix('.candles.sqlite');repair={}
+            if timeframe in ('240','D'):
+                validate_higher(rows,timeframe)
+                if has_mixed_interval(path,symbol,timeframe):
+                    # Download before quarantine: failed bootstrap leaves the
+                    # original cache intact so restart cannot skip this step.
+                    rows=self.supervisor.client.candles(symbol,timeframe,limit=1000)
+                    validate_higher(rows,timeframe)
+                    if not rows:raise ValueError('Clean replacement '+timeframe+' candles unavailable; cache preserved')
+                    repair={**quarantine_interval(path,symbol,timeframe,self.supervisor.clock()),'replacement_downloaded_bars':len(rows)}
+            rows,status=recover(path,symbol,timeframe,rows,self.supervisor.client.candles,self.supervisor.clock(),self.primary_frame_recovery.get(key))
+            self.primary_frame_recovery[key]={**status,**repair};status=self.primary_frame_recovery[key]
             frames={tf:report for (coin,tf),report in list(self.primary_frame_recovery.items()) if coin==symbol and (tf=='30')==(timeframe=='30')}
             self.primary_history_recovery[symbol]={'interval':timeframe,**status,'active':any(report.get('active') for report in frames.values()),'frames':frames}
         return rows

@@ -103,7 +103,7 @@ class Runner:
                 for key in list(getattr(self,'early_hour_states',{})):
                     if key[0]==symbol:self.early_hour_states.pop(key,None)
                 for strategy,payload in db.execute('SELECT strategy,payload FROM intrabar_observations WHERE symbol=?',(symbol,)).fetchall():
-                    tracker=json.loads(payload);tracker['session']='hourly-cache-repaired'
+                    tracker=json.loads(payload);tracker['session']='hourly-cache-repaired' if interval=='60' else 'higher-cache-repaired'
                     db.execute('UPDATE intrabar_observations SET payload=? WHERE symbol=? AND strategy=?',(json.dumps(tracker),symbol,strategy))
             previous = db.execute('SELECT MAX(time) FROM candles WHERE symbol=? AND interval=?', (symbol,interval)).fetchone()[0]
             if previous is not None and rows[0]['time'] > previous + duration:
