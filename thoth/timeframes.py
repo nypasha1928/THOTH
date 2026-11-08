@@ -11,4 +11,4 @@ HOURLY_MINUTE_STRATEGIES=('sr_hourly_intrabar','rsi_hourly_intrabar','sr_rsi_dai
 INTRABAR_STRATEGIES=HOURLY_MINUTE_STRATEGIES+('order_block_intrabar','order_block_sr_intrabar','order_block_sr_1h','sma_7_50_intrabar','sr_volume_intrabar','sr_4h_daily_unfiltered','volume_delta_intrabar','volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit','sr_rsi_volume_gate','sr_order_block_gate','order_block_sr_1h_early','ob_sr_hour_gate','ob_sr_windows_two_direction','ob_sr_minute_hourly')
 
 # Closed-bar detection uses a short execution queue too, timed from observation.
-SHORT_LIVED_SIGNAL_STRATEGIES=INTRABAR_STRATEGIES+('ob_sr_30m_close_two_direction','ob_sr_30m_delayed','sr_rsi_30m_delayed','order_block_sr_1h_inverted_close','order_block_sr_1h_close')
+SHORT_LIVED_SIGNAL_STRATEGIES=INTRABAR_STRATEGIES+('trend_major_pullback_30m_close','ob_sr_30m_close_two_direction','ob_sr_30m_delayed','sr_rsi_30m_delayed','order_block_sr_1h_inverted_close','order_block_sr_1h_close')

@@ -77,6 +77,11 @@ class Worker(unittest.TestCase):
         decision=dict(signal='Long',reason='fixture entry',entry=100,qty=1,risk=1,stop=99)
         with patch('thoth.trend_pullback.setup',return_value=decision):self.send()
         return self.o.report()['items'][0]
+    def test_live_pullback_profile_also_collects_virtual_observations(self):
+        self.cfg=Settings(strategy='trend_major_pullback_30m_close',symbols=['BTCUSDT'])
+        self.assertEqual(self.open()['position']['status'],'open')
+        self.assertEqual(self.o.report()['items'][0]['live_strategy'],'trend_major_pullback_30m_close')
+
     def test_baseline_delayed_close_no_duplicate_and_persistent_result(self):
         record=self.open();self.assertEqual(record['position']['status'],'open')
         self.now[0]+=5;self.send(101.1);self.now[0]+=5;self.send(100.2)

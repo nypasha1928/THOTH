@@ -2,8 +2,9 @@
 
 Analysis has an expandable research panel. Collection is ON by default. Leave the
 present LIVE strategy selected: the observer runs alongside the two 30m delayed
-profiles, the closed 30m/two-direction profile, or Price × SMA50 · 30m Bar Close. This is not a selectable LIVE
-strategy and it has no order client. No LIVE entry, protection or risk settings
+profiles, the closed 30m/two-direction profile, Price × SMA50 · 30m Bar Close, or Trend + Major Pullback · 1h / 30m Close. The research panel has no order client. A separate selectable LIVE
+profile now shares its entry predicates but uses saved account sizing and exits;
+see [LIVE profile](trend-major-pullback-live.md). No LIVE entry, protection or risk settings
 are changed. It can collect while LIVE entries are paused if market management
 remains connected. The panel reports unsupported/disconnected collection state.
 

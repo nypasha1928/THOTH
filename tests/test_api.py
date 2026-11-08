@@ -249,6 +249,25 @@ class ApiTests(unittest.TestCase):
         self.assertIn('7 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
         self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':07/:37',chart['order_block_status'])
 
+    def test_live_trend_pullback_profile_risk_observer_status_and_chart(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'trend_major_pullback_30m_close','timeframe':'1','major':False,'minor':True,'sma_enabled':True,'sma_exit_enabled':True,'sma_7_50_filter_enabled':True})
+        self.assertEqual(response.status_code,200,response.text);data=response.json();cfg=data['config']
+        self.assertEqual(cfg['timeframe'],'30');self.assertTrue(cfg['major']);self.assertFalse(cfg['minor'] or cfg['sma_exit_enabled'] or cfg['sma_enabled'] or cfg['sma_7_50_filter_enabled'])
+        for key in ('position_value','stop_dollars','leverage','max_positions','daily_loss_pct','coin_breakeven_enabled','coin_breakeven_trigger_dollars','coin_pnl_trailing_enabled','pnl_trailing_enabled','opposite_action','symbols','entry_weekend_enabled','entry_daily_enabled'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertFalse(data['entries']);self.assertTrue(data['entry_filters']['sma200']['enabled']);self.assertEqual(data['entry_filters']['trend_pullback']['risk_mode'],'saved_account_settings')
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=trend_major_pullback_30m_close').status_code,200)
+        for path in ('/api/live/trend-pullback','/api/live/trend-pullback/export'):
+            report=self.client.get(path).json();self.assertTrue(report['collection_supported']);self.assertEqual(report['selected_strategy'],'trend_major_pullback_30m_close')
+        start=1793275200//1800*1800;d=1800
+        lv={'long_support_major':dict(value=99,pivot_time=start-5*d),'short_resistance_major':dict(value=101,pivot_time=start-5*d)}
+        rows=[dict(time=start-2*d,open=100,high=100,low=100,close=100,volume=0),dict(time=start-d,open=100,high=102,low=98,close=101,volume=0),dict(time=start,open=101,high=102,low=98,close=99,volume=0)]
+        old=[dict(time=r['time'],levels=lv,signal=None,entry_sources=[],sma=None) for r in rows[:-1]]
+        with patch('thoth.app.candles',return_value=rows),patch('thoth.app.evaluate',return_value=old),patch('time.time',return_value=start+10):chart=self.client.get('/api/chart/BTCUSDT?interval=30').json()
+        self.assertIn('CLOSED 1h SMA200',chart['indicator_status']);self.assertIn('not proof of orders',chart['sr_reference_status'])
+        self.assertIn('sr_bounce:long_support_major',chart['sr_analysis'][-2]['entry_sources']);self.assertIn('sr_rejection:short_resistance_major',chart['sr_analysis'][-1]['entry_sources'])
+
     def test_unfiltered_sr_profile_risk_and_native_chart(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'sr_4h_daily_unfiltered','timeframe':'1','minor':True,'major':False,'sma_exit_enabled':True,'sma_enabled':True,'sma_7_50_filter_enabled':True})
