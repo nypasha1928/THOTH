@@ -249,6 +249,22 @@ class ApiTests(unittest.TestCase):
         self.assertIn('7 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
         self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':07/:37',chart['order_block_status'])
 
+    def test_price_sma50_closed_profile_risk_chart_and_analysis(self):
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':'price_sma50_30m_close','timeframe':'1','sma_exit_enabled':True,'sma_enabled':True})
+        self.assertEqual(response.status_code,200,response.text);cfg=response.json()['config']
+        self.assertEqual(cfg['timeframe'],'30');self.assertFalse(cfg['sma_exit_enabled'] or cfg['sma_enabled'] or cfg['sma_7_50_filter_enabled'])
+        for key in ('stop_dollars','leverage','max_positions','daily_loss_pct','coin_breakeven_enabled','coin_pnl_trailing_enabled','opposite_action','symbols','entry_weekend_enabled','entry_daily_enabled','sma_length'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=price_sma50_30m_close').status_code,200)
+        from test_price_sma50 import candles,D
+        source=candles([100]*50+[99,101,102]);now=source[-1]['time']+5
+        with patch('thoth.app.candles',return_value=source),patch('time.time',return_value=now),patch('thoth.indicator.time',return_value=now):
+            chart=self.client.get('/api/chart/BTCUSDT?interval=30&environment=live').json()
+        self.assertIn('price versus SMA50',chart['indicator_status']);self.assertIn('no 1m',chart['indicator_status'].lower())
+        self.assertAlmostEqual(chart['sma'][-1]['value'],sum(r['close'] for r in source[-50:])/50)
+        self.assertEqual(chart['analysis'][-1]['time'],source[-2]['time']);self.assertEqual(chart['analysis'][-1]['signal'],'Long')
+
     def test_closed_sr_rsi_delayed_profile_and_chart(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'sr_rsi_30m_delayed','timeframe':'1','minor':True,'major':False,'rsi':{**before['rsi'],'calculation_mode':'uploaded_pine','signal_rules':'eight_crossings','volume_filter':True}})

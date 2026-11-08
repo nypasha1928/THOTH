@@ -2,7 +2,7 @@
 
 Analysis has an expandable research panel. Collection is ON by default. Leave the
 present LIVE strategy selected: the observer runs alongside the two 30m delayed
-profiles or the closed 30m/two-direction profile. This is not a selectable LIVE
+profiles, the closed 30m/two-direction profile, or Price × SMA50 · 30m Bar Close. This is not a selectable LIVE
 strategy and it has no order client. No LIVE entry, protection or risk settings
 are changed. It can collect while LIVE entries are paused if market management
 remains connected. The panel reports unsupported/disconnected collection state.

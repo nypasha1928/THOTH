@@ -45,9 +45,10 @@ def prune(machine):
 class IndicatorState:
     def __init__(self,cfg,checkpoint=None):
         from .sma_cross import SMACross
+        from .price_sma50 import PriceSMACross
         from .rsi import RSIState
         self.rsi=RSIState(cfg.rsi,checkpoint.get('rsi') if checkpoint else None)
-        self.cross=SMACross(checkpoint.get('cross') if checkpoint else None,slow_period=50 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else 200)
+        self.cross=PriceSMACross(checkpoint.get('cross') if checkpoint else None) if cfg.strategy=='price_sma50_30m_close' else SMACross(checkpoint.get('cross') if checkpoint else None,slow_period=50 if cfg.strategy in ('sma_7_50','sr_sma_7_50') else 200)
         self.cfg=cfg
         self.buffer=[];self.total=0.;self.count=0;self.previous={};self.last_time=None
         self.machines=[ZigZag(),ZigZag()]
@@ -83,7 +84,7 @@ class IndicatorState:
             result=self.rsi.step(row,duration)
             self.count+=1;self.last_time=row['time']
             return result
-        if cfg.strategy in ('sma_cross','sma_7_50'):
+        if cfg.strategy in ('sma_cross','sma_7_50','price_sma50_30m_close'):
             result=self.cross.step(row,duration)
             self.count+=1;self.last_time=row['time']
             return result
