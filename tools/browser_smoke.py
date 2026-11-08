@@ -939,6 +939,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('[data-signal-source="Price × SMA50"]')).to_contain_text('P▲')
    page.click('[data-page-link=settings]')
 
+   page.select_option('#strategyLogic','sr_4h_daily_unfiltered')
+   expect(page.locator('#strategyTf')).to_have_value('240');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyTf option:checked')).to_have_text('4 hours + Daily (both)')
+   expect(page.locator('#strategyDescription')).to_contain_text('No volume, SMA, RSI, Order Block')
+   expect(page.locator('#major')).to_be_checked();expect(page.locator('#major')).to_be_disabled()
+   for control in ('minor','sma_enabled','sma_7_50_filter_enabled','sma_exit_enabled'):
+    expect(page.locator('#'+control)).not_to_be_checked();expect(page.locator('#'+control)).to_be_disabled()
+   expect(page.locator('#sr_volume_period')).not_to_be_visible();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#oppositeAction')).to_be_enabled()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='sr_4h_daily_unfiltered'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('sr_4h_daily_unfiltered')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('Major S/R breakout + bounce/rejection')
+
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'

@@ -147,12 +147,14 @@ class FeedAdapter:
         if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'):
             return self.closed_hour_inputs(symbol)
         if cfg.strategy in ('order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h'):return self.staged_minute_inputs(symbol,cfg.timeframe)
-        if cfg.strategy=='sr_volume_intrabar':
-            primary={}
+        if cfg.strategy in ('sr_volume_intrabar','sr_4h_daily_unfiltered'):
+            primary={};received={}
             for timeframe in ('240','D'):
-                try:primary[timeframe]=self.staged_primary_inputs(symbol,timeframe)
+                try:
+                    primary[timeframe]=self.staged_primary_inputs(symbol,timeframe)
+                    received[timeframe]=self.supervisor.clock()
                 except Exception as exc:primary[timeframe]=exc
-            return dict(primary=primary)
+            return dict(primary=primary,sample_received_at=self.supervisor.clock(),primary_received_at=received)
         if cfg.strategy in DELAYED_STRATEGIES:
             return dict(primary={'30':self.staged_primary_inputs(symbol,'30')},sample_received_at=self.supervisor.clock())
         if cfg.strategy in TWO_DIRECTION_STRATEGIES:
