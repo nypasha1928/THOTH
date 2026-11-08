@@ -9,7 +9,7 @@ from .indicator_stream import IndicatorState,validate
 from .sr_bounce import evaluate as bounce
 from .entry_schedule import reason as schedule_reason,daily_exit_period,FIELDS as SCHEDULE_FIELDS
 
-SUPPORTED=('ob_sr_30m_delayed','sr_rsi_30m_delayed','ob_sr_30m_close_two_direction')
+SUPPORTED=('price_sma50_30m_close','ob_sr_30m_delayed','sr_rsi_30m_delayed','ob_sr_30m_close_two_direction')
 
 class ResearchSettings(BaseModel):
     model_config=ConfigDict(extra='forbid')

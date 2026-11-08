@@ -80,6 +80,10 @@ def evaluate(rows, cfg, now=None):
         sr=evaluate(rows,cfg.model_copy(update={'strategy':'sr_breakout'}),now)
         cross=SMACross(slow_period=50)
         return [combine_sr_sma(a,cross.step(row,duration)) for a,row in zip(sr,rows)]
+    if cfg.strategy=='price_sma50_30m_close':
+        from .price_sma50 import PriceSMACross
+        cross=PriceSMACross()
+        return [cross.step(row,duration) for row in rows if row['time']+duration<=now]
     if cfg.strategy in ('sma_cross','sma_7_50'):
         from .sma_cross import SMACross
         cross=SMACross(slow_period=50 if cfg.strategy=='sma_7_50' else 200)

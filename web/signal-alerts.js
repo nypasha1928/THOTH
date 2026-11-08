@@ -58,6 +58,7 @@ function signalAlertSources(item){
   if(source.startsWith('ob:'))return ({bullish_formed:'Bullish Order Block formed',bearish_formed:'Bearish Order Block formed',supply_breakout:'Breakout Above Supply',demand_breakdown:'Breakdown Below Demand'})[source.slice(3)]||source;
   if(source.startsWith('volume_delta:'))return ({bullish_strong:'Volume Delta Strong Bullish (Up)',bullish_weak:'Volume Delta Weak Bullish (Up-)',bullish_all:'Volume Delta All Bullish',bearish_strong:'Volume Delta Strong Bearish (Down)',bearish_weak:'Volume Delta Weak Bearish (Down+)',bearish_all:'Volume Delta All Bearish'})[source.split(':')[1]]||source;
   if(source.startsWith('rsi:'))return names[source.slice(4)]||source;
+  if(source==='price_sma:50')return 'Closed price crossed SMA50';
   if(source.startsWith('sma:'))return 'SMA '+source.slice(4).replace('_','/')+' crossover';
   const [prefix,key]=source.split(':');if(['sr','inverse_sr','sr_bounce','sr_rejection'].includes(prefix)&&key){const [term,side,grade]=key.split('_');return (prefix==='sr_bounce'?'S/R Bounce · ':prefix==='sr_rejection'?'S/R Rejection · ':prefix==='inverse_sr'?'Inverse S/R ':'S/R ')+(term==='long'?'long-term':'short-term')+' '+grade+' '+side+(prefix==='inverse_sr'&&item.source_signal?' · '+item.source_signal+' signal → '+item.signal+' position':'');}
   return source;

@@ -77,6 +77,8 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if ob_preview[0] and params.get('include_order_block')==['true']:
      last=result['candles'][-1];result={**result,'order_block_analysis':[dict(time=last['time'],events=[dict(kind='bullish_formed',side='Long')],zones={'demand':[dict(time=last['time']-600,high=last['close']+1,low=last['close']-2)],'supply':[dict(time=last['time']-3600,high=last['close']+7,low=last['close']+5)]})],'order_block_status':'Synthetic Order Block reference fixture'}
     if sr_preview[0]:result={**result,'sr_analysis':[{**bar,'signal':'Long','provisional':True} if bar['time']==result['candles'][-1]['time'] else bar for bar in result['analysis']]}
+    if payloads['live']['config']['strategy']=='price_sma50_30m_close':
+     original=result['analysis'];result={**result,'sr_analysis':original,'chart_signal_strategy':'price_sma50_30m_close','analysis':[{**bar,'signal':'Long' if i==len(original)-2 else None} for i,bar in enumerate(original)]}
    elif path.startswith('quote/'):
     symbol=path.split('/')[1];environment='live'
     result=dict(symbol=symbol,environment=environment,price=2412.34,observed_at=time.time())
@@ -921,6 +923,22 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert page.evaluate("signalAlertSources({entry_sources:['htf:30:rsi:ml_short_up']})")=='30-minute RSI over Short'
    assert page.evaluate("signalAlertSources({strategy:'sr_rsi_30m_delayed',source_status:'no_qualifying_signal'})")=='No qualifying S/R or RSI signal'
    assert 'source not recorded' in page.evaluate("signalAlertSources({strategy:'sr_rsi_30m_delayed'})")
+   page.select_option('#strategyLogic','price_sma50_30m_close')
+   expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('Same-side candles never repeat')
+   expect(page.locator('#sma_exit_enabled')).not_to_be_checked();expect(page.locator('#rsiSettings')).not_to_be_visible()
+   expect(page.locator('#sma_length')).not_to_be_visible();expect(page.locator('#oppositeAction')).to_be_enabled()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='price_sma50_30m_close'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('price_sma50_30m_close')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('first confirmed cross only')
+   assert page.evaluate("signalAlertSources({entry_sources:['price_sma:50']})")=='Closed price crossed SMA50'
+   page.click('[data-page-link=chart]');page.wait_for_function("()=>referenceSignalStrategy==='price_sma50_30m_close'")
+   page.evaluate("()=>{chartStyle.showSMAArrows=true;$('showSignals').checked=true;draw()}")
+   expect(page.locator('[data-signal-source="Price × SMA50"]')).to_have_count(1)
+   expect(page.locator('[data-signal-source="Price × SMA50"]')).to_contain_text('P▲')
+   page.click('[data-page-link=settings]')
+
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 
    assert page.evaluate("signalAlertSources({entry_sources:['htf:60:ob:bullish_formed']})")=='1-hour Bullish Order Block formed'
