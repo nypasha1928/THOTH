@@ -4,7 +4,7 @@ function stretchValue(value,unit='',digits=2){return value==null?'Not recorded':
 function signalStretchSummary(m){if(!m)return 'Not recorded';return 'Range '+stretchValue(m.range_atr14,'× ATR14')+' · opposing wick '+stretchValue(m.opposing_wick_pct,'%',1)+' · '+(m.provisional?'snapshot→fill ':'close→fill ')+(m.close_to_fill_pct==null?'not recorded':(m.close_to_fill_pct>=0?'+':'')+stretchNumber(m.close_to_fill_pct,3)+'%')}
 function signalStretchText(m){
  if(!m)return 'Not recorded';
- const tf=({'1':'1m','5':'5m','30':'30m','60':'1h','240':'4h','D':'Daily'})[m.timeframe]||'1h';
+ const tf=({'1':'1m','5':'5m','15':'15m','30':'30m','60':'1h','240':'4h','D':'Daily'})[m.timeframe]||'1h';
  const lines=[signalStretchSummary(m),(m.provisional?'Forming ':'')+tf+' signal candle · '+m.atr_basis,'ATR14: '+stretchNumber(m.atr14,8),m.provisional?'Qualification: forming candle snapshot':'Close→qualification: '+stretchValue(m.qualification_after_close_seconds,'s',1),(m.provisional?'Snapshot→fill observed: ':'Close→fill observed: ')+stretchValue(m.provisional?m.snapshot_to_fill_observed_seconds:m.close_to_fill_observed_seconds,'s',1),(m.provisional?'Snapshot→fill: ':'Close→fill: ')+'positive = worse entry; negative = better entry. Fill time is when THOTH observed the fill.'];
  for(const r of m.references||[])lines.push(r.label+' · '+r.kind.replaceAll('_',' ')+' '+Number(r.price).toPrecision(8)+(m.provisional?' · snapshot distance ':' · close distance ')+stretchNumber(r.close_distance_pct,3)+'% · entry distance '+stretchValue(r.entry_distance_pct,'%',3));
  lines.push('Reference distances: positive = beyond boundary in signal direction; negative = inside. Formation edges are not breakout levels. Missing measurements are not zero. These measurements do not predict exhaustion.');
@@ -55,7 +55,7 @@ function signalAlertSources(item){
  if(item.source_status==='no_qualifying_signal')return 'No qualifying S/R or RSI signal';
  const d=item.diagnostic||{},names={static30_up:'RSI over 30',static30_down:'RSI below 30',static70_up:'RSI over 70',static70_down:'RSI below 70',ml_long_up:'RSI over Long',ml_long_down:'RSI below Long',ml_short_up:'RSI over Short',ml_short_down:'RSI below Short'};
  const recorded=(item.entry_sources||[]).map(source=>{
-  if(source.startsWith('htf:')){const [,frame,...parts]=source.split(':');return ({'1':'1-minute','5':'5-minute','30':'30-minute','60':'1-hour','240':'4-hour','D':'Daily'}[frame]||frame)+' '+signalAlertSources({entry_sources:[parts.join(':')]});}
+  if(source.startsWith('htf:')){const [,frame,...parts]=source.split(':');return ({'1':'1-minute','5':'5-minute','15':'15-minute','30':'30-minute','60':'1-hour','240':'4-hour','D':'Daily'}[frame]||frame)+' '+signalAlertSources({entry_sources:[parts.join(':')]});}
   if(source.startsWith('ob:'))return ({bullish_formed:'Bullish Order Block formed',bearish_formed:'Bearish Order Block formed',supply_breakout:'Breakout Above Supply',demand_breakdown:'Breakdown Below Demand'})[source.slice(3)]||source;
   if(source.startsWith('volume_delta:'))return ({bullish_strong:'Volume Delta Strong Bullish (Up)',bullish_weak:'Volume Delta Weak Bullish (Up-)',bullish_all:'Volume Delta All Bullish',bearish_strong:'Volume Delta Strong Bearish (Down)',bearish_weak:'Volume Delta Weak Bearish (Down+)',bearish_all:'Volume Delta All Bearish'})[source.split(':')[1]]||source;
   if(source.startsWith('rsi:'))return names[source.slice(4)]||source;

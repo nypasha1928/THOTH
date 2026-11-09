@@ -168,6 +168,10 @@ class FeedAdapter:
                     received[timeframe]=self.supervisor.clock()
                 except Exception as exc:primary[timeframe]=exc
             return dict(primary=primary,sample_received_at=self.supervisor.clock(),primary_received_at=received)
+        if cfg.strategy=='major_pullback_30m_intrabar':
+            primary=self.staged_primary_inputs(symbol,'30');source_received=self.supervisor.clock()
+            lower=self.supervisor.client.candles(symbol,'15',limit=3)
+            return dict(primary={'30':primary},confirmation_15=lower,sample_received_at=min(source_received,self.supervisor.clock()))
         if cfg.strategy in ('trend_major_pullback_30m_close','trend_major_breakout_30m_close'):
             return dict(primary={'30':self.staged_primary_inputs(symbol,'30')},sample_received_at=self.supervisor.clock())
         if cfg.strategy in DELAYED_STRATEGIES:
