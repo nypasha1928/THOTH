@@ -45,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if array=='analysis':
      for level in row['levels'].values():level['pivot_time']=1700006400+max(0,(i//100)*100-20)*86400
   chart_intervals={'1':chart,'D':chart_daily}
-  for interval,duration in [('5',300),('30',1800),('60',3600),('240',14400)]:
+  for interval,duration in [('5',300),('15',900),('30',1800),('60',3600),('240',14400)]:
    item=copy.deepcopy(chart);origin=1792300000//duration*duration
    for array in ('candles','analysis','sma','rsi_analysis'):
     for i,row in enumerate(item[array]):
@@ -145,7 +145,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    # S/R visibility is independent of bot filters/timeframe and other arrow layers.
-   for interval in ['1','5','30','60','240','D']:
+   for interval in ['1','5','15','30','60','240','D']:
     page.select_option('#tf',interval);expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
    page.select_option('#tf','1');page.uncheck('#showSignals')
    expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
@@ -984,6 +984,24 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert 'CLOSED 30m Major breakout' in page.evaluate("()=>{const reason=lv.reason;lv.reason='';render();const text=$('status').textContent;lv.reason=reason;render();return text}")
    page.select_option('#strategyLogic','trend_major_pullback_30m_close')
    expect(page.locator('#strategyDescription')).to_contain_text('A CLOSED 30m Major support bounce opens Long')
+
+   page.select_option('#strategyLogic','major_pullback_30m_intrabar')
+   expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#strategyDescription')).to_contain_text('CLOSED 15m bounce/rejection at the SAME 30m Major level')
+   expect(page.locator('#strategyDescription')).to_contain_text('No SMA filter, no hourly confirmation')
+   expect(page.locator('#strategyDescription')).to_contain_text('no fixed entry windows')
+   for control in ('minor','sma_enabled','sma_7_50_filter_enabled','sma_exit_enabled'):
+    expect(page.locator('#'+control)).not_to_be_checked();expect(page.locator('#'+control)).to_be_disabled()
+   expect(page.locator('#major')).to_be_checked();expect(page.locator('#major')).to_be_disabled()
+   expect(page.locator('#rsiSettings')).not_to_be_visible();expect(page.locator('#oppositeAction')).to_be_enabled()
+   page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='major_pullback_30m_intrabar'")
+   assert {key:writes[-1][1][key] for key in protected_fields}==before_ob_risk
+   page.reload();expect(page.locator('#strategyLogic')).to_have_value('major_pullback_30m_intrabar')
+   expect(page.locator('#activeEntryFilter')).to_contain_text('NO SMA / NO 1h confirmation / NO fixed entry windows')
+   assert 'CLOSED 15m bounce/rejection' in page.evaluate("()=>{const reason=lv.reason;lv.reason='';render();const text=$('status').textContent;lv.reason=reason;render();return text}")
+   page.click('[data-page-link=chart]');page.select_option('#tf','15')
+   expect(page.locator('#title')).to_contain_text('15m')
+   page.click('[data-page-link=settings]')
 
    page.select_option('#strategyLogic','ob_sr_hour_gate');page.click('#saveSymbols');page.wait_for_function("()=>lv.config.strategy==='ob_sr_hour_gate'")
 

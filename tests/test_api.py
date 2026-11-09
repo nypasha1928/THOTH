@@ -249,6 +249,28 @@ class ApiTests(unittest.TestCase):
         self.assertIn('7 minutes after close',chart['indicator_status']);self.assertIn('No 1m signal entry or exit',chart['indicator_status'])
         self.assertIn('no 1m trading stage',chart['sr_reference_status']);self.assertIn(':07/:37',chart['order_block_status'])
 
+    def test_no_sma_pullback_15m_confirmation_profile_and_same_30m_chart_levels(self):
+        before=self.client.get('/api/live').json()['config']
+        saved=self.client.put('/api/live/settings',json={**before,'strategy':'major_pullback_30m_intrabar','timeframe':'60','major':False,'minor':True,'sma_enabled':True,'sma_exit_enabled':True}).json()
+        cfg=saved['config'];self.assertEqual(cfg['timeframe'],'30');self.assertTrue(cfg['major']);self.assertFalse(cfg['minor'] or cfg['sma_enabled'] or cfg['sma_7_50_filter_enabled'] or cfg['sma_exit_enabled'])
+        self.assertFalse(saved['entry_filters']['sma200']['enabled']);self.assertFalse(saved['entry_filters']['major_pullback_intrabar']['fixed_entry_windows'])
+        for key in ('position_value','stop_dollars','leverage','max_positions','daily_loss_pct','coin_breakeven_enabled','coin_pnl_trailing_enabled','pnl_trailing_enabled','entry_daily_enabled','entry_weekend_enabled','opposite_action','symbols'):
+            self.assertEqual(cfg[key],before[key])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy=major_pullback_30m_intrabar').status_code,200)
+        from test_major_pullback_intrabar import BASE,D,packet,levels
+        now=BASE+905;p=packet(now);lv=levels()
+        def market(symbol,tf):return p['confirmation_15'] if tf=='15' else p['primary']['30']
+        def reference(history,cfg,*a,**k):
+            chosen=lv if cfg.timeframe=='30' else {'long_support_major':dict(value=90,pivot_time=0)}
+            return [dict(time=r['time'],levels=chosen,signal=None,entry_sources=[],sma=None) for r in history if r['time']+(900 if cfg.timeframe=='15' else 1800)<=now]
+        with patch('thoth.app.candles',side_effect=market),patch('thoth.app.evaluate',side_effect=reference),patch('time.time',return_value=now):
+            result=self.client.get('/api/chart/BTCUSDT?interval=15')
+        self.assertEqual(result.status_code,200,result.text);chart=result.json()
+        self.assertIn('NO SMA',chart['indicator_status']);self.assertIn('SAME 30m Major levels',chart['sr_reference_status'])
+        self.assertEqual(chart['sr_analysis'][-2]['levels']['long_support_major']['value'],100)
+        self.assertEqual(chart['sr_analysis'][-2]['entry_sources'],['sr_bounce:long_support_major']);self.assertFalse(chart['sr_analysis'][-2]['provisional'])
+        self.assertFalse(self.client.get('/api/live').json()['entries'])
+
     def test_live_trend_breakout_is_separate_and_preserves_risk_and_chart_sources(self):
         before=self.client.get('/api/live').json()['config']
         response=self.client.put('/api/live/settings',json={**before,'strategy':'trend_major_breakout_30m_close','timeframe':'1','major':False,'minor':True,'sma_enabled':True,'sma_exit_enabled':True})
