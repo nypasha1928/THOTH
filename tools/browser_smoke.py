@@ -62,13 +62,13 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
-  delta_timing_enabled=[True];delta_timing_writes=[];late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();late_total=[1]
+  delta_timing_enabled=[True];delta_timing_writes=[];late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();held_refresh_failures=set();late_total=[1]
   research_settings=ResearchSettings().model_dump();research_writes=[]
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
   def route(req):
    url=req.request.url.split('/api/')[1];path=url.split('?')[0];method=req.request.method
-   if path in refresh_failures:
-    refresh_failures.remove(path);req.fulfill(status=503,content_type='application/json',body=json.dumps(dict(detail='Synthetic temporary outage')));return
+   if path in refresh_failures or path in held_refresh_failures:
+    refresh_failures.discard(path);req.fulfill(status=503,content_type='application/json',body=json.dumps(dict(detail='Synthetic temporary outage')));return
    if path.startswith('chart/'):
     chart_queries.append(url)
     params=parse_qs(url.split('?',1)[1] if '?' in url else '')
@@ -144,6 +144,26 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page=browser.new_page(viewport={'width':1440,'height':1080})
    page.on('pageerror',lambda e:errors.append(str(e)))
    page.route('**/api/**',route);page.goto(base);expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
+   # Fixed crypto research-candidate profile: draft-only universe and visible automatic stop.
+   original_crypto_cfg=copy.deepcopy(payloads['live']['config'])
+   page.evaluate("location.hash='#settings'")
+   page.select_option('#strategyLogic','crypto_ob_strength_1h_close')
+   expect(page.locator('#activeSymbolList')).to_have_value('crypto_ob_candidates')
+   expect(page.locator('#stop_dollars')).to_have_value('1');expect(page.locator('#stop_dollars')).to_be_disabled()
+   expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#oppositeAction')).to_have_value('reverse')
+   expect(page.locator('#cryptoStrengthValues')).to_contain_text('ETHUSDT')
+   expect(page.locator('#cryptoStrengthValues')).to_contain_text('7.45')
+   assert len(page.evaluate('formDraft.symbols'))==10
+   for field in ['trailing_enabled','pnl_trailing_enabled','coin_pnl_trailing_enabled','coin_breakeven_enabled','take_profit_enabled']:
+    expect(page.locator('#'+field)).not_to_be_checked();expect(page.locator('#'+field)).to_be_disabled()
+   page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
+   assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==1
+   page.select_option('#strategyLogic','price_sma50_30m_close')
+   expect(page.locator('#stop_dollars')).to_be_enabled()
+   expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
+   expect(page.locator('#sma_exit_enabled')).to_be_disabled()
+   payloads['live']['config']=original_crypto_cfg;writes.clear()
+   page.goto(base+'/#chart');page.reload();expect(page.locator('#savedSymbolList')).to_contain_text('SOLUSDT')
    # S/R visibility is independent of bot filters/timeframe and other arrow layers.
    for interval in ['1','5','15','30','60','240','D']:
     page.select_option('#tf',interval);expect(page.locator('[data-signal-source="S/R"]').first).to_be_visible()
@@ -1457,8 +1477,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#lateHourEnabled')).to_be_checked()
    expect(page.locator('#lateHourRows')).to_contain_text('Would enter Long')
    expect(page.locator('#lateHourRows')).to_contain_text('same direction')
-   refresh_failures.add('live/late-hour-comparison');page.click('#lateHourRefresh')
+   # Keep the synthetic outage active until asserted; background polling must not consume it first.
+   held_refresh_failures.add('live/late-hour-comparison');page.click('#lateHourRefresh')
    expect(page.locator('#lateHourStatus')).to_contain_text('Will retry automatically')
+   held_refresh_failures.discard('live/late-hour-comparison')
    page.wait_for_function('() => !lateHourLoading')
    late_total[0]=2;page.evaluate('refreshVisibleData()');expect(page.locator('#lateHourStatus')).to_contain_text('2 retained')
    prior_live_writes=len(writes)

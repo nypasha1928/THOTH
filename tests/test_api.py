@@ -23,6 +23,34 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_crypto_strength_profile_catalogue_fixed_stop_and_filtered_chart(self):
+        from thoth.crypto_ob_strength import STRATEGY,LIST,THRESHOLDS,DISABLED_EXITS
+        from test_crypto_ob_strength import candles
+        before=self.client.get('/api/live').json()['config']
+        response=self.client.put('/api/live/settings',json={**before,'strategy':STRATEGY,'symbols':list(THRESHOLDS),'active_symbol_list':LIST,'stop_dollars':.15,**{f:True for f in DISABLED_EXITS}})
+        self.assertEqual(response.status_code,200,response.text)
+        data=response.json();cfg=data['config']
+        self.assertEqual(cfg['stop_dollars'],1);self.assertEqual(cfg['timeframe'],'60');self.assertEqual(cfg['opposite_action'],'reverse')
+        self.assertFalse(data['entries']);self.assertTrue(all(not cfg[f] for f in DISABLED_EXITS))
+        self.assertEqual(cfg['saved_symbol_lists']['main'],before['saved_symbol_lists']['main'])
+        self.assertEqual(cfg['max_positions'],before['max_positions'])
+        catalogue=self.client.get('/api/live/market-leaders').json()
+        self.assertEqual(catalogue['crypto_ob_strengths'],THRESHOLDS)
+        self.assertEqual(self.client.get('/api/live/analysis?strategy='+STRATEGY).status_code,200)
+        rows=candles();now=rows[-1]['time']+300
+        with patch('thoth.app.candles',return_value=rows),patch('time.time',return_value=now):
+            result=self.client.get('/api/chart/ETHUSDT?interval=60&include_order_block=true')
+        self.assertEqual(result.status_code,200,result.text);chart=result.json()
+        self.assertIn('raw minimum 7.45',chart['order_block_status'])
+        self.assertTrue(chart['order_block_analysis'][-1]['display_carry'])
+        self.assertFalse(chart['order_block_analysis'][-1]['signal'])
+        for item in chart['order_block_analysis']:
+            for zones in item['zones'].values():
+                self.assertTrue(all(abs(z['high']-z['low'])>=7.45 for z in zones))
+            self.assertTrue(all(e['kind'].endswith('_formed') for e in item['events']))
+        unsupported=self.client.put('/api/live/settings',json={**cfg,'symbols':['BTCUSDT']})
+        self.assertEqual(unsupported.status_code,422)
+
     def test_trend_pullback_observation_settings_and_exports_do_not_change_live(self):
         from thoth.trend_pullback import TrendPullbackObservation
         observer=TrendPullbackObservation(Path(self.tmp.name)/'research.sqlite')

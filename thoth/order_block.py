@@ -26,7 +26,8 @@ def entry_volume(rows,interval='240'):
     return volume_pass(rows,20)
 
 class OrderBlockState:
-    def __init__(self,state=None,interval='5',*,formation_filter=True):
+    def __init__(self,state=None,interval='5',*,formation_filter=True,minimum_strength=0):
+        self.minimum_strength=minimum_strength
         self.formation_filter=formation_filter
         self.duration=interval_seconds(interval)
         self.interval=interval
@@ -92,8 +93,9 @@ class OrderBlockState:
                 if replace:zones.pop(0)
                 elif up:zones[0]['high']=bottom
                 else:zones[0]['low']=top
-            zones.insert(0,dict(high=top,low=bottom,time=a['time'],bounced=False))
-            events.append('bullish_formed' if up else 'bearish_formed')
+            if abs(top-bottom)>=self.minimum_strength:
+                zones.insert(0,dict(high=top,low=bottom,time=a['time'],bounced=False))
+                events.append('bullish_formed' if up else 'bearish_formed')
         s['frames']=(frames+[current])[-4:];s['last_time']=row['time'];s['count']+=1
         return dict(time=row['time'],close=close,sma200=sma,ready=sma is not None if self.formation_filter else s['count']>=14,events=events,
             broken_supply=broken_supply,broken_demand=broken_demand,
@@ -114,11 +116,11 @@ def select(result,settings,*,formation_filter=True):
         'conflict':len(sides)>1,'entry_sources':['ob:'+e['kind'] for e in events]}
 
 
-def reference(rows,settings,now,interval='5',*,formation_filter=True):
+def reference(rows,settings,now,interval='5',*,formation_filter=True,minimum_strength=0):
     """Read-only causal replay on selected-timeframe data, including a rollback-safe forming bar."""
-    state=OrderBlockState(interval=interval,formation_filter=formation_filter);output=[]
+    state=OrderBlockState(interval=interval,formation_filter=formation_filter,minimum_strength=minimum_strength);output=[]
     for row in rows:
         if row['time']>now:break
-        preview=state if row['time']+state.duration<=now else OrderBlockState(state.checkpoint(),interval=interval,formation_filter=formation_filter)
+        preview=state if row['time']+state.duration<=now else OrderBlockState(state.checkpoint(),interval=interval,formation_filter=formation_filter,minimum_strength=minimum_strength)
         output.append(select(preview.step(row),settings,formation_filter=formation_filter))
     return output

@@ -10,7 +10,7 @@ class MajorOnlyTests(unittest.TestCase):
         pattern=Settings.model_fields['strategy'].metadata[0].pattern
         for strategy in pattern.removeprefix('^(').removesuffix(')$').split('|'):
             with self.subTest(strategy=strategy):
-                cfg=Settings(strategy=strategy,minor=True,inverse_direction_confirmed=True)
+                cfg=Settings(strategy=strategy,minor=True,inverse_direction_confirmed=True,**({'symbols':['ETHUSDT']} if strategy=='crypto_ob_strength_1h_close' else {}))
                 self.assertFalse(cfg.minor)
                 saved=Settings(**cfg.model_dump())
                 self.assertFalse(saved.minor)

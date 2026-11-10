@@ -94,7 +94,7 @@ function draw(){
    const index=rows.findIndex(row=>row.time>=zone.time),left=zone.time<=rows[0].time?L:x(Math.max(0,index)),color=kind==='demand'?chartStyle.obBullish:chartStyle.obBearish;
    if(Number.isFinite(zone.high)&&Number.isFinite(zone.low)&&zone.high>=zone.low){
     const rect=shape('rect',{x:left,y:y(zone.high),width:Math.max(1,R-left),height:Math.max(1,y(zone.low)-y(zone.high)),fill:color,'fill-opacity':.2,stroke:color,'stroke-width':2,'data-order-block-zone':kind},plot);
-    const strength=Number(Math.abs(zone.high-zone.low).toFixed(2));shape('title',{},rect).textContent=kind+' Order Block · Strength: '+strength;
+    const strength=Number(Math.abs(zone.high-zone.low).toPrecision(6));shape('title',{},rect).textContent=kind+' Order Block · Strength: '+strength;
     shape('text',{x:left+4,y:(y(zone.high)+y(zone.low))/2,fill:'#808080','font-size':10,'dominant-baseline':'central','data-order-block-strength':kind,'pointer-events':'none'},plot).textContent='Strength: '+strength;
    }
   }
