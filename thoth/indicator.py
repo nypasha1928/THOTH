@@ -41,7 +41,7 @@ def confirmed_pivot(rows, i, period, field, high):
     return (value, (value, center, rows[center]['time'])) if valid else (nan, None)
 
 
-def evaluate(rows, cfg, now=None):
+def evaluate(rows, cfg, now=None, *, symbol=None):
     now = time() if now is None else now
     duration = interval_seconds(cfg.timeframe)
     rows = sorted(rows, key=lambda r:r['time'])
@@ -52,6 +52,12 @@ def evaluate(rows, cfg, now=None):
             raise ValueError('Invalid candle price')
         if not (r['low'] <= min(r['open'],r['close']) <= max(r['open'],r['close']) <= r['high']):
             raise ValueError('Invalid candle range')
+    if cfg.strategy=='crypto_ob_strength_1h_close':
+        from .crypto_ob_strength import StrengthState
+        symbol=symbol or (cfg.symbols[0] if len(cfg.symbols)==1 else None)
+        if symbol is None:raise ValueError('Per-coin Order Block strength requires a symbol')
+        state=StrengthState(symbol,interval=cfg.timeframe)
+        return [state.step(row) for row in rows if row['time']+duration<=now]
     if cfg.strategy=='rsi_hourly_intrabar':
         from .rsi import RSIState
         state=RSIState(cfg.rsi)

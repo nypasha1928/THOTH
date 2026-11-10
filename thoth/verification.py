@@ -9,7 +9,7 @@ STRATEGY_FIELDS=('strategy','timeframe','pivot_long','pivot_short','major','mino
 
 def source_fingerprint():
     h=hashlib.sha256()
-    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/price_sma50.py','thoth/trend_pullback.py','thoth/trend_pullback_live.py','thoth/trend_breakout_live.py','thoth/major_pullback_intrabar.py','thoth/sma_intrabar.py','thoth/intrabar_entry.py','thoth/sr_volume.py','thoth/sr_unfiltered.py','thoth/sr_bounce.py','thoth/inverse_entry_delay.py','thoth/volume_delta.py','thoth/staged_entry.py','thoth/two_direction_gate.py','thoth/closed_two_direction.py','thoth/closed_sr_rsi.py','thoth/delayed_30m.py','thoth/sr_bounce.py','thoth/order_block.py','thoth/order_block_sr.py','thoth/closed_order_block_sr.py','thoth/entry_diagnostics.py','thoth/signal_stretch.py','thoth/order_block_exit.py','reference/order_block_salem_uploaded.pine','thoth/rsi.py','thoth/daily_sr_rsi.py','reference/volume_delta_vwap_uploaded.pine','reference/ml_rsi_900_uploaded.pine','thoth/early_hour.py','thoth/volume_delta_midpoint.py','thoth/volume_delta_windows.py','thoth/late_hour_comparison.py','thoth/timeframes.py','reference/support_resistance.pine'):
+    for relative in ('thoth/indicator.py','thoth/indicator_core.py','thoth/indicator_stream.py','thoth/sma_cross.py','thoth/price_sma50.py','thoth/crypto_ob_strength.py','thoth/trend_pullback.py','thoth/trend_pullback_live.py','thoth/trend_breakout_live.py','thoth/major_pullback_intrabar.py','thoth/sma_intrabar.py','thoth/intrabar_entry.py','thoth/sr_volume.py','thoth/sr_unfiltered.py','thoth/sr_bounce.py','thoth/inverse_entry_delay.py','thoth/volume_delta.py','thoth/staged_entry.py','thoth/two_direction_gate.py','thoth/closed_two_direction.py','thoth/closed_sr_rsi.py','thoth/delayed_30m.py','thoth/sr_bounce.py','thoth/order_block.py','thoth/order_block_sr.py','thoth/closed_order_block_sr.py','thoth/entry_diagnostics.py','thoth/signal_stretch.py','thoth/order_block_exit.py','reference/order_block_salem_uploaded.pine','thoth/rsi.py','thoth/daily_sr_rsi.py','reference/volume_delta_vwap_uploaded.pine','reference/ml_rsi_900_uploaded.pine','thoth/early_hour.py','thoth/volume_delta_midpoint.py','thoth/volume_delta_windows.py','thoth/late_hour_comparison.py','thoth/timeframes.py','reference/support_resistance.pine'):
         path=ROOT/relative
         h.update(relative.encode());h.update(path.read_bytes())
     return h.hexdigest()
@@ -26,6 +26,9 @@ def strategy_fingerprint(cfg):
     values=cfg.model_dump() if hasattr(cfg,'model_dump') else cfg
     parameters={k:values.get(k,'sr_breakout') if k=='strategy' else values.get(k,{}) if k in ('rsi','volume_delta','order_block') else values.get(k,20) if k=='sr_volume_period' else values.get(k,{'early_max_opposing_wick_pct':30,'early_min_distance_atr':.05,'early_max_distance_atr':.5}[k]) if k.startswith('early_') else values[k] for k in STRATEGY_FIELDS}
     if values.get('strategy')=='order_block_sr_1h_early':parameters['direction_filter_version']='1h_closed_sma200_v1'
+    if values.get('strategy')=='crypto_ob_strength_1h_close':
+        from .crypto_ob_strength import THRESHOLDS
+        parameters['crypto_ob_strength_v1']=THRESHOLDS
     return hashlib.sha256(json.dumps(parameters,sort_keys=True).encode()).hexdigest()
 
 

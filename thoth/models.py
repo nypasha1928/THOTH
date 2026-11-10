@@ -62,7 +62,7 @@ class OrderBlockSettings(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     opposite_action: str = Field(default='reverse',pattern=r'^(reverse|close_only)$')
-    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|price_sma50_30m_close|trend_major_pullback_30m_close|trend_major_breakout_30m_close|major_pullback_30m_intrabar|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|volume_delta_1h_midpoint|volume_delta_1h_midpoint_sma7_exit|volume_delta_1h_windows_sma7_14_exit|volume_delta_1h_windows_no_sma_exit|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sr_4h_daily_unfiltered|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|order_block_sr_1h_early|ob_sr_hour_gate|ob_sr_windows_two_direction|ob_sr_30m_close_two_direction|ob_sr_30m_delayed|sr_rsi_30m_delayed|ob_sr_minute_hourly|sr_hourly_intrabar|rsi_hourly_intrabar)$')
+    strategy: str = Field(default='sr_breakout',pattern=r'^(sr_breakout|sma_cross|sma_7_50|price_sma50_30m_close|crypto_ob_strength_1h_close|trend_major_pullback_30m_close|trend_major_breakout_30m_close|major_pullback_30m_intrabar|sr_sma_7_50|sr_rsi_daily|sr_inverse_intrabar|volume_delta_intrabar|volume_delta_1h_midpoint|volume_delta_1h_midpoint_sma7_exit|volume_delta_1h_windows_sma7_14_exit|volume_delta_1h_windows_no_sma_exit|sr_rsi_volume_gate|sr_order_block_gate|sr_volume_intrabar|sr_4h_daily_unfiltered|sma_7_50_intrabar|order_block_intrabar|order_block_sr_intrabar|order_block_sr_1h|order_block_sr_1h_inverted_close|order_block_sr_1h_close|order_block_sr_1h_early|ob_sr_hour_gate|ob_sr_windows_two_direction|ob_sr_30m_close_two_direction|ob_sr_30m_delayed|sr_rsi_30m_delayed|ob_sr_minute_hourly|sr_hourly_intrabar|rsi_hourly_intrabar)$')
     rsi: RSISettings=Field(default_factory=RSISettings)
     volume_delta: VolumeDeltaSettings=Field(default_factory=VolumeDeltaSettings)
     order_block: OrderBlockSettings=Field(default_factory=OrderBlockSettings)
@@ -138,7 +138,7 @@ class Settings(BaseModel):
     entry_weekend_end: str = Field(default='10:45',pattern=r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
     entry_schedule_scope: str = Field(default='main',pattern=r'^(main|tradfi|all)$')
 
-    active_symbol_list: str = Field(default='main',pattern=r'^(main|tradfi|main_leaders|tradfi_leaders)$')
+    active_symbol_list: str = Field(default='main',pattern=r'^(main|tradfi|main_leaders|tradfi_leaders|crypto_ob_candidates)$')
     saved_symbol_lists: dict[str,list[str]] = Field(default_factory=default_symbol_lists)
 
     @model_validator(mode='after')
@@ -147,7 +147,7 @@ class Settings(BaseModel):
         self.saved_symbol_lists={**default_symbol_lists(),**self.saved_symbol_lists}
         self.symbols=[s for s in self.symbols if s not in EXCLUDED_SYMBOLS]
         self.saved_symbol_lists={name:[s for s in values if s not in EXCLUDED_SYMBOLS] for name,values in self.saved_symbol_lists.items()}
-        if set(self.saved_symbol_lists)-{'main','tradfi','main_leaders','tradfi_leaders'}:
+        if set(self.saved_symbol_lists)-{'main','tradfi','main_leaders','tradfi_leaders','crypto_ob_candidates'}:
             raise ValueError('Unknown saved symbol list')
         for name,values in self.saved_symbol_lists.items():
             if len(values)>300 or len(set(values))!=len(values) or any(not re.fullmatch(r'[A-Z0-9]{1,30}USDT',s) for s in values):
@@ -169,6 +169,14 @@ class Settings(BaseModel):
         if self.strategy in ('trend_major_pullback_30m_close','trend_major_breakout_30m_close','major_pullback_30m_intrabar'):
             self.timeframe='30';self.major=True;self.minor=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.sma_exit_enabled=False
+        if self.strategy=='crypto_ob_strength_1h_close':
+            from .crypto_ob_strength import THRESHOLDS,DISABLED_EXITS
+            if any(symbol not in THRESHOLDS for symbol in self.symbols):
+                raise ValueError('Crypto OB Strength requires the Crypto OB Candidates 10 list or a subset')
+            self.timeframe='60';self.opposite_action='reverse';self.stop_dollars=1
+            self.sma_enabled=False;self.sma_7_50_filter_enabled=False
+            self.order_block=OrderBlockSettings(bullish_formed=True,bearish_formed=True,supply_breakout=False,demand_breakdown=False,filter_breaks=False)
+            for field in DISABLED_EXITS:setattr(self,field,False)
         if self.strategy=='price_sma50_30m_close':
             self.timeframe='30';self.sma_exit_enabled=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
