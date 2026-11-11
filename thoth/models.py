@@ -170,10 +170,10 @@ class Settings(BaseModel):
             self.timeframe='30';self.major=True;self.minor=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False;self.sma_exit_enabled=False
         if self.strategy=='crypto_ob_strength_1h_close':
-            from .crypto_ob_strength import THRESHOLDS,DISABLED_EXITS
+            from .crypto_ob_strength import THRESHOLDS,DISABLED_EXITS,STOP_DOLLARS
             if any(symbol not in THRESHOLDS for symbol in self.symbols):
-                raise ValueError('Crypto OB Strength requires the Crypto OB Candidates 10 list or a subset')
-            self.timeframe='60';self.opposite_action='reverse';self.stop_dollars=1
+                raise ValueError('Crypto OB Strength requires the Crypto OB Candidates 15 list or a subset')
+            self.timeframe='60';self.opposite_action='reverse';self.stop_dollars=STOP_DOLLARS
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
             self.order_block=OrderBlockSettings(bullish_formed=True,bearish_formed=True,supply_breakout=False,demand_breakdown=False,filter_breaks=False)
             for field in DISABLED_EXITS:setattr(self,field,False)

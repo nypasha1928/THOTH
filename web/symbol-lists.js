@@ -4,7 +4,7 @@ function renderSymbolLists(){
  let box=$('namedSymbolLists');
  if(!box){
   box=document.createElement('section');box.id='namedSymbolLists';
-  box.innerHTML='<label>Trading symbol list<select id="activeSymbolList"><option value="main">Main · existing selection</option><option value="tradfi">TradFi · USDT perpetuals</option><option value="crypto_ob_candidates">Crypto · OB Strength Candidates 10</option><option value="main_leaders">Main · Market Leaders 50</option><option value="tradfi_leaders">TradFi · Market Leaders 50</option></select></label><p class="note">Each list keeps its own saved selection. Loading changes the draft only; save strategy &amp; trading symbols to apply. One list and one strategy trade at a time. For TradFi select Order Block + S/R · 1h · Volume MA. Exchange availability, verification, leverage and order size are checked separately; inclusion is not a trading guarantee.</p><p class="note">Market Leaders are curated starter selections, not verified live market-cap or volume rankings. TradFi starter: 35 stocks, 8 ETFs, 4 commodities, 3 forex. No automatic rebalancing.</p><button type="button" id="loadMarketLeaders" hidden>Load starter 50 into draft</button><p id="marketLeadersStatus" role="status"></p>';
+  box.innerHTML='<label>Trading symbol list<select id="activeSymbolList"><option value="main">Main · existing selection</option><option value="tradfi">TradFi · USDT perpetuals</option><option value="crypto_ob_candidates">Crypto · OB Strength Candidates 15</option><option value="main_leaders">Main · Market Leaders 50</option><option value="tradfi_leaders">TradFi · Market Leaders 50</option></select></label><p class="note">Each list keeps its own saved selection. Loading changes the draft only; save strategy &amp; trading symbols to apply. One list and one strategy trade at a time. For TradFi select Order Block + S/R · 1h · Volume MA. Exchange availability, verification, leverage and order size are checked separately; inclusion is not a trading guarantee.</p><p class="note">Market Leaders are curated starter selections, not verified live market-cap or volume rankings. TradFi starter: 35 stocks, 8 ETFs, 4 commodities, 3 forex. No automatic rebalancing.</p><button type="button" id="loadMarketLeaders" hidden>Load starter 50 into draft</button><p id="marketLeadersStatus" role="status"></p>';
   $('symbolPanel').prepend(box);
   $('activeSymbolList').onchange=()=>{
    if(symbolsLocked())return;
@@ -17,12 +17,12 @@ function renderSymbolLists(){
  }
  $('activeSymbolList').value=formDraft.active_symbol_list;syncSymbolListLock();
 }
-function syncSymbolListLock(){if($('activeSymbolList'))$('activeSymbolList').disabled=symbolsLocked();if($('loadMarketLeaders')){$('loadMarketLeaders').hidden=!formDraft.active_symbol_list.endsWith('_leaders');$('loadMarketLeaders').disabled=symbolsLocked()}}
+function syncSymbolListLock(){if($('activeSymbolList'))$('activeSymbolList').disabled=symbolsLocked();if($('loadMarketLeaders')){$('loadMarketLeaders').hidden=!(formDraft.active_symbol_list.endsWith('_leaders')||formDraft.active_symbol_list==='crypto_ob_candidates');$('loadMarketLeaders').textContent=formDraft.active_symbol_list==='crypto_ob_candidates'?'Load all 15 strength candidates into draft':'Load starter 50 into draft';$('loadMarketLeaders').disabled=symbolsLocked()}}
 
 async function loadMarketLeaderDraft(){
  if(symbolsLocked())return;
  const group=formDraft.active_symbol_list;
- if(!group.endsWith('_leaders'))return;
+ if(!group.endsWith('_leaders')&&group!=='crypto_ob_candidates')return;
  $('marketLeadersStatus').textContent='Loading curated starter selection…';
  try{
   const data=await api('live/market-leaders');if(symbolsLocked()||formDraft.active_symbol_list!==group)return;

@@ -149,15 +149,20 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate("location.hash='#settings'")
    page.select_option('#strategyLogic','crypto_ob_strength_1h_close')
    expect(page.locator('#activeSymbolList')).to_have_value('crypto_ob_candidates')
-   expect(page.locator('#stop_dollars')).to_have_value('1');expect(page.locator('#stop_dollars')).to_be_disabled()
+   expect(page.locator('#stop_dollars')).to_have_value('0.75');expect(page.locator('#stop_dollars')).to_be_disabled()
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#oppositeAction')).to_have_value('reverse')
    expect(page.locator('#cryptoStrengthValues')).to_contain_text('ETHUSDT')
    expect(page.locator('#cryptoStrengthValues')).to_contain_text('7.45')
-   assert len(page.evaluate('formDraft.symbols'))==10
+   assert len(page.evaluate('formDraft.symbols'))==15
+   page.evaluate("()=>{formDraft.symbols=['ETHUSDT'];formDraft.saved_symbol_lists.crypto_ob_candidates=['ETHUSDT'];renderWatchlist();}")
+   page.click('#loadMarketLeaders')
+   expect(page.locator('#marketLeadersStatus')).to_contain_text('Loaded 15')
+   assert len(page.evaluate('formDraft.symbols'))==15
+   assert page.locator('#max_positions').input_value()==str(original_crypto_cfg['max_positions'])
    for field in ['trailing_enabled','pnl_trailing_enabled','coin_pnl_trailing_enabled','coin_breakeven_enabled','take_profit_enabled']:
     expect(page.locator('#'+field)).not_to_be_checked();expect(page.locator('#'+field)).to_be_disabled()
    page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
-   assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==1
+   assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==.75
    page.select_option('#strategyLogic','price_sma50_30m_close')
    expect(page.locator('#stop_dollars')).to_be_enabled()
    expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()

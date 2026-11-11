@@ -30,7 +30,7 @@ class ApiTests(unittest.TestCase):
         response=self.client.put('/api/live/settings',json={**before,'strategy':STRATEGY,'symbols':list(THRESHOLDS),'active_symbol_list':LIST,'stop_dollars':.15,**{f:True for f in DISABLED_EXITS}})
         self.assertEqual(response.status_code,200,response.text)
         data=response.json();cfg=data['config']
-        self.assertEqual(cfg['stop_dollars'],1);self.assertEqual(cfg['timeframe'],'60');self.assertEqual(cfg['opposite_action'],'reverse')
+        self.assertEqual(cfg['stop_dollars'],.75);self.assertEqual(cfg['timeframe'],'60');self.assertEqual(cfg['opposite_action'],'reverse')
         self.assertFalse(data['entries']);self.assertTrue(all(not cfg[f] for f in DISABLED_EXITS))
         self.assertEqual(cfg['saved_symbol_lists']['main'],before['saved_symbol_lists']['main'])
         self.assertEqual(cfg['max_positions'],before['max_positions'])
