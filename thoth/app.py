@@ -26,6 +26,7 @@ from .trailing_observation import TrailingObservation,ObservationSettings
 from .push_notifications import PushNotifications
 from .late_hour_comparison import LateHourComparison,ComparisonSettings
 from .volume_delta_comparison import VolumeDeltaComparison
+from .crypto_ob_comparison import CryptoOBComparison
 from .trend_pullback import TrendPullbackObservation,ResearchSettings
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ async def lifespan(app):
     trailing_observation.start()
     late_hour_comparison.start()
     volume_delta_comparison.start()
+    crypto_ob_comparison.start()
     trend_pullback.start()
     live.trailing_observer=trailing_observation
     live.start()
@@ -48,6 +50,7 @@ async def lifespan(app):
     live_feed=Runner(adapter,fetch=adapter.fetch)
     live_feed.late_hour_observer=late_hour_comparison
     live_feed.volume_delta_comparison=volume_delta_comparison
+    live_feed.crypto_ob_comparison=crypto_ob_comparison
     live_feed.trend_pullback_observer=trend_pullback
     live_feed.start()
     try:
@@ -58,6 +61,7 @@ async def lifespan(app):
         trailing_observation.stop()
         late_hour_comparison.stop()
         volume_delta_comparison.stop()
+        crypto_ob_comparison.stop()
         trend_pullback.stop()
         phone_alerts.stop()
 
@@ -71,6 +75,7 @@ live = ProductionSupervisor(DATA/'live.sqlite',enabled=os.environ.get('THOTH_ENA
 trailing_observation=TrailingObservation(DATA/'trailing-observation.sqlite',DATA/'live.sqlite')
 late_hour_comparison=LateHourComparison(DATA/'late-hour-comparison.sqlite',DATA/'live.sqlite')
 volume_delta_comparison=VolumeDeltaComparison(DATA/'volume-delta-comparison.sqlite')
+crypto_ob_comparison=CryptoOBComparison(DATA/'crypto-ob-comparison.sqlite')
 trend_pullback=TrendPullbackObservation(DATA/'trend-pullback-observation.sqlite')
 phone_alerts=PushNotifications(DATA/'phone-alerts.sqlite',DATA/'live.sqlite',
     'https://'+PUBLIC_HOST if PUBLIC_HOST else 'mailto:operator@localhost')
@@ -186,6 +191,24 @@ def trend_pullback_report_data(limit,offset):
 @app.put('/api/live/trend-pullback/settings')
 def trend_pullback_settings(settings: ResearchSettings):
     return trend_pullback.configure(settings)
+
+
+@app.get('/api/live/crypto-ob-comparison/export')
+def crypto_ob_comparison_export():
+    return crypto_ob_comparison.report(-1,0)
+
+
+@app.get('/api/live/crypto-ob-comparison')
+def crypto_ob_comparison_report(limit: int=Query(50,ge=1,le=100),offset: int=Query(0,ge=0)):
+    report=crypto_ob_comparison.report(limit,offset)
+    report.update(collection_supported=live.state['config']['strategy']=='crypto_ob_strength_1h_close',
+        market_connected=bool(live.client and live.state['management']))
+    return report
+
+
+@app.put('/api/live/crypto-ob-comparison/settings')
+def crypto_ob_comparison_settings(settings: ComparisonSettings):
+    return crypto_ob_comparison.configure(settings)
 
 
 @app.get('/api/live/volume-delta-comparison/export')

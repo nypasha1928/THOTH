@@ -62,6 +62,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
   chart_older['candles']=old_rows+chart['candles'];chart_older['analysis']=old_bars+chart['analysis'];chart_older['sma']=old_sma+chart['sma']
   stretch_fixture=dict(version=1,timeframe='60',bar=1792296000,closed_at=1792299600,side='Long',atr_basis='Wilder ATR14 including signal candle',atr14=20,range_atr14=1.8,opposing_wick_pct=25,qualification_after_close_seconds=4,close_to_fill_pct=.125,close_to_fill_observed_seconds=9,references=[dict(source='sr:long_resistance_major',label='S/R long-term major resistance',kind='broken_sr_level',price=2400,close_distance_pct=.5,entry_distance_pct=.625)])
   stretch_fixture['references'].append(dict(source='ob:bullish_formed',label='Bullish Order Block formed',kind='formed_block_edge',price=2400,close_distance_pct=.5,entry_distance_pct=.625,block_high=2400,block_low=2395,block_width=5,block_width_atr14=.25))
+  ob_comparison_enabled=[True];ob_comparison_writes=[]
   delta_timing_enabled=[True];delta_timing_writes=[];late_hour_enabled=[True];late_hour_writes=[];refresh_failures=set();held_refresh_failures=set();late_total=[1]
   research_settings=ResearchSettings().model_dump();research_writes=[]
   comparison_writes=[];writes=[];activation=[];errors=[];chart_queries=[];history_many=[];analysis_many=[];alert_items=[];entry_delay_items=[];delta_preview=[False];ob_preview=[False];sr_preview=[False]
@@ -128,6 +129,9 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     if params.get('symbol'):records=[r for r in records if r['symbol']==params['symbol'][0]]
     if params.get('strategy'):records=[r for r in records if r['strategy']==params['strategy'][0]]
     result=analyze(records,params.get('time_basis',['entry'])[0],params.get('source',[None])[0])
+   elif path in ('live/crypto-ob-comparison','live/crypto-ob-comparison/export','live/crypto-ob-comparison/settings'):
+    if method=='PUT':ob_comparison_enabled[0]=req.request.post_data_json['enabled'];ob_comparison_writes.append(ob_comparison_enabled[0])
+    result=dict(enabled=ob_comparison_enabled[0],items=[dict(symbol='ETHUSDT',bar=1792296000,early=dict(signal='Long',price=2400,observed_at=1792296300),closed=dict(signal='Long',price=2405),survived=True,early_price_advantage_pct=.2083)],total=1,paper={name:dict(closed_trades=2,closed_net=.3,unverified_episodes=0) for name in ('intrabar','closed')},error=None,dropped=0,latest_observed_at=1792296300,collection_supported=True,market_connected=True)
    elif path=='phone-alerts':result=dict(public_key='',devices=[],recent_pauses=[])
    elif path.startswith('connection'):result=dict(verified=False,configured=False,reason='Browser fixture: no credentials',balance=None,balance_reason='Not connected')
    elif path in payloads:
@@ -1445,6 +1449,16 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
 
 
    page.click('[data-page-link=analysis]');
+   expect(page.locator('#obComparePanel')).to_be_visible()
+   assert not page.locator('#obComparePanel').evaluate('(e)=>e.open')
+   page.locator('#obComparePanel > summary').click()
+   expect(page.locator('#obCompareRows')).to_contain_text('Confirmed')
+   expect(page.locator('#obCompareTotals')).to_contain_text('2 paper closes')
+   page.uncheck('#obCompareEnabled');expect(page.locator('#obCompareBadge')).to_contain_text('OFF')
+   page.check('#obCompareEnabled');expect(page.locator('#obCompareBadge')).to_contain_text('ON')
+   assert ob_comparison_writes==[False,True]
+   page.locator('#obComparePanel > summary').click()
+
    assert not page.locator('#scanChecksPanel').evaluate('(el)=>el.open')
    page.locator('#scanChecksPanel > summary').click()
    expect(page.locator('#scanChecksRows')).to_contain_text('No qualifying S/R or RSI signal')
