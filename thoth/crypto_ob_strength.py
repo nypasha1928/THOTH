@@ -8,7 +8,7 @@ THRESHOLDS={'LDOUSDT':.005,'UNIUSDT':.1,'WIFUSDT':.0019,'LINKUSDT':.107,
     'ETHUSDT':7.45,'SEIUSDT':.00081,
     'BNBUSDT':2.58,'AVAXUSDT':.07,'OPUSDT':.00235,'POLUSDT':.00087,'ENAUSDT':.004}
 DISABLED_EXITS=('sma_exit_enabled','sma_ob_exit_enabled','trailing_enabled',
-    'pnl_trailing_enabled','coin_pnl_trailing_enabled','coin_breakeven_enabled','take_profit_enabled')
+    'coin_breakeven_enabled','take_profit_enabled')
 
 class StrengthState:
     def __init__(self,symbol,checkpoint=None,interval='60'):

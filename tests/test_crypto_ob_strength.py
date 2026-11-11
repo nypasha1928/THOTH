@@ -32,6 +32,15 @@ class StrengthTests(unittest.TestCase):
   with self.assertRaises(ValueError):Settings(strategy=STRATEGY,symbols=['BTCUSDT'])
   other=Settings(strategy='sma_7_50',symbols=['BTCUSDT'],stop_dollars=.4,coin_breakeven_enabled=True)
   self.assertEqual(other.stop_dollars,.4);self.assertTrue(other.coin_breakeven_enabled)
+ def test_combined_and_per_coin_trailing_are_optional_and_persist(self):
+  for combined,coin in [(False,False),(True,False),(False,True),(True,True)]:
+   cfg=TestnetSettings(strategy=STRATEGY,symbols=['ETHUSDT'],pnl_trailing_enabled=combined,
+       coin_pnl_trailing_enabled=coin,pnl_trailing_activation_dollars=2,pnl_trailing_drop_dollars=.25,
+       coin_pnl_trailing_activation_dollars=1,coin_pnl_trailing_drop_dollars=.1)
+   saved=TestnetSettings(**cfg.model_dump())
+   self.assertEqual(saved.pnl_trailing_enabled,combined);self.assertEqual(saved.coin_pnl_trailing_enabled,coin)
+   self.assertEqual(saved.pnl_trailing_activation_dollars,2);self.assertEqual(saved.coin_pnl_trailing_drop_dollars,.1)
+   self.assertEqual(saved.stop_dollars,.75);self.assertFalse(saved.coin_breakeven_enabled)
  def test_upgrade_preserves_saved_subset_and_account_risk_settings(self):
   legacy=list(THRESHOLDS)[:10]
   cfg=TestnetSettings(strategy=STRATEGY,symbols=legacy,active_symbol_list=LIST,

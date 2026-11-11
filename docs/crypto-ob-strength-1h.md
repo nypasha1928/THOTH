@@ -56,8 +56,12 @@ attachment/verification and existing protective-failure close handling. The
 independent account monitor also enforces the position's dollar loss limit.
 Fees, slippage, gaps and exchange availability can increase actual loss.
 
-Price trailing, per-coin P&L trailing, combined open-P&L trailing, per-coin
-breakeven, take profit and SMA/OB auxiliary exits are off in this profile.
+Combined open-P&L trailing and per-coin P&L trailing are independently configurable
+in Settings. Neither is enabled automatically. They apply to currently managed
+positions when enabled; whichever exit triggers first applies. Changing their
+settings can reset untriggered peaks, as described by the existing controls.
+Price trailing, per-coin breakeven, take profit and SMA/OB auxiliary exits remain
+off in this profile.
 Position size, leverage and Maximum Positions remain the operator's settings;
 there is no hardcoded ten-position limit. Account daily/period protection,
 loss cooldowns and scheduled entry/cutoff controls remain active.
@@ -127,3 +131,15 @@ $0.75 is150% of the operator's $0.50 testing unit. At$50 notional and20x leverag
 below it, but fees, slippage, simultaneous losses and other account protections
 mean an overall close cannot be ruled out. No fixed relationship is promised
 at different sizing or leverage.
+
+## Trailing controls and separate timeframe research
+
+Combined Open P&L trailing and per-coin P&L trailing are now available for this
+profile. The live timeframe remains closed1h and its fixed stop remains$0.75;
+unlocking the controls does not select settings or enable live orders.
+
+The requested closed30m-confirmed / 1h intrabar variant and $0.50 stop are research
+only. They are not substituted into this live profile. Existing 1h-only candle
+uploads cannot reconstruct intrabar or multi-coin trailing results. One-minute
+ETH snapshots permit an initial ETH-only comparison, not a15-coin portfolio
+comparison or a ranking of combined versus per-coin trailing.

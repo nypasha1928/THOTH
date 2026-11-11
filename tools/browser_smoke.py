@@ -159,9 +159,13 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#marketLeadersStatus')).to_contain_text('Loaded 15')
    assert len(page.evaluate('formDraft.symbols'))==15
    assert page.locator('#max_positions').input_value()==str(original_crypto_cfg['max_positions'])
-   for field in ['trailing_enabled','pnl_trailing_enabled','coin_pnl_trailing_enabled','coin_breakeven_enabled','take_profit_enabled']:
+   for field in ['trailing_enabled','coin_breakeven_enabled','take_profit_enabled']:
     expect(page.locator('#'+field)).not_to_be_checked();expect(page.locator('#'+field)).to_be_disabled()
+   for field in ['pnl_trailing_enabled','coin_pnl_trailing_enabled']:
+    expect(page.locator('#'+field)).to_be_enabled()
+    page.locator('#'+field).check()
    page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
+   assert writes[-1][1]['pnl_trailing_enabled'] and writes[-1][1]['coin_pnl_trailing_enabled']
    assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==.75
    page.select_option('#strategyLogic','price_sma50_30m_close')
    expect(page.locator('#stop_dollars')).to_be_enabled()
