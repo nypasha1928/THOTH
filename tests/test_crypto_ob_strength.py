@@ -23,14 +23,28 @@ def candles(n=200):
 class StrengthTests(unittest.TestCase):
  def test_policy_catalogue_and_other_profiles_unchanged(self):
   cfg=TestnetSettings(strategy=STRATEGY,symbols=list(THRESHOLDS),timeframe='1',stop_dollars=.15,opposite_action='close_only',**{f:True for f in DISABLED_EXITS})
-  self.assertEqual(cfg.timeframe,'60');self.assertEqual(cfg.stop_dollars,1);self.assertEqual(cfg.opposite_action,'reverse')
+  self.assertEqual(cfg.timeframe,'60');self.assertEqual(cfg.stop_dollars,.75);self.assertEqual(cfg.opposite_action,'reverse')
   self.assertTrue(all(not getattr(cfg,f) for f in DISABLED_EXITS))
   self.assertFalse(cfg.order_block.supply_breakout or cfg.order_block.demand_breakdown)
   self.assertEqual(cfg.max_positions,3) # no hardcoded maximum or forced leverage/sizing
-  self.assertEqual(cfg.saved_symbol_lists[LIST],list(THRESHOLDS))
+  self.assertEqual(cfg.saved_symbol_lists[LIST],list(THRESHOLDS));self.assertEqual(len(THRESHOLDS),15)
+  self.assertEqual({s:THRESHOLDS[s] for s in ['BNBUSDT','AVAXUSDT','OPUSDT','POLUSDT','ENAUSDT']},{'BNBUSDT':2.58,'AVAXUSDT':.07,'OPUSDT':.00235,'POLUSDT':.00087,'ENAUSDT':.004})
   with self.assertRaises(ValueError):Settings(strategy=STRATEGY,symbols=['BTCUSDT'])
   other=Settings(strategy='sma_7_50',symbols=['BTCUSDT'],stop_dollars=.4,coin_breakeven_enabled=True)
   self.assertEqual(other.stop_dollars,.4);self.assertTrue(other.coin_breakeven_enabled)
+ def test_upgrade_preserves_saved_subset_and_account_risk_settings(self):
+  legacy=list(THRESHOLDS)[:10]
+  cfg=TestnetSettings(strategy=STRATEGY,symbols=legacy,active_symbol_list=LIST,
+      saved_symbol_lists={LIST:legacy},stop_dollars=1,max_positions=7,leverage=18,
+      portfolio_loss_enabled=True,portfolio_loss_pct=35,portfolio_loss_basis='all_margin')
+  self.assertEqual(cfg.stop_dollars,.75)
+  self.assertEqual(cfg.symbols,legacy);self.assertEqual(cfg.saved_symbol_lists[LIST],legacy)
+  self.assertEqual(cfg.max_positions,7);self.assertEqual(cfg.leverage,18)
+  self.assertEqual(cfg.portfolio_loss_pct,35);self.assertEqual(cfg.portfolio_loss_basis,'all_margin')
+  self.assertTrue(cfg.portfolio_loss_enabled)
+  for symbol in ['BNBUSDT','AVAXUSDT','OPUSDT','POLUSDT','ENAUSDT']:
+   candidate=Settings(strategy=STRATEGY,symbols=[symbol])
+   self.assertEqual(candidate.symbols,[symbol]);self.assertEqual(candidate.stop_dollars,.75)
  def test_closed_only_checkpoint_and_no_break_signals(self):
   rows=candles();state=StrengthState('ETHUSDT');actual=[]
   for i,row in enumerate(rows):
@@ -78,7 +92,7 @@ class ExecutionTests(unittest.TestCase):
     runner.cycle(paced=False);self.assertFalse(exchange.orders) # baseline, no forming entry
     now[0]=rows[first]['time']+D+5;runner.cycle(paced=False)
     self.assertEqual(len(exchange.orders),1,(runner.health,service.state['events'][-5:]))
-    record=service.journal.records()[0];self.assertEqual(float(record['stop_dollars']),1)
+    record=service.journal.records()[0];self.assertEqual(float(record['stop_dollars']),.75)
     self.assertEqual(record['instrument']['thoth_crypto_ob_strength']['minimum_strength'],7.45)
     self.assertIn('stopLoss',record['payload']);fill()
     owner=service.state['owned']['ETHUSDT'];self.assertEqual(owner['crypto_ob_strength']['signal_bar'],rows[first]['time'])

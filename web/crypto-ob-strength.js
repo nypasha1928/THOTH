@@ -7,15 +7,15 @@ function resetCryptoStrengthLocks(){for(const input of document.querySelectorAll
 function syncCryptoStrengthSettings(){
  const active=$('strategyLogic').value===cryptoStrengthStrategy;
  let section=$('cryptoStrengthSettings');
- if(!section){section=document.createElement('details');section.id='cryptoStrengthSettings';section.innerHTML='<summary>Crypto Order Block · Per-coin strengths</summary><p class="note">Research candidates, not proven optimal settings. CLOSED 1h formations only; breaks, S/R, RSI, SMA and volume filters are not used. Opposite qualifying formation closes, reconciles, then reverses subject to risk checks. Fixed $1 gross hard stop; fees/slippage can increase loss. Trailing, breakeven, take profit and SMA exits are off. Saved position size, leverage, Maximum Positions, account protections, schedules and cooldowns remain active. Study used $50 per position. One strategy/list runs at a time.</p><div id="cryptoStrengthValues"></div>';$('fields').append(section);}
+ if(!section){section=document.createElement('details');section.id='cryptoStrengthSettings';section.innerHTML='<summary>Crypto Order Block · Per-coin strengths</summary><p class="note">Research candidates, not proven optimal settings. CLOSED 1h formations only; breaks, S/R, RSI, SMA and volume filters are not used. Opposite qualifying formation closes, reconciles, then reverses subject to risk checks. Fixed $0.75 gross hard stop; fees/slippage can increase loss. Trailing, breakeven, take profit and SMA exits are off. Saved position size, leverage, Maximum Positions, account protections, schedules and cooldowns remain active. Study used $50 per position. One strategy/list runs at a time.</p><div id="cryptoStrengthValues"></div>';$('fields').append(section);}
  section.hidden=!active;
  if(!active)return;
  section.open=true;
  const lock=(id,value,checkbox=false)=>{const input=$(id);if(!input)return;if(checkbox)input.checked=value;else input.value=value;input.disabled=true;input.dataset.cryptoStrengthLock='1';};
- lock('strategyTf','60');lock('oppositeAction','reverse');lock('stop_dollars',1);
+ lock('strategyTf','60');lock('oppositeAction','reverse');lock('stop_dollars',.75);
  for(const id of cryptoStrengthOff)lock(id,false,true);
  if($('rsiSettings'))$('rsiSettings').hidden=true;
- $('strategyDescription').textContent='Crypto Order Block · CLOSED 1h · per-coin raw strength · $1 stop · opposite formation reversal. Select Crypto · OB Strength Candidates 10 (or a subset). No RSI, S/R, breaks or trailing. Account limits remain active; this does not enable orders.';
+ $('strategyDescription').textContent='Crypto Order Block · CLOSED 1h · per-coin raw strength · $0.75 stop · opposite formation reversal. Select Crypto · OB Strength Candidates 15 (or a subset). No RSI, S/R, breaks or trailing. Account limits remain active; this does not enable orders.';
  if(cryptoStrengthData){
   const box=$('cryptoStrengthValues');box.replaceChildren();
   const table=document.createElement('table');const caption=document.createElement('caption');caption.textContent='Minimum block high − low, in raw quote-price units';table.append(caption);

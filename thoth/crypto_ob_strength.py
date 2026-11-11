@@ -1,10 +1,12 @@
 """Fixed research-candidate crypto universe; closed formations only, raw quote widths."""
 STRATEGY='crypto_ob_strength_1h_close'
 LIST='crypto_ob_candidates'
-NAME='Crypto Order Block · 1h Close · Per-coin Strength · $1 Stop'
+STOP_DOLLARS=.75
+NAME='Crypto Order Block · 1h Close · Per-coin Strength · $0.75 Stop'
 THRESHOLDS={'LDOUSDT':.005,'UNIUSDT':.1,'WIFUSDT':.0019,'LINKUSDT':.107,
     'JASMYUSDT':.000052,'GRTUSDT':.00033,'JUPUSDT':.0045,'GALAUSDT':.000021,
-    'ETHUSDT':7.45,'SEIUSDT':.00081}
+    'ETHUSDT':7.45,'SEIUSDT':.00081,
+    'BNBUSDT':2.58,'AVAXUSDT':.07,'OPUSDT':.00235,'POLUSDT':.00087,'ENAUSDT':.004}
 DISABLED_EXITS=('sma_exit_enabled','sma_ob_exit_enabled','trailing_enabled',
     'pnl_trailing_enabled','coin_pnl_trailing_enabled','coin_breakeven_enabled','take_profit_enabled')
 
