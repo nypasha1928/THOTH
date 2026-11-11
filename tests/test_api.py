@@ -27,11 +27,14 @@ class ApiTests(unittest.TestCase):
         from thoth.crypto_ob_strength import STRATEGY,LIST,THRESHOLDS,DISABLED_EXITS
         from test_crypto_ob_strength import candles
         before=self.client.get('/api/live').json()['config']
-        response=self.client.put('/api/live/settings',json={**before,'strategy':STRATEGY,'symbols':list(THRESHOLDS),'active_symbol_list':LIST,'stop_dollars':.15,**{f:True for f in DISABLED_EXITS}})
+        response=self.client.put('/api/live/settings',json={**before,'strategy':STRATEGY,'symbols':list(THRESHOLDS),'active_symbol_list':LIST,'stop_dollars':.15,**{f:True for f in DISABLED_EXITS},'pnl_trailing_enabled':True,'coin_pnl_trailing_enabled':True})
         self.assertEqual(response.status_code,200,response.text)
         data=response.json();cfg=data['config']
-        self.assertEqual(cfg['stop_dollars'],.75);self.assertEqual(cfg['timeframe'],'60');self.assertEqual(cfg['opposite_action'],'reverse')
+        self.assertEqual(cfg['stop_dollars'],.5);self.assertEqual(cfg['timeframe'],'60');self.assertEqual(cfg['opposite_action'],'reverse')
         self.assertFalse(data['entries']);self.assertTrue(all(not cfg[f] for f in DISABLED_EXITS))
+        self.assertFalse(cfg['pnl_trailing_enabled']);self.assertTrue(cfg['coin_pnl_trailing_enabled'])
+        self.assertEqual(cfg['coin_pnl_trailing_activation_dollars'],5);self.assertEqual(cfg['coin_pnl_trailing_drop_dollars'],.1)
+        self.assertTrue(cfg['crypto_ob_exit_preset_applied'])
         self.assertEqual(cfg['saved_symbol_lists']['main'],before['saved_symbol_lists']['main'])
         self.assertEqual(cfg['max_positions'],before['max_positions'])
         catalogue=self.client.get('/api/live/market-leaders').json()

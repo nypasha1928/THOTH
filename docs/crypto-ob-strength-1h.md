@@ -1,4 +1,4 @@
-# Crypto Order Block · 1h Close · Per-coin Strength · $0.75 Stop
+# Crypto Order Block · 1h Close · Per-coin Strength · $0.50 Stop
 
 A separate selectable strategy (`crypto_ob_strength_1h_close`) and saved list
 **Crypto · OB Strength Candidates 15**. Selecting it loads the candidate list into
@@ -50,19 +50,29 @@ not ATR, volume, or a percentage. No automatic optimization or rebalancing.
 
 ## Protection policy
 
-Selecting this strategy sets and locks the **$0.75 gross stop per new position**.
+Selecting this strategy sets and locks the **$0.50 gross stop per new position**.
 It uses the normal journaled Bybit MarkPrice stop with post-fill protection
 attachment/verification and existing protective-failure close handling. The
 independent account monitor also enforces the position's dollar loss limit.
 Fees, slippage, gaps and exchange availability can increase actual loss.
 
-Price trailing, per-coin P&L trailing, combined open-P&L trailing, per-coin
-breakeven, take profit and SMA/OB auxiliary exits are off in this profile.
+The agreed preset enables per-coin open-P&L trailing with a **$5.00 trigger** and
+**$0.10 fixed-dollar drop**. Combined Open-P&L trailing and breakeven are OFF in
+the preset. Values are staged in the paused settings draft and applied on Save;
+opening the page does not enable orders or silently rewrite live settings.
+The first explicit settings save also applies these defaults for API callers.
+A persisted preset-applied marker preserves subsequent trailing edits. The
+"Apply agreed stop / trailing preset" button can restore the agreed values.
+Trailing controls remain editable. When enabled they apply to managed existing
+positions too; whichever exit triggers first applies. Changing settings can
+reset untriggered peaks, as described by the controls.
+Price trailing, per-coin breakeven, take profit and SMA/OB auxiliary exits remain
+off in this profile.
 Position size, leverage and Maximum Positions remain the operator's settings;
 there is no hardcoded ten-position limit. Account daily/period protection,
 loss cooldowns and scheduled entry/cutoff controls remain active.
 Existing positions retain their originally recorded dollar stop; choosing this
-profile does not replace their protection with $0.75.
+profile does not replace their protection with $0.50.
 
 The research used $50 notional, all hours, no account cooldowns or portfolio
 constraints; it does not predict results at another size or reproduce live
@@ -127,3 +137,42 @@ $0.75 is150% of the operator's $0.50 testing unit. At$50 notional and20x leverag
 below it, but fees, slippage, simultaneous losses and other account protections
 mean an overall close cannot be ruled out. No fixed relationship is promised
 at different sizing or leverage.
+
+## Trailing controls and separate timeframe research
+
+The earlier update unlocked both P&L trailing controls. The current agreed preset
+keeps closed1h entries, uses a $0.50 stop for new positions, enables per-coin
+trailing at $5/$0.10 and disables combined trailing on first explicit Save.
+
+The requested closed30m-confirmed / 1h intrabar variant remains research only;
+no intrabar or30m signal stage is substituted into this live profile. Existing 1h-only candle
+uploads cannot reconstruct intrabar or multi-coin trailing results. One-minute
+ETH snapshots permit an initial ETH-only comparison, not a15-coin portfolio
+comparison or a ranking of combined versus per-coin trailing.
+
+## Agreed profit-protection preset
+
+- Hard stop: $0.50 gross per NEW position (100% of the operator's $0.50 testing unit).
+- Per-coin trailing: ON; activation $5.00 (1000% of that unit).
+- Fixed trailing drop/action: $0.10 (20% of that unit), from the observed gross P&L peak.
+- Combined trailing and breakeven: OFF in the preset.
+- Entry: existing CLOSED1h strength-qualified formation; no30m stage/intrabar.
+- Sizing, leverage,15candidate strengths, Maximum Positions, schedules and account
+  daily/overall protection are not changed by applying this preset.
+
+For example, an observed $5.50 peak makes the trailing threshold $5.40. It is
+not a $0.10 absolute target and not a10% percentage decline from the peak.
+Activation and monitoring remain server sampled; actual realized P&L is affected
+by fees, slippage and execution delays. No profitability guarantee.
+
+After merge/deployment, pause entries, open this strategy in Settings, verify
+stop0.50 / per-coin ON / trigger5.00 / drop0.10 / combined OFF, and Save. If an
+existing custom draft is retained, click Apply agreed stop / trailing preset
+first. Save does not enable entries. Existing positions keep their original
+hard stops; the new per-coin trailing settings can manage them after Save.
+
+Tests include a $4.50 observed profit that does not activate, a $5.50 peak that
+activates with a $5.40 threshold, and a later $5.35 observation that requests a
+reduce-only trailing close. Explicit preset save preserves an existing $0.75
+owner/exchange stop. First-save defaults and subsequent editable trailing
+settings, API persistence and browser draft/save are covered.

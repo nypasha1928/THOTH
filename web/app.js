@@ -92,7 +92,7 @@ function renderSettings(){
  renderOrderBlockSettings(c.order_block||{});
  $('settingsTitle').textContent='LIVE strategy & risk';
  $('settingsGroup').disabled=tn.entries;
- dirty=false;formDraft={...c,symbols:[...c.symbols],saved_symbol_lists:structuredClone(c.saved_symbol_lists||{main:c.symbols,tradfi:[]}),active_symbol_list:c.active_symbol_list||'main'};renderSymbolLists();renderWatchlist();
+ dirty=false;formDraft={...c,symbols:[...c.symbols],saved_symbol_lists:structuredClone(c.saved_symbol_lists||{main:c.symbols,tradfi:[]}),active_symbol_list:c.active_symbol_list||'main'};renderSymbolLists();renderWatchlist();if(typeof stageCryptoStrengthExitPreset==='function')stageCryptoStrengthExitPreset();
 }
 function symbolsLocked(){return selectedAccount().entries}
 function matchesSearch(x){return x.selectable&&inActiveSymbolCatalogue(x)&&x.original.toUpperCase().includes($('search').value.trim().toUpperCase())}
