@@ -23,6 +23,20 @@ class ApiTests(unittest.TestCase):
         self.feed_patch.stop()
         self.tmp.cleanup()
 
+    def test_crypto_ob_observation_api_never_changes_live_settings(self):
+        from thoth.crypto_ob_comparison import CryptoOBComparison
+        observer=CryptoOBComparison(Path(self.tmp.name)/'comparison.sqlite')
+        before=self.client.get('/api/live').json()['config']
+        with patch('thoth.app.crypto_ob_comparison',observer):
+            report=self.client.get('/api/live/crypto-ob-comparison').json()
+            self.assertTrue(report['enabled']);self.assertEqual(report['total'],0)
+            self.assertFalse(report['collection_supported'])
+            self.assertEqual(self.client.get('/api/live/crypto-ob-comparison/export').status_code,200)
+            changed=self.client.put('/api/live/crypto-ob-comparison/settings',json={'enabled':False})
+            self.assertEqual(changed.status_code,200);self.assertFalse(changed.json()['enabled'])
+            self.assertEqual(self.client.get('/api/live/crypto-ob-comparison?limit=500').status_code,422)
+        self.assertEqual(before,self.client.get('/api/live').json()['config'])
+
     def test_crypto_strength_profile_catalogue_fixed_stop_and_filtered_chart(self):
         from thoth.crypto_ob_strength import STRATEGY,LIST,THRESHOLDS,DISABLED_EXITS
         from test_crypto_ob_strength import candles

@@ -1041,6 +1041,10 @@ class Runner:
                     raise ValueError('Stale or future market data')
                 history = self.history(symbol, cfg.timeframe, rows)
                 if cfg.strategy=='price_sma50_30m_close':self.observe_trend_pullback(symbol,cfg,rows,sample_timings.get(symbol,{}).get('sample_received_at',now))
+                observer=getattr(self,'crypto_ob_comparison',None)
+                if observer is not None and cfg.strategy=='crypto_ob_strength_1h_close':
+                    try:observer.submit(symbol,cfg,history,sample_timings.get(symbol,{}).get('sample_received_at',now))
+                    except Exception:pass  # Independent research cannot affect LIVE execution.
                 result,count = self.analysis(symbol,cfg,history,now)
                 if count < (2 if cfg.strategy==DAILY_COMBINED else cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50','price_sma50_30m_close') else 14 if cfg.strategy=='crypto_ob_strength_1h_close' else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')

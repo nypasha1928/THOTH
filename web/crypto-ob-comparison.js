@@ -1,0 +1,26 @@
+let obCompareOffset=0,obCompareLoading=false;
+function cryptoOBComparisonMarkup(){return `<details class="card" id="obComparePanel"><summary>Order Block Strength · Intrabar versus 1h Close · <span id="obCompareBadge">ON · observation</span></summary><p>Parallel observation only. Your LIVE strategy still waits for the hourly candle to close. Uses the same per-coin strength thresholds and saved sizing, hard stop and per-coin trailing.</p><p>Sampled paper results include modeled fees/slippage, but exclude account-wide controls, maximum-position limits, combined trailing and funding. Open paper P&amp;L is excluded. Missed prices and signals cannot be reconstructed; gaps over 120 seconds mark open episodes unverified. Collection needs the selected Crypto OB Strength strategy and a connected market worker; this panel may stay collapsed.</p><label><input type="checkbox" id="obCompareEnabled" checked> Enable intrabar observation</label><div class="row"><button id="obCompareRefresh" type="button">Refresh</button><button id="obCompareCopy" type="button">Copy all comparisons</button></div><p id="obCompareStatus" role="status"></p><p id="obCompareTotals"></p><div class="table-scroll"><table><thead><tr><th>Hour / coin</th><th>First early signal</th><th>Hourly close</th><th>Survived / price advantage</th><th>Evidence</th></tr></thead><tbody id="obCompareRows"></tbody></table></div><div class="row"><button id="obComparePrevious">← Newer</button><span id="obComparePage"></span><button id="obCompareNext">Older →</button></div><textarea id="obCompareFallback" hidden readonly aria-label="OB comparison copy" style="width:100%;min-height:180px"></textarea></details>`}
+function bindCryptoOBComparison(){
+ $('obCompareRefresh').onclick=()=>{obCompareOffset=0;loadCryptoOBComparison()};
+ $('obComparePrevious').onclick=()=>{obCompareOffset=Math.max(0,obCompareOffset-50);loadCryptoOBComparison()};
+ $('obCompareNext').onclick=()=>{obCompareOffset+=50;loadCryptoOBComparison()};
+ $('obComparePanel').ontoggle=()=>{if($('obComparePanel').open)loadCryptoOBComparison()};
+ $('obCompareEnabled').onchange=async()=>{const box=$('obCompareEnabled'),enabled=box.checked;box.disabled=true;try{await api('live/crypto-ob-comparison/settings','PUT',{enabled});await loadCryptoOBComparison()}catch(e){box.checked=!enabled;$('obCompareStatus').textContent=e.message}finally{box.disabled=false}};
+ $('obCompareCopy').onclick=async()=>{try{const report=await api('live/crypto-ob-comparison/export'),text=JSON.stringify(report,null,2);try{await navigator.clipboard.writeText(text);$('obCompareStatus').textContent='Copied all '+report.total+' retained observations.'}catch{const box=$('obCompareFallback');box.value=text;box.hidden=false;box.focus();box.select()}}catch(e){$('obCompareStatus').textContent=e.message}};
+}
+async function loadCryptoOBComparison(){
+ if(obCompareLoading)return;obCompareLoading=true;
+ try{
+  const data=await api('live/crypto-ob-comparison?limit=50&offset='+obCompareOffset);
+  $('obCompareEnabled').checked=data.enabled;$('obCompareBadge').textContent=data.enabled?'ON · observation only':'OFF';$('obCompareRows').replaceChildren();
+  for(const item of data.items){
+   const row=document.createElement('tr'),details=document.createElement('details'),summary=document.createElement('summary'),pre=document.createElement('pre');summary.textContent='Show evidence';pre.textContent=JSON.stringify(item,null,2);pre.style.whiteSpace='pre-wrap';details.append(summary,pre);
+   const sample=x=>x?(x.signal||'No signal')+' · '+marketPrice(x.price)+(x.observed_at?' · '+chartTime(x.observed_at):''):'Not observed';
+   const result=item.closed?(item.early?(item.survived?'Confirmed':'Not confirmed'):'No early signal'):'Awaiting hourly observation';
+   for(const value of [chartTime(item.bar)+' · '+item.symbol,sample(item.early),sample(item.closed),result+(item.early_price_advantage_pct==null?'':' · '+Number(item.early_price_advantage_pct).toFixed(3)+'% better early price'),details]){const cell=document.createElement('td');if(value instanceof Node)cell.append(value);else cell.textContent=value;row.append(cell)}$('obCompareRows').append(row);
+  }
+  $('obCompareTotals').textContent=['intrabar','closed'].map(k=>k+': '+data.paper[k].closed_trades+' paper closes · '+money(data.paper[k].closed_net)+' net · '+data.paper[k].unverified_episodes+' unverified episodes').join(' | ');
+  $('obCompareStatus').textContent=data.total+' retained observations'+(data.collection_supported===false?' · Select Crypto OB Strength to collect':'')+(data.market_connected===false?' · Market worker disconnected':'')+(data.latest_observed_at?' · Last sample '+chartTime(data.latest_observed_at):' · Waiting for future samples')+(data.error?' · '+data.error:'')+(data.dropped?' · Dropped '+data.dropped:'')+' · Price advantage compares hourly close, not actual fills.';
+  $('obComparePage').textContent='Page '+(Math.floor(obCompareOffset/50)+1)+' of '+Math.max(1,Math.ceil(data.total/50));$('obComparePrevious').disabled=!obCompareOffset;$('obCompareNext').disabled=obCompareOffset+50>=data.total;
+ }catch(e){$('obCompareStatus').textContent='Comparison unavailable: '+e.message}finally{obCompareLoading=false}
+}
