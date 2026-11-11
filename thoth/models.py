@@ -74,6 +74,7 @@ class Settings(BaseModel):
     position_value: float = Field(default=50, gt=0, le=100000, allow_inf_nan=False)
     leverage: int = Field(default=20, ge=1, le=100)
     stop_dollars: float = Field(default=1, gt=0, allow_inf_nan=False)
+    crypto_ob_exit_preset_applied: bool = False
     take_profit_enabled: bool = False
     take_profit_dollars: float = Field(default=1,gt=0,le=1000000,allow_inf_nan=False)
     sma_exit_enabled: bool = True

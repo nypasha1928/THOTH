@@ -217,6 +217,8 @@ class TestnetSupervisor:
         return analyze(records,time_basis,source)
 
     def configure(self,cfg):
+        from .crypto_ob_strength import apply_exit_preset
+        cfg=apply_exit_preset(cfg)
         with self.lock:
             self.state=self.load()
             if self.state['entries']:raise ValueError('Pause '+self.label+' entries before editing settings')

@@ -116,6 +116,8 @@ class Engine:
             return result
 
     def configure(self, cfg):
+        from .crypto_ob_strength import apply_exit_preset
+        cfg=apply_exit_preset(cfg)
         with self.transaction() as db:
             s = self.load(db)
             if any(p['symbol'] not in cfg.symbols for p in s['positions']):

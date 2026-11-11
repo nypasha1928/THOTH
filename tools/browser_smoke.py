@@ -149,7 +149,7 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    page.evaluate("location.hash='#settings'")
    page.select_option('#strategyLogic','crypto_ob_strength_1h_close')
    expect(page.locator('#activeSymbolList')).to_have_value('crypto_ob_candidates')
-   expect(page.locator('#stop_dollars')).to_have_value('0.75');expect(page.locator('#stop_dollars')).to_be_disabled()
+   expect(page.locator('#stop_dollars')).to_have_value('0.5');expect(page.locator('#stop_dollars')).to_be_disabled()
    expect(page.locator('#strategyTf')).to_have_value('60');expect(page.locator('#oppositeAction')).to_have_value('reverse')
    expect(page.locator('#cryptoStrengthValues')).to_contain_text('ETHUSDT')
    expect(page.locator('#cryptoStrengthValues')).to_contain_text('7.45')
@@ -163,10 +163,15 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
     expect(page.locator('#'+field)).not_to_be_checked();expect(page.locator('#'+field)).to_be_disabled()
    for field in ['pnl_trailing_enabled','coin_pnl_trailing_enabled']:
     expect(page.locator('#'+field)).to_be_enabled()
-    page.locator('#'+field).check()
+   expect(page.locator('#coin_pnl_trailing_enabled')).to_be_checked()
+   expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
+   expect(page.locator('#coin_pnl_trailing_activation_dollars')).to_have_value('5')
+   expect(page.locator('#coin_pnl_trailing_drop_dollars')).to_have_value('0.1')
    page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
-   assert writes[-1][1]['pnl_trailing_enabled'] and writes[-1][1]['coin_pnl_trailing_enabled']
-   assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==.75
+   assert not writes[-1][1]['pnl_trailing_enabled'] and writes[-1][1]['coin_pnl_trailing_enabled']
+   assert writes[-1][1]['coin_pnl_trailing_activation_dollars']==5 and writes[-1][1]['coin_pnl_trailing_drop_dollars']==.1
+   assert writes[-1][1]['crypto_ob_exit_preset_applied']
+   assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==.5
    page.select_option('#strategyLogic','price_sma50_30m_close')
    expect(page.locator('#stop_dollars')).to_be_enabled()
    expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()

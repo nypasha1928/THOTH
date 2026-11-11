@@ -1,8 +1,10 @@
 """Fixed research-candidate crypto universe; closed formations only, raw quote widths."""
 STRATEGY='crypto_ob_strength_1h_close'
 LIST='crypto_ob_candidates'
-STOP_DOLLARS=.75
-NAME='Crypto Order Block · 1h Close · Per-coin Strength · $0.75 Stop'
+STOP_DOLLARS=.5
+TRAILING_ACTIVATION_DOLLARS=5
+TRAILING_DROP_DOLLARS=.1
+NAME='Crypto Order Block · 1h Close · Per-coin Strength · $0.50 Stop'
 THRESHOLDS={'LDOUSDT':.005,'UNIUSDT':.1,'WIFUSDT':.0019,'LINKUSDT':.107,
     'JASMYUSDT':.000052,'GRTUSDT':.00033,'JUPUSDT':.0045,'GALAUSDT':.000021,
     'ETHUSDT':7.45,'SEIUSDT':.00081,
@@ -53,3 +55,17 @@ def validate_entry(symbol,side,context,now):
     except (KeyError,TypeError,ValueError):raise ValueError('Recorded Order Block boundaries required') from None
     if not isfinite(width) or width<THRESHOLDS[symbol]:raise ValueError('Order Block below per-coin strength')
     return details
+
+
+def apply_exit_preset(cfg):
+    """Apply the agreed profit protection on explicit first settings save only.
+
+    Once saved, trailing controls remain editable and later saves preserve them.
+    Existing owner stops are not rewritten and no entry permission is changed.
+    """
+    if cfg.strategy!=STRATEGY or cfg.crypto_ob_exit_preset_applied:return cfg
+    return type(cfg)(**{**cfg.model_dump(),
+        'crypto_ob_exit_preset_applied':True,'coin_pnl_trailing_enabled':True,
+        'coin_pnl_trailing_activation_dollars':TRAILING_ACTIVATION_DOLLARS,
+        'coin_pnl_trailing_drop_dollars':TRAILING_DROP_DOLLARS,
+        'pnl_trailing_enabled':False,'coin_breakeven_enabled':False})
