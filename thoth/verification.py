@@ -29,6 +29,9 @@ def strategy_fingerprint(cfg):
     if values.get('strategy')=='crypto_ob_strength_1h_close':
         from .crypto_ob_strength import THRESHOLDS
         parameters['crypto_ob_strength_v1']=THRESHOLDS
+    if values.get('strategy')=='crypto_ob_strength_sma200_closeonly':
+        from .crypto_ob_sma200 import POLICY
+        parameters['crypto_ob_sma200_v1']=POLICY
     return hashlib.sha256(json.dumps(parameters,sort_keys=True).encode()).hexdigest()
 
 

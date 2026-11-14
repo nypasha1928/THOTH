@@ -52,8 +52,10 @@ def evaluate(rows, cfg, now=None, *, symbol=None):
             raise ValueError('Invalid candle price')
         if not (r['low'] <= min(r['open'],r['close']) <= max(r['open'],r['close']) <= r['high']):
             raise ValueError('Invalid candle range')
-    if cfg.strategy=='crypto_ob_strength_1h_close':
+    if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly'):
         from .crypto_ob_strength import StrengthState
+        if cfg.strategy=='crypto_ob_strength_sma200_closeonly':
+            from .crypto_ob_sma200 import StrengthState
         symbol=symbol or (cfg.symbols[0] if len(cfg.symbols)==1 else None)
         if symbol is None:raise ValueError('Per-coin Order Block strength requires a symbol')
         state=StrengthState(symbol,interval=cfg.timeframe)

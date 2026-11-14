@@ -37,6 +37,22 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/live/crypto-ob-comparison?limit=500').status_code,422)
         self.assertEqual(before,self.client.get('/api/live').json()['config'])
 
+    def test_crypto_sma200_automatic_entry_exit_table_and_policy(self):
+        from thoth.crypto_ob_sma200 import STRATEGY,THRESHOLDS,EXIT_THRESHOLDS
+        catalogue=self.client.get('/api/live/market-leaders').json()['crypto_ob_sma200']
+        self.assertEqual(catalogue['entry_thresholds'],THRESHOLDS)
+        self.assertEqual(catalogue['exit_thresholds'],EXIT_THRESHOLDS)
+        self.assertEqual(catalogue['exit_thresholds']['GRTUSDT'],.00032)
+        cfg=self.client.get('/api/live').json()['config']
+        result=self.client.put('/api/live/settings',json={**cfg,'strategy':STRATEGY,'symbols':list(THRESHOLDS)})
+        self.assertEqual(result.status_code,200,result.text)
+        data=result.json();self.assertTrue(data['entry_filters']['sma200']['enabled'])
+        self.assertEqual(data['entry_filters']['crypto_ob_sma200']['exit_thresholds'],EXIT_THRESHOLDS)
+        self.assertEqual(data['config']['opposite_action'],'close_only')
+        self.assertEqual(data['config']['coin_pnl_trailing_activation_dollars'],5)
+        self.assertFalse(data['entries'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy='+STRATEGY).status_code,200)
+
     def test_crypto_strength_profile_catalogue_fixed_stop_and_filtered_chart(self):
         from thoth.crypto_ob_strength import STRATEGY,LIST,THRESHOLDS,DISABLED_EXITS
         from test_crypto_ob_strength import candles

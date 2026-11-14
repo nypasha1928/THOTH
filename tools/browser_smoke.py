@@ -176,6 +176,21 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['coin_pnl_trailing_activation_dollars']==5 and writes[-1][1]['coin_pnl_trailing_drop_dollars']==.1
    assert writes[-1][1]['crypto_ob_exit_preset_applied']
    assert writes[-1][1]['strategy']=='crypto_ob_strength_1h_close' and writes[-1][1]['stop_dollars']==.5
+   page.select_option('#strategyLogic','crypto_ob_strength_sma200_closeonly')
+   expect(page.locator('#cryptoStrengthSettings')).to_be_visible()
+   expect(page.locator('#cryptoStrengthSettings')).to_contain_text('3.0303% lower')
+   expect(page.locator('#cryptoStrengthValues tr')).to_have_count(16)
+   expect(page.locator('#cryptoStrengthValues tr').filter(has_text='GRTUSDT')).to_contain_text('0.00033')
+   expect(page.locator('#cryptoStrengthValues tr').filter(has_text='GRTUSDT')).to_contain_text('0.00032')
+   expect(page.locator('#oppositeAction')).to_have_value('close_only')
+   expect(page.locator('#oppositeAction')).to_be_disabled()
+   expect(page.locator('#strategyTf')).to_have_value('60')
+   expect(page.locator('#stop_dollars')).to_have_value('0.5')
+   page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
+   assert writes[-1][1]['strategy']=='crypto_ob_strength_sma200_closeonly'
+   assert writes[-1][1]['opposite_action']=='close_only' and writes[-1][1]['crypto_ob_sma200_preset_applied']
+   assert writes[-1][1]['coin_pnl_trailing_activation_dollars']==5 and writes[-1][1]['coin_pnl_trailing_drop_dollars']==.1
+   page.wait_for_function("formDraft.strategy==='crypto_ob_strength_sma200_closeonly' && !dirty")
    page.select_option('#strategyLogic','price_sma50_30m_close')
    expect(page.locator('#stop_dollars')).to_be_enabled()
    expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
