@@ -3,6 +3,7 @@ const cryptoStrengthStrategy='crypto_ob_strength_1h_close';
 const cryptoSMAStrategy='crypto_ob_strength_sma200_closeonly';
 const isCryptoStrength=()=>[cryptoStrengthStrategy,cryptoSMAStrategy].includes($('strategyLogic').value);
 let cryptoExitStrengthData=null;
+const formatCryptoExitStrength=value=>Number(Number(value).toPrecision(3)).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:20});
 const cryptoStrengthList='crypto_ob_candidates';
 const cryptoStrengthOff=['sma_enabled','sma_7_50_filter_enabled','sma_exit_enabled','sma_ob_exit_enabled','trailing_enabled','coin_breakeven_enabled','take_profit_enabled'];
 let cryptoStrengthData=null,cryptoStrengthLoading=false;
@@ -25,9 +26,14 @@ function syncCryptoStrengthSettings(){
  $('strategyDescription').textContent=relaxed?'Crypto OB · CLOSED 1h · SMA200 entry filter · Opposite exit minimum 3.03% lower (32/33), close only. Settings table lists each coin’s entry and exit strengths. $0.50 stop; preset per-coin trailing $5 trigger / $0.10 drop, combined OFF. Save to apply; does not enable orders.':'Crypto Order Block · CLOSED 1h · per-coin raw strength · $0.50 stop · opposite formation reversal. Select Crypto · OB Strength Candidates 15 (or a subset). No RSI, S/R or breaks. Agreed per-coin trailing: trigger $5 / fixed drop $0.10; combined OFF. Save to apply; trailing controls remain editable. Account limits remain active; this does not enable orders.';
  if(cryptoStrengthData){
   const box=$('cryptoStrengthValues');box.replaceChildren();
-  const table=document.createElement('table');const caption=document.createElement('caption');caption.textContent='Minimum block high − low, in raw quote-price units';table.append(caption);
+  const table=document.createElement('table');const caption=document.createElement('caption');caption.textContent='Minimum block high − low, in raw quote-price units'+(relaxed?'. Exit values rounded for display only; trading uses full precision.':'');table.append(caption);
   const header=document.createElement('tr');for(const title of (relaxed?['Coin','Entry minimum','Opposite exit minimum · 3.03% lower']:['Coin','Entry minimum'])){const cell=document.createElement('th');cell.scope='col';cell.textContent=title;header.append(cell);}table.append(header);
-  for(const [symbol,width]of Object.entries(cryptoStrengthData)){const row=document.createElement('tr');for(const value of (relaxed?[symbol,String(width),cryptoExitStrengthData?.[symbol]!=null?String(cryptoExitStrengthData[symbol]):'Unavailable']:[symbol,String(width)])){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}table.append(row);}box.append(table);
+  for(const [symbol,width]of Object.entries(cryptoStrengthData)){
+   const row=document.createElement('tr'),exit=cryptoExitStrengthData?.[symbol];
+   const values=relaxed?[symbol,String(width),exit!=null?formatCryptoExitStrength(exit):'Unavailable']:[symbol,String(width)];
+   values.forEach((value,index)=>{const cell=document.createElement('td');cell.textContent=value;if(relaxed&&index===2&&exit!=null){cell.title='Exact exit minimum: '+String(exit);if(Number(value)!==exit)cell.textContent='≈ '+value;}row.append(cell);});
+   table.append(row);
+  }box.append(table);
  }else if(!cryptoStrengthLoading){
   cryptoStrengthLoading=true;$('cryptoStrengthValues').textContent='Loading per-coin thresholds…';
   api('live/market-leaders').then(data=>{cryptoStrengthData=data.crypto_ob_strengths;cryptoExitStrengthData=data.crypto_ob_sma200?.exit_thresholds;cryptoStrengthLoading=false;if(cryptoStrengthData)syncCryptoStrengthSettings();else $('cryptoStrengthValues').textContent='Threshold catalogue unavailable; refresh after deploying the matching server update.';}).catch(error=>{cryptoStrengthLoading=false;$('cryptoStrengthValues').textContent='Could not load thresholds: '+error.message;});

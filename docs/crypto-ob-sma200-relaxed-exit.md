@@ -14,7 +14,7 @@ The original Crypto OB Strength strategy remains available.
 
 ## Automatic settings for all 15 coins
 
-Settings → Strategy → **Crypto OB · 1h Close · SMA200 · 3.03% Lower Exit** opens a table with **Entry minimum** and **Opposite exit minimum** for every candidate. No threshold entry is required.
+Settings → Strategy → **Crypto OB · 1h Close · SMA200 · 3.03% Lower Exit** opens a table with **Entry minimum** and **Opposite exit minimum** for every candidate. No threshold entry is required. Exit minima display three significant digits (for example, LDO shows approximately 0.00485). Hover over a value to see its exact minimum. Display rounding never changes the trading threshold.
 
 The fixed exit multiplier is **32/33**, approximately **3.0303% lower**. This preserves the requested GRT example exactly: **0.00033 → 0.00032**. It is not a rounded 3% multiplier. Calculations use the full derived values; this documentation table limits display precision.
 
