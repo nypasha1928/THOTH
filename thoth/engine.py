@@ -163,6 +163,9 @@ class Engine:
                 raise ValueError('Position already open in this direction')
             current['mark'] = order.price
             self.close(s, current, 'Opposite paper signal')
+            if s['settings']['strategy']=='crypto_ob_strength_sma200_closeonly':
+                s['signals']=(s['signals']+[order.signal_id])[-10000:]
+                return True
             self.risk(s)
         cfg = s['settings']
         if s['status'] == 'running':
@@ -222,6 +225,11 @@ class Engine:
                 if previous is None or not observation.get('signal') or s['status'] != 'running':
                     continue
                 try:
+                    if cfg['strategy']=='crypto_ob_strength_sma200_closeonly':
+                        from .crypto_ob_sma200 import validate_entry,validate_exit
+                        held=next((p for p in s['positions'] if p['symbol']==symbol),None)
+                        check=validate_exit if held else validate_entry
+                        check(symbol,observation['signal'],observation.get('entry_context'),utcnow().timestamp())
                     self._place(s, PaperOrder(symbol=symbol, side=observation['signal'],
                         price=observation['mark'], signal_id=f'{identity}:{symbol}:{stamp}'), origin='automatic')
                 except ValueError as exc:

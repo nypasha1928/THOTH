@@ -63,9 +63,11 @@ def apply_exit_preset(cfg):
     Once saved, trailing controls remain editable and later saves preserve them.
     Existing owner stops are not rewritten and no entry permission is changed.
     """
-    if cfg.strategy!=STRATEGY or cfg.crypto_ob_exit_preset_applied:return cfg
+    from .crypto_ob_sma200 import STRATEGY as SMA200_STRATEGY
+    flag='crypto_ob_sma200_preset_applied' if cfg.strategy==SMA200_STRATEGY else 'crypto_ob_exit_preset_applied'
+    if cfg.strategy not in (STRATEGY,SMA200_STRATEGY) or getattr(cfg,flag):return cfg
     return type(cfg)(**{**cfg.model_dump(),
-        'crypto_ob_exit_preset_applied':True,'coin_pnl_trailing_enabled':True,
+        flag:True,'coin_pnl_trailing_enabled':True,
         'coin_pnl_trailing_activation_dollars':TRAILING_ACTIVATION_DOLLARS,
         'coin_pnl_trailing_drop_dollars':TRAILING_DROP_DOLLARS,
         'pnl_trailing_enabled':False,'coin_breakeven_enabled':False})
