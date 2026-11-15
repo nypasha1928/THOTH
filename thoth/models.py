@@ -178,7 +178,9 @@ class Settings(BaseModel):
             self.timeframe='60';self.opposite_action='close_only' if self.strategy=='crypto_ob_strength_sma200_closeonly' else 'reverse';self.stop_dollars=STOP_DOLLARS
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False
             self.order_block=OrderBlockSettings(bullish_formed=True,bearish_formed=True,supply_breakout=False,demand_breakdown=False,filter_breaks=False)
-            for field in DISABLED_EXITS:setattr(self,field,False)
+            for field in DISABLED_EXITS:
+                if field=='coin_breakeven_enabled' and self.strategy=='crypto_ob_strength_sma200_closeonly':continue
+                setattr(self,field,False)
         if self.strategy=='price_sma50_30m_close':
             self.timeframe='30';self.sma_exit_enabled=False
             self.sma_enabled=False;self.sma_7_50_filter_enabled=False

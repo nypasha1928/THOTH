@@ -70,4 +70,5 @@ def apply_exit_preset(cfg):
         flag:True,'coin_pnl_trailing_enabled':True,
         'coin_pnl_trailing_activation_dollars':TRAILING_ACTIVATION_DOLLARS,
         'coin_pnl_trailing_drop_dollars':TRAILING_DROP_DOLLARS,
-        'pnl_trailing_enabled':False,'coin_breakeven_enabled':False})
+        'pnl_trailing_enabled':False,
+        'coin_breakeven_enabled':cfg.coin_breakeven_enabled if cfg.strategy==SMA200_STRATEGY else False})

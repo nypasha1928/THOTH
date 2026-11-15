@@ -38,6 +38,19 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse(cfg.pnl_trailing_enabled)
         cfg=TestnetSettings(**{**cfg.model_dump(),'coin_pnl_trailing_activation_dollars':4})
         self.assertEqual(apply_exit_preset(cfg).coin_pnl_trailing_activation_dollars,4)
+    def test_optional_breakeven_survives_preset_and_save(self):
+        from thoth.crypto_ob_strength import STRATEGY as OLD
+        cfg=TestnetSettings(strategy=STRATEGY,symbols=['ETHUSDT'],coin_breakeven_enabled=True,
+            coin_breakeven_trigger_dollars=.5,coin_breakeven_action_dollars=.1)
+        for enabled in (True,False):
+            updated=TestnetSettings(**{**cfg.model_dump(),'coin_breakeven_enabled':enabled})
+            agreed=apply_exit_preset(updated)
+            saved=TestnetSettings(**agreed.model_dump())
+            self.assertEqual(saved.coin_breakeven_enabled,enabled)
+            self.assertEqual((saved.coin_breakeven_trigger_dollars,saved.coin_breakeven_action_dollars),(.5,.1))
+            self.assertEqual((saved.timeframe,saved.opposite_action,saved.stop_dollars),('60','close_only',.5))
+        old=TestnetSettings(strategy=OLD,symbols=['ETHUSDT'],coin_breakeven_enabled=True)
+        self.assertFalse(old.coin_breakeven_enabled)
     def test_entry_sma_permission_both_sides_and_equality_missing(self):
         now=BASE+D+5
         for side,sma in [('Long',90),('Short',110)]:validate_entry('ETHUSDT',side,context(side,sma=sma),now)
@@ -167,6 +180,28 @@ class ExecutionTests(unittest.TestCase):
             service.pause()
             with self.assertRaises(ValueError):service.configure(TestnetSettings(**{**service.state['config'],'strategy':STRATEGY}))
             self.assertEqual(service.state['config']['strategy'],OLD)
+    def test_enable_breakeven_on_existing_position_and_close_at_fixed_action(self):
+        now=[BASE+D+5]
+        with tempfile.TemporaryDirectory() as tmp:
+            service,exchange,cfg=self.setup_service(tmp,now)
+            current=TestnetSettings(**service.state['config'])
+            service._entry('ETHUSDT','Long',BASE,'fixture',current,context())
+            order=list(exchange.orders.values())[-1];exchange.fill(order['orderLinkId']);now[0]+=.1;service.monitor()
+            owner=service.state['owned']['ETHUSDT'];link=owner['link'];stop=owner['stop_dollars']
+            service.pause()
+            cfg=TestnetSettings(**{**service.state['config'],'coin_breakeven_enabled':True,
+                'coin_breakeven_trigger_dollars':.5,'coin_breakeven_action_dollars':.1})
+            service.configure(cfg)
+            self.assertEqual(len(exchange.orders),1)
+            self.assertEqual(service.state['owned']['ETHUSDT']['link'],link)
+            self.assertEqual(service.state['owned']['ETHUSDT']['stop_dollars'],stop)
+            exchange.prices['ETHUSDT']=101.2;now[0]+=2;service.monitor()
+            self.assertTrue(service.state['owned']['ETHUSDT']['coin_breakeven']['active'])
+            self.assertEqual(len(exchange.orders),1)
+            exchange.prices['ETHUSDT']=100.15;now[0]+=2;service.monitor()
+            self.assertEqual(len(exchange.orders),2)
+            self.assertTrue(list(exchange.orders.values())[-1]['reduceOnly'])
+            self.assertEqual(service.state['owned']['ETHUSDT']['reason'],'Per-coin Breakeven')
     def test_direct_entry_revalidation_and_missing_sma_blocks(self):
         now=[BASE+D+5]
         with tempfile.TemporaryDirectory() as tmp:

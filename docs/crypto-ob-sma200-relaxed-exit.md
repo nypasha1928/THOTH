@@ -40,7 +40,7 @@ The saved candidate list may be a subset; all 15 thresholds remain visible. Maxi
 
 ## Protection preset
 
-Explicit first save of this strategy applies the agreed per-coin P&L trailing **ON**, trigger **$5**, fixed drop **$0.10**, combined trailing **OFF**. Trailing controls remain editable after the preset. New entries use the strategy's **$0.50 hard stop**. Breakeven, price trailing, take profit and SMA exits are off for this profile. Account risk limits, cooldowns and schedules remain active. Threshold qualification does not bypass risk checks.
+Explicit first save of this strategy applies the agreed per-coin P&L trailing **ON**, trigger **$5**, fixed drop **$0.10**, combined trailing **OFF**. Trailing controls remain editable after the preset. New entries use the strategy's **$0.50 hard stop**. Per-coin breakeven is optional and editable, off by default. Saving or applying the trailing preset preserves an explicitly selected breakeven setting and its trigger/action amounts. When enabled it also applies to current managed positions; normal settings-reset behavior still applies. Price trailing, take profit and SMA exits remain off for this profile. Account risk limits, cooldowns and schedules remain active. Threshold qualification does not bypass risk checks.
 
 ## Switch without closing current positions
 
