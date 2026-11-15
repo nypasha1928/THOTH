@@ -44,13 +44,16 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(catalogue['exit_thresholds'],EXIT_THRESHOLDS)
         self.assertEqual(catalogue['exit_thresholds']['GRTUSDT'],.00032)
         cfg=self.client.get('/api/live').json()['config']
-        result=self.client.put('/api/live/settings',json={**cfg,'strategy':STRATEGY,'symbols':list(THRESHOLDS)})
+        result=self.client.put('/api/live/settings',json={**cfg,'strategy':STRATEGY,'symbols':list(THRESHOLDS),'coin_breakeven_enabled':True,'coin_breakeven_trigger_dollars':.5,'coin_breakeven_action_dollars':.1})
         self.assertEqual(result.status_code,200,result.text)
         data=result.json();self.assertTrue(data['entry_filters']['sma200']['enabled'])
         self.assertEqual(data['entry_filters']['crypto_ob_sma200']['exit_thresholds'],EXIT_THRESHOLDS)
         self.assertEqual(data['config']['opposite_action'],'close_only')
         self.assertEqual(data['config']['coin_pnl_trailing_activation_dollars'],5)
         self.assertFalse(data['entries'])
+        saved=self.client.get('/api/live').json()['config']
+        self.assertTrue(saved['coin_breakeven_enabled'])
+        self.assertEqual((saved['coin_breakeven_trigger_dollars'],saved['coin_breakeven_action_dollars']),(.5,.1))
         self.assertEqual(self.client.get('/api/live/analysis?strategy='+STRATEGY).status_code,200)
 
     def test_crypto_strength_profile_catalogue_fixed_stop_and_filtered_chart(self):

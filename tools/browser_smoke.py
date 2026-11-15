@@ -186,7 +186,10 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    expect(page.locator('#oppositeAction')).to_be_disabled()
    expect(page.locator('#strategyTf')).to_have_value('60')
    expect(page.locator('#stop_dollars')).to_have_value('0.5')
+   expect(page.locator('#coin_breakeven_enabled')).to_be_enabled()
+   page.check('#coin_breakeven_enabled');page.fill('#coin_breakeven_trigger_dollars','0.5');page.fill('#coin_breakeven_action_dollars','0.1')
    page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
+   assert writes[-1][1]['coin_breakeven_enabled'] and writes[-1][1]['coin_breakeven_trigger_dollars']==.5 and writes[-1][1]['coin_breakeven_action_dollars']==.1
    assert writes[-1][1]['strategy']=='crypto_ob_strength_sma200_closeonly'
    assert writes[-1][1]['opposite_action']=='close_only' and writes[-1][1]['crypto_ob_sma200_preset_applied']
    assert writes[-1][1]['coin_pnl_trailing_activation_dollars']==5 and writes[-1][1]['coin_pnl_trailing_drop_dollars']==.1

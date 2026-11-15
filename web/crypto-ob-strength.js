@@ -18,10 +18,10 @@ function syncCryptoStrengthSettings(){
  section.open=true;
  section.querySelector('summary').textContent=relaxed?'Crypto OB · SMA200 · Entry / exit strengths':'Crypto Order Block · Per-coin strengths';
  if(!section.dataset.originalNote)section.dataset.originalNote=section.querySelector('p').textContent;
- section.querySelector('p').textContent=relaxed?'CLOSED 1h formed Order Blocks only. Entry needs the original per-coin strength and close above SMA200 for Long or below for Short. Equal price or fewer than 200 closed candles: no entry. Opposite formation closes only at 32/33 of entry strength (3.0303% lower); SMA200 does not block exits. No reversal from the exit signal. Price crossing SMA200 alone does not exit. GRT: entry 0.00033 / exit 0.00032. Fixed $0.50 hard stop; preset per-coin trailing $5 trigger / $0.10 fixed drop, combined OFF. Saved sizing and account protections remain active. Pause entries before saving. Switching from the original Crypto OB Strength profile keeps protected open positions and their hard stops; pending entries or closes must settle first. Fresh opposite hourly formations use the lower exit strength. These thresholds are research settings, not a profit guarantee.':section.dataset.originalNote;
+ section.querySelector('p').textContent=relaxed?'CLOSED 1h formed Order Blocks only. Entry needs the original per-coin strength and close above SMA200 for Long or below for Short. Equal price or fewer than 200 closed candles: no entry. Opposite formation closes only at 32/33 of entry strength (3.0303% lower); SMA200 does not block exits. No reversal from the exit signal. Price crossing SMA200 alone does not exit. GRT: entry 0.00033 / exit 0.00032. Fixed $0.50 hard stop; preset per-coin trailing $5 trigger / $0.10 fixed drop, combined OFF. Per-coin breakeven is optional and editable; its saved trigger and action apply when enabled. Saved sizing and account protections remain active. Pause entries before saving. Switching from the original Crypto OB Strength profile keeps protected open positions and their hard stops; pending entries or closes must settle first. Fresh opposite hourly formations use the lower exit strength. These thresholds are research settings, not a profit guarantee.':section.dataset.originalNote;
  const lock=(id,value,checkbox=false)=>{const input=$(id);if(!input)return;if(checkbox)input.checked=value;else input.value=value;input.disabled=true;input.dataset.cryptoStrengthLock='1';};
  lock('strategyTf','60');lock('oppositeAction',relaxed?'close_only':'reverse');lock('stop_dollars',.5);
- for(const id of cryptoStrengthOff)lock(id,false,true);
+ for(const id of cryptoStrengthOff){if(relaxed&&id==='coin_breakeven_enabled')continue;lock(id,false,true);}
  if($('rsiSettings'))$('rsiSettings').hidden=true;
  $('strategyDescription').textContent=relaxed?'Crypto OB · CLOSED 1h · SMA200 entry filter · Opposite exit minimum 3.03% lower (32/33), close only. Settings table lists each coin’s entry and exit strengths. $0.50 stop; preset per-coin trailing $5 trigger / $0.10 drop, combined OFF. Save to apply; does not enable orders.':'Crypto Order Block · CLOSED 1h · per-coin raw strength · $0.50 stop · opposite formation reversal. Select Crypto · OB Strength Candidates 15 (or a subset). No RSI, S/R or breaks. Agreed per-coin trailing: trigger $5 / fixed drop $0.10; combined OFF. Save to apply; trailing controls remain editable. Account limits remain active; this does not enable orders.';
  if(cryptoStrengthData){
@@ -53,7 +53,7 @@ function applyCryptoStrengthExitPresetDraft(){
  $('coin_pnl_trailing_activation_dollars').value=5;
  $('coin_pnl_trailing_drop_dollars').value=.1;
  $('pnl_trailing_enabled').checked=false;
- $('coin_breakeven_enabled').checked=false;
+ if($('strategyLogic').value!==cryptoSMAStrategy)$('coin_breakeven_enabled').checked=false;
  formDraft[$('strategyLogic').value===cryptoSMAStrategy?'crypto_ob_sma200_preset_applied':'crypto_ob_exit_preset_applied']=true;dirty=true;
  $('cryptoExitPresetStatus').textContent='Draft: $0.50 stop; per-coin trailing ON · trigger $5.00 · fixed drop $0.10; combined OFF. Save settings to apply.';
 }
