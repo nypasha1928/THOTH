@@ -38,11 +38,13 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(before,self.client.get('/api/live').json()['config'])
 
     def test_crypto_hours_catalogue_preset_and_entry_only_policy(self):
-        from thoth.crypto_ob_hours import STRATEGY,LIST,THRESHOLDS,EXIT_THRESHOLDS
+        from thoth.crypto_ob_hours import STRATEGY,LIST,THRESHOLDS,ENTRY_THRESHOLDS,EXIT_THRESHOLDS
         before=self.client.get('/api/live').json()['config']
         catalogue=self.client.get('/api/live/market-leaders').json()
-        self.assertEqual(set(catalogue[LIST]),set(THRESHOLDS))
-        self.assertEqual(catalogue['crypto_ob_hours']['entry_thresholds'],THRESHOLDS)
+        self.assertEqual(set(catalogue[LIST]),set(ENTRY_THRESHOLDS))
+        self.assertEqual(len(catalogue[LIST]),48)
+        self.assertEqual(catalogue['crypto_ob_hours']['entry_thresholds'],ENTRY_THRESHOLDS)
+        self.assertEqual(catalogue['crypto_ob_hours']['excluded_zero_strength_symbols'],['INJUSDT','WLDUSDT'])
         self.assertEqual(catalogue['crypto_ob_hours']['exit_thresholds'],EXIT_THRESHOLDS)
         response=self.client.put('/api/live/settings',json={**before,'strategy':STRATEGY,'symbols':list(THRESHOLDS),'active_symbol_list':LIST})
         self.assertEqual(response.status_code,200,response.text)

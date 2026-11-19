@@ -5,7 +5,7 @@ from datetime import datetime,timedelta
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
-from thoth.crypto_ob_hours import STRATEGY,LIST,THRESHOLDS,EXIT_THRESHOLDS,POLICY,StrengthState,validate_entry,validate_exit,entry_block_reason
+from thoth.crypto_ob_hours import STRATEGY,LIST,THRESHOLDS,EXIT_THRESHOLDS,POLICY,StrengthState,validate_entry,validate_exit,entry_block_reason,ENTRY_THRESHOLDS,ZERO_STRENGTH_SYMBOLS
 from thoth.crypto_ob_strength import THRESHOLDS as OLD_THRESHOLDS,apply_exit_preset
 from thoth.crypto_ob_sma200 import STRATEGY as OLD_STRATEGY
 from thoth.models import Settings,TestnetSettings
@@ -35,9 +35,23 @@ class PolicyTests(unittest.TestCase):
         cfg=Settings(strategy=STRATEGY,symbols=list(THRESHOLDS),timeframe='1',opposite_action='reverse',coin_breakeven_enabled=True)
         self.assertEqual((cfg.timeframe,cfg.opposite_action,cfg.stop_dollars),('60','close_only',.5))
         self.assertFalse(cfg.coin_breakeven_enabled)
-        self.assertEqual(set(cfg.saved_symbol_lists[LIST]),set(THRESHOLDS))
+        self.assertEqual(set(cfg.saved_symbol_lists[LIST]),set(ENTRY_THRESHOLDS))
+        self.assertEqual(len(ENTRY_THRESHOLDS),48)
         with self.assertRaises(ValueError):Settings(strategy=OLD_STRATEGY,symbols=['BTCUSDT'])
         with self.assertRaises(ValueError):Settings(strategy=STRATEGY,symbols=['NVDAUSDT'])
+    def test_zero_minima_block_entries_but_validate_legacy_opposite_exits(self):
+        now=stamp(14)
+        for symbol in ZERO_STRENGTH_SYMBOLS:
+            ctx=context(now,'Short',8,90);details=ctx['crypto_ob_strength']
+            details.update(symbol=symbol,entry_minimum=0,exit_minimum=0)
+            details['entry_formation']['minimum_strength']=0
+            details['exit_formation']['minimum_strength']=0
+            # Legacy configurations must still load so positions remain monitored.
+            cfg=Settings(strategy=STRATEGY,symbols=[symbol])
+            self.assertEqual(cfg.symbols,[symbol])
+            validate_exit(symbol,'Short',ctx,now)
+            with self.assertRaisesRegex(ValueError,'Zero OB minimum strength'):validate_entry(symbol,'Short',ctx,now)
+
     def test_all_hours_both_dst_offsets_and_exact_boundaries(self):
         for month in (7,11):
             for hour in range(24):
@@ -143,6 +157,33 @@ class ExecutionTests(unittest.TestCase):
                 service._entry('ETHUSDT','Long',int(now[0])//D*D-D,'boundary',settings,ctx)
             self.assertEqual(len(guards),1)
             self.assertTrue(guards[0]);self.assertFalse(exchange.orders)
+    def test_zero_strength_execution_block_and_legacy_position_exit(self):
+        now=[stamp(4)]
+        with tempfile.TemporaryDirectory() as tmp:
+            service,exchange,cfg=self.service(tmp,now);service.pause()
+            service.configure(TestnetSettings(**{**service.state['config'],'symbols':['INJUSDT']}))
+            service.activate(service.confirmation);exchange.prices['INJUSDT']=100
+            cfg=Settings(**{k:v for k,v in service.state['config'].items() if k in Settings.model_fields}).model_dump()
+            def zero_context(side):
+                ctx=context(now[0],side);d=ctx['crypto_ob_strength']
+                d.update(symbol='INJUSDT',entry_minimum=0,exit_minimum=0)
+                d['entry_formation']['minimum_strength']=0;d['exit_formation']['minimum_strength']=0
+                return ctx
+            current=TestnetSettings(**service.state['config']);ctx=zero_context('Long')
+            service._entry('INJUSDT','Long',int(now[0])//D*D-D,'blocked',current,ctx)
+            self.assertFalse(exchange.orders)
+            # Fixture only: represent an already protected position from before this update.
+            with patch('thoth.crypto_ob_hours.validate_entry',return_value=ctx):
+                service._entry('INJUSDT','Long',int(now[0])//D*D-D,'legacy-fixture',current,ctx)
+            self.assertEqual(len(exchange.orders),1)
+            exchange.fill(list(exchange.orders.values())[-1]['orderLinkId']);now[0]+=.1;service.monitor()
+            service.apply_signals(cfg,{'INJUSDT':dict(time=int(now[0])//D*D-D,mark=100,signal=None)})
+            now[0]=stamp(5);ctx=zero_context('Short')
+            service.apply_signals(cfg,{'INJUSDT':dict(time=int(now[0])//D*D-D,mark=100,signal='Short',entry_context=ctx)})
+            self.assertEqual(len(exchange.orders),2)
+            self.assertTrue(list(exchange.orders.values())[-1]['reduceOnly'])
+            self.assertFalse(service.state['reversals'])
+
     def test_switch_from_current_sma_profile_preserves_protected_position(self):
         now=[stamp(4)]
         with tempfile.TemporaryDirectory() as tmp:

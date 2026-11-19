@@ -59,14 +59,19 @@ THRESHOLDS = {'1000BONKUSDT': 2.6e-05,
  'XRPUSDT': 0.0158,
  'ZECUSDT': 26.27}
 
+# Keep the complete historical map for legacy positions' exit validation.
+ENTRY_THRESHOLDS = {s:v for s,v in THRESHOLDS.items() if v>0}
+ZERO_STRENGTH_SYMBOLS = tuple(s for s,v in THRESHOLDS.items() if v<=0)
+
 STRATEGY = 'crypto_ob_strength_sma200_hours'
 NAME = 'Crypto OB · 1h Close · SMA200 · 6-Hour Entry Block'
 EXIT_THRESHOLDS = {s: float(Decimal(str(v))*32/33) for s,v in THRESHOLDS.items()}
 POLICY = dict(strategy=STRATEGY, exit_ratio_numerator=32, exit_ratio_denominator=33,
-              exit_reduction_pct=100/33, entry_thresholds=dict(THRESHOLDS),
+              exit_reduction_pct=100/33, entry_thresholds=dict(ENTRY_THRESHOLDS),
               exit_thresholds=dict(EXIT_THRESHOLDS), sma_period=200,
               timeframe='60', opposite_action='close_only', timezone=TIMEZONE,
-              blocked_entry_hours=list(BLOCKED_HOURS), entry_only=True)
+              blocked_entry_hours=list(BLOCKED_HOURS), entry_only=True,
+              excluded_zero_strength_symbols=list(ZERO_STRENGTH_SYMBOLS))
 
 class StrengthState:
     def __init__(self, symbol, checkpoint=None, interval='60'):
@@ -127,6 +132,8 @@ def validate_exit(symbol,side,context,now):
     return _validate(symbol,side,context,now,'exit')
 
 def validate_entry(symbol,side,context,now):
+    if symbol in ZERO_STRENGTH_SYMBOLS:
+        raise ValueError('Zero OB minimum strength: '+symbol+' new entries disabled; existing exits remain active')
     d=_validate(symbol,side,context,now,'entry')
     reason=entry_block_reason(now)
     if reason:raise ValueError(reason)
