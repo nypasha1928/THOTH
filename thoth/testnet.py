@@ -292,7 +292,7 @@ class TestnetSupervisor:
                 for owner in self.state['owned'].values():
                     owner['crypto_ob_strength']={**(owner.get('crypto_ob_strength') or {}),
                         'exit_policy':{**CRYPTO_OB_HOURS_POLICY,'applied_at':self.clock()}}
-                self.event('Six-hour Crypto OB entry filter selected; protected positions and original stops retained; exits remain active all hours')
+                self.event('Crypto OB six blocked entry hours selected; protected positions and original stops retained; exits remain active all hours')
             self.state['config']=cfg.model_dump()
             self.state['cursors']={}
             self.save()

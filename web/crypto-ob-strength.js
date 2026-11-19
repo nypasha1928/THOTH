@@ -28,7 +28,7 @@ function syncCryptoStrengthSettings(){
  for(const id of cryptoStrengthOff){if(relaxed&&!hours&&id==='coin_breakeven_enabled')continue;lock(id,false,true);}
  if($('rsiSettings'))$('rsiSettings').hidden=true;
  $('strategyDescription').textContent=relaxed?'Crypto OB · CLOSED 1h · SMA200 entry filter · Opposite exit minimum 3.03% lower (32/33), close only. Settings table lists each coin’s entry and exit strengths. $0.50 stop; preset per-coin trailing $5 trigger / $0.10 drop, combined OFF. Save to apply; does not enable orders.':'Crypto Order Block · CLOSED 1h · per-coin raw strength · $0.50 stop · opposite formation reversal. Select Crypto · OB Strength Candidates 15 (or a subset). No RSI, S/R or breaks. Agreed per-coin trailing: trigger $5 / fixed drop $0.10; combined OFF. Save to apply; trailing controls remain editable. Account limits remain active; this does not enable orders.';
- if(hours)$('strategyDescription').textContent='CLOSED 1h OB / SMA200 · 50 research candidates · Six fixed New York entry-hour exclusions: 05, 08, 10, 12, 21, 23. Exits stay active. Preset: $0.50 stop; per-coin trailing $2.50 / $0.10; breakeven and combined OFF. Save to apply; does not enable orders.';
+ if(hours)$('strategyDescription').textContent='CLOSED 1h OB / SMA200 · 50 research candidates · Six blocked New York entry hours: 05, 08, 10, 12, 21, 23. Exits stay active. Preset: $0.50 stop; per-coin trailing $2.50 / $0.10; breakeven and combined OFF. Save to apply; does not enable orders.';
  const thresholds=hours?cryptoHoursData?.entry_thresholds:cryptoStrengthData;
  if(thresholds){
   const box=$('cryptoStrengthValues');box.replaceChildren();
