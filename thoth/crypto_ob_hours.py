@@ -60,7 +60,7 @@ THRESHOLDS = {'1000BONKUSDT': 2.6e-05,
  'ZECUSDT': 26.27}
 
 STRATEGY = 'crypto_ob_strength_sma200_hours'
-NAME = 'Crypto OB · 1h Close · SMA200 · 6 Blocked Entry Hours'
+NAME = 'Crypto OB · 1h Close · SMA200 · 6-Hour Entry Block'
 EXIT_THRESHOLDS = {s: float(Decimal(str(v))*32/33) for s,v in THRESHOLDS.items()}
 POLICY = dict(strategy=STRATEGY, exit_ratio_numerator=32, exit_ratio_denominator=33,
               exit_reduction_pct=100/33, entry_thresholds=dict(THRESHOLDS),

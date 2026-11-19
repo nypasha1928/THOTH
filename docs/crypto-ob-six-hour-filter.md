@@ -1,4 +1,4 @@
-# Crypto OB · 1h Close · SMA200 · 6 Blocked Entry Hours
+# Crypto OB · 1h Close · SMA200 · 6-Hour Entry Block
 
 Strategy ID: `crypto_ob_strength_sma200_hours`.
 This is a separate selectable strategy. Deploying the code does not select it,
@@ -64,7 +64,7 @@ loss exceed the gross stop or realized profit differ from a monitored threshold.
 
 1. Deploy the update, then refresh THOTH. The previous strategy remains selected.
 2. Pause new entries and let pending entries/closes reconcile.
-3. Select **Crypto OB · 1h Close · SMA200 · 6 Blocked Entry Hours**.
+3. Select **Crypto OB · 1h Close · SMA200 · 6-Hour Entry Block**.
 4. The separate **Crypto · OB Strength / Hours Candidates 50** list loads into the
    draft. Review or reduce it; loading a list does not create positions.
 5. Review the strength table and the preset, then save settings.
