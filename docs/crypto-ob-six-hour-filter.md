@@ -65,7 +65,7 @@ loss exceed the gross stop or realized profit differ from a monitored threshold.
 1. Deploy the update, then refresh THOTH. The previous strategy remains selected.
 2. Pause new entries and let pending entries/closes reconcile.
 3. Select **Crypto OB · 1h Close · SMA200 · 6-Hour Entry Block**.
-4. The separate **Crypto · OB Strength / Hours Candidates 50** list loads into the
+4. The separate **Crypto · OB Strength / Hours Candidates 48** list loads into the
    draft. Review or reduce it; loading a list does not create positions.
 5. Review the strength table and the preset, then save settings.
 6. Review readiness and manually enable entries when appropriate.
@@ -79,14 +79,19 @@ and their saved fifteen-coin list retain their existing behavior.
 
 ## Frozen research catalogue
 
-`thoth/crypto_ob_hours.py` contains exactly the fifty thresholds used in the
-six-hour-exclusion replay, not the later intrabar candidate thresholds. The fifteen
+`thoth/crypto_ob_hours.py` retains the fifty historical thresholds used in the
+six-hour-exclusion replay, not the later intrabar candidate thresholds. New entries
+and the offered candidate list now require a strictly positive minimum, leaving
+48 candidates. The fifteen
 existing values are preserved. The remaining values came from prior research
 calibration; this is not a live market-cap ranking or a guarantee every symbol is
 profitable. The curated list includes the existing gold-linked symbols PAXG/XAUT.
-Two minima, INJ and WLD, are zero: those symbols have **no strength restriction**,
-though they still need a formation and SMA200 permission. This reproduces the
-research definition rather than inventing positive thresholds.
+INJUSDT and WLDUSDT have zero minima and are now **blocked from all new entries**
+in this strategy. They are omitted from the offered list and entry table. The
+historical zero exit thresholds remain only to manage positions opened before
+this exclusion. Legacy saved selections containing them still load, so monitoring
+is not interrupted. If they remain selected, no new order can pass the entry or
+submission checks; load the 48-candidate list when their positions are flat.
 
 The settings table displays each entry minimum and its separate `32/33` exit
 minimum, rounded for display with exact-value tooltips. Chart boxes use the entry
@@ -109,11 +114,12 @@ constraints and live account-wide risk pauses were not modeled.
 | All hours | +$22.64 | +$1.17 | $33.73 |
 | Six excluded entry hours | +$46.51 | +$0.79 | $20.85 |
 
-The hours were selected **after inspecting this same history**. These results are
+The hours were selected **after inspecting this same history**. These results used all 50 research symbols, including INJ/WLD. They do not
+represent a replay of the reduced 48-entry universe. These results are
 retrospective, not independent validation or promised returns. New forward data
 is needed. Live account controls and execution can differ materially.
 
-### Entry minima (raw quote-price width)
+### Historical minima (raw quote-price width; zero values are exit-only legacy records)
 
 | Symbol | Minimum |
 |---|---:|
@@ -138,7 +144,7 @@ is needed. Live account controls and execution can differ materially.
 | GRTUSDT | 0.00033 |
 | HBARUSDT | 0.00043 |
 | ICPUSDT | 0.053 |
-| INJUSDT | 0.0 |
+| INJUSDT (new entries blocked) | 0.0 |
 | JASMYUSDT | 5.2e-05 |
 | JUPUSDT | 0.0045 |
 | KASUSDT | 0.00067 |
@@ -161,7 +167,7 @@ is needed. Live account controls and execution can differ materially.
 | UNIUSDT | 0.1 |
 | VETUSDT | 4.4e-05 |
 | WIFUSDT | 0.0019 |
-| WLDUSDT | 0.0 |
+| WLDUSDT (new entries blocked) | 0.0 |
 | XAUTUSDT | 8.91 |
 | XLMUSDT | 0.0021 |
 | XMRUSDT | 6.65 |
@@ -170,9 +176,12 @@ is needed. Live account controls and execution can differ materially.
 
 ## Validation
 
-- Full synthetic regression suite: **823 tests passed**.
+The zero-minimum update additionally tests blocked direct orders and legacy
+zero-minimum opposite exits during excluded hours.
+
+- Full synthetic regression suite: **825 tests passed**.
 - Desktop/mobile browser smoke: passed, including a distinct strategy selection,
-  50-row threshold catalogue, draft-only list loading, preset save, disabled
+  48-row entry threshold catalogue, draft-only list loading, preset save, disabled
   breakeven, preserved older profile behavior and no order activation requests.
 - Boundary checks cover all 24 hours in both EST and EDT, the repeated fall-back
   hour, queue/direct/submission guards, and an opposite close during an excluded
