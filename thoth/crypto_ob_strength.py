@@ -64,6 +64,13 @@ def apply_exit_preset(cfg):
     Existing owner stops are not rewritten and no entry permission is changed.
     """
     from .crypto_ob_sma200 import STRATEGY as SMA200_STRATEGY
+    from .crypto_ob_hours import STRATEGY as HOURS_STRATEGY
+    if cfg.strategy==HOURS_STRATEGY:
+        if cfg.crypto_ob_hours_preset_applied:return cfg
+        return type(cfg)(**{**cfg.model_dump(),'crypto_ob_hours_preset_applied':True,
+            'coin_pnl_trailing_enabled':True,'coin_pnl_trailing_activation_dollars':2.5,
+            'coin_pnl_trailing_drop_dollars':.1,'pnl_trailing_enabled':False,
+            'coin_breakeven_enabled':False,'position_value':50,'max_positions':10})
     flag='crypto_ob_sma200_preset_applied' if cfg.strategy==SMA200_STRATEGY else 'crypto_ob_exit_preset_applied'
     if cfg.strategy not in (STRATEGY,SMA200_STRATEGY) or getattr(cfg,flag):return cfg
     return type(cfg)(**{**cfg.model_dump(),
