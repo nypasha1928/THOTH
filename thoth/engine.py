@@ -163,7 +163,7 @@ class Engine:
                 raise ValueError('Position already open in this direction')
             current['mark'] = order.price
             self.close(s, current, 'Opposite paper signal')
-            if s['settings']['strategy'] in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours'):
+            if s['settings']['strategy'] in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours'):
                 s['signals']=(s['signals']+[order.signal_id])[-10000:]
                 return True
             self.risk(s)
@@ -225,10 +225,12 @@ class Engine:
                 if previous is None or not observation.get('signal') or s['status'] != 'running':
                     continue
                 try:
-                    if cfg['strategy'] in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours'):
+                    if cfg['strategy'] in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours'):
                         from .crypto_ob_sma200 import validate_entry,validate_exit
                         if cfg['strategy']=='crypto_ob_strength_sma200_hours':
                             from .crypto_ob_hours import validate_entry,validate_exit
+                        if cfg['strategy']=='crypto_ob_strength_daily_sma750_hours':
+                            from .crypto_ob_daily import validate_entry,validate_exit
                         held=next((p for p in s['positions'] if p['symbol']==symbol),None)
                         check=validate_exit if held else validate_entry
                         check(symbol,observation['signal'],observation.get('entry_context'),utcnow().timestamp())

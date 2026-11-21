@@ -74,13 +74,14 @@ POLICY = dict(strategy=STRATEGY, exit_ratio_numerator=32, exit_ratio_denominator
               excluded_zero_strength_symbols=list(ZERO_STRENGTH_SYMBOLS))
 
 class StrengthState:
+    policy = STRATEGY
     def __init__(self, symbol, checkpoint=None, interval='60'):
         from .order_block import OrderBlockState
         self.symbol=symbol; self.interval=interval
         identity=dict(symbol=symbol,interval=interval,minimum=THRESHOLDS.get(symbol),
-                      exit_minimum=EXIT_THRESHOLDS.get(symbol),policy=STRATEGY)
+                      exit_minimum=EXIT_THRESHOLDS.get(symbol),policy=self.policy)
         if checkpoint and any(checkpoint.get(k)!=v for k,v in identity.items()):
-            raise ValueError('SMA200 OB checkpoint identity mismatch')
+            raise ValueError('Crypto OB checkpoint identity mismatch')
         self.identity=identity
         self.entry=OrderBlockState((checkpoint or {}).get('entry'),interval=interval,
                                   formation_filter=False,minimum_strength=THRESHOLDS.get(symbol,0))
@@ -101,7 +102,7 @@ class StrengthState:
                         block_width=abs(zone['high']-zone['low']))
         formed=formation(entry,THRESHOLDS.get(self.symbol));opposite=formation(exit,EXIT_THRESHOLDS.get(self.symbol))
         sma=entry.get('sma200')
-        details=dict(strategy=STRATEGY,symbol=self.symbol,timeframe=self.interval,signal_bar=row['time'],
+        details=dict(strategy=self.policy,symbol=self.symbol,timeframe=self.interval,signal_bar=row['time'],
                      closed_at=row['time']+3600,entry_minimum=THRESHOLDS.get(self.symbol),
                      exit_minimum=EXIT_THRESHOLDS.get(self.symbol),exit_ratio='32/33',
                      close=row['close'],sma200=sma,entry_formation=formed,exit_formation=opposite,
@@ -112,14 +113,14 @@ class StrengthState:
                     conflict=False,entry_sources=['ob:'+('bullish_formed' if signal=='Long' else 'bearish_formed')] if signal else [],
                     crypto_ob_strength=details,signal_diagnostic={**details,'reason':'CLOSED 1h OB; entry and relaxed exit checked separately'} if signal else None)
 
-def _validate(symbol,side,context,now,kind):
+def _validate(symbol,side,context,now,kind,*,policy=STRATEGY):
     d=(context or {}).get('crypto_ob_strength') or {}
     expected=int(now)//3600*3600-3600
-    if (symbol not in THRESHOLDS or side not in ('Long','Short') or d.get('strategy')!=STRATEGY
+    if (symbol not in THRESHOLDS or side not in ('Long','Short') or d.get('strategy')!=policy
             or d.get('symbol')!=symbol or d.get('timeframe')!='60' or d.get('signal_bar')!=expected
             or d.get('closed_at')!=expected+3600 or d.get('entry_minimum')!=THRESHOLDS[symbol]
             or d.get('exit_minimum')!=EXIT_THRESHOLDS[symbol] or d.get('exit_ratio')!='32/33'):
-        raise ValueError('Latest CLOSED 1h SMA200 OB context required')
+        raise ValueError('Latest CLOSED 1h strength OB context required')
     f=d.get(kind+'_formation') or {};minimum=(THRESHOLDS if kind=='entry' else EXIT_THRESHOLDS)[symbol]
     try:
         high=float(f['block_high']);low=float(f['block_low'])

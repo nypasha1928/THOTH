@@ -65,9 +65,11 @@ def apply_exit_preset(cfg):
     """
     from .crypto_ob_sma200 import STRATEGY as SMA200_STRATEGY
     from .crypto_ob_hours import STRATEGY as HOURS_STRATEGY
-    if cfg.strategy==HOURS_STRATEGY:
-        if cfg.crypto_ob_hours_preset_applied:return cfg
-        return type(cfg)(**{**cfg.model_dump(),'crypto_ob_hours_preset_applied':True,
+    from .crypto_ob_daily import STRATEGY as DAILY_STRATEGY
+    if cfg.strategy in (HOURS_STRATEGY,DAILY_STRATEGY):
+        flag='crypto_ob_daily_preset_applied' if cfg.strategy==DAILY_STRATEGY else 'crypto_ob_hours_preset_applied'
+        if getattr(cfg,flag):return cfg
+        return type(cfg)(**{**cfg.model_dump(),flag:True,
             'coin_pnl_trailing_enabled':True,'coin_pnl_trailing_activation_dollars':2.5,
             'coin_pnl_trailing_drop_dollars':.1,'pnl_trailing_enabled':False,
             'coin_breakeven_enabled':False,'position_value':50,'max_positions':10})

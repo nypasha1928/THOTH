@@ -2,9 +2,10 @@
 const cryptoStrengthStrategy='crypto_ob_strength_1h_close';
 const cryptoSMAStrategy='crypto_ob_strength_sma200_closeonly';
 const cryptoHoursStrategy='crypto_ob_strength_sma200_hours';
+const cryptoDailyStrategy='crypto_ob_strength_daily_sma750_hours';
 const cryptoHoursList='crypto_ob_hours_candidates';
-const cryptoPresetFlag=()=> $('strategyLogic').value===cryptoHoursStrategy?'crypto_ob_hours_preset_applied':$('strategyLogic').value===cryptoSMAStrategy?'crypto_ob_sma200_preset_applied':'crypto_ob_exit_preset_applied';
-const isCryptoStrength=()=>[cryptoStrengthStrategy,cryptoSMAStrategy,cryptoHoursStrategy].includes($('strategyLogic').value);
+const cryptoPresetFlag=()=> $('strategyLogic').value===cryptoDailyStrategy?'crypto_ob_daily_preset_applied':$('strategyLogic').value===cryptoHoursStrategy?'crypto_ob_hours_preset_applied':$('strategyLogic').value===cryptoSMAStrategy?'crypto_ob_sma200_preset_applied':'crypto_ob_exit_preset_applied';
+const isCryptoStrength=()=>[cryptoStrengthStrategy,cryptoSMAStrategy,cryptoHoursStrategy,cryptoDailyStrategy].includes($('strategyLogic').value);
 let cryptoExitStrengthData=null,cryptoHoursData=null;
 const formatCryptoExitStrength=value=>Number(Number(value).toPrecision(3)).toLocaleString('en-US',{useGrouping:false,maximumFractionDigits:20});
 const cryptoStrengthList='crypto_ob_candidates';
@@ -12,7 +13,7 @@ const cryptoStrengthOff=['sma_enabled','sma_7_50_filter_enabled','sma_exit_enabl
 let cryptoStrengthData=null,cryptoStrengthLoading=false;
 function resetCryptoStrengthLocks(){for(const input of document.querySelectorAll('[data-crypto-strength-lock]')){input.disabled=false;delete input.dataset.cryptoStrengthLock;}}
 function syncCryptoStrengthSettings(){
- const active=isCryptoStrength(),hours=$('strategyLogic').value===cryptoHoursStrategy,relaxed=hours||$('strategyLogic').value===cryptoSMAStrategy;
+ const active=isCryptoStrength(),daily=$('strategyLogic').value===cryptoDailyStrategy,hours=daily||$('strategyLogic').value===cryptoHoursStrategy,relaxed=hours||$('strategyLogic').value===cryptoSMAStrategy;
  let section=$('cryptoStrengthSettings');
  if(!section){section=document.createElement('details');section.id='cryptoStrengthSettings';section.innerHTML='<summary>Crypto Order Block · Per-coin strengths</summary><p class="note">Research candidates, not proven optimal settings. CLOSED 1h formations only; breaks, S/R, RSI, SMA and volume filters are not used. Opposite qualifying formation closes, reconciles, then reverses subject to risk checks. Fixed $0.50 gross hard stop; fees/slippage can increase loss. Agreed preset: per-coin P&amp;L trailing ON at $5 profit, with a fixed $0.10 drop from its peak; combined trailing OFF. Save settings to apply. Trailing controls remain editable. Breakeven, price trailing, take profit and SMA exits remain off. Saved position size, leverage, Maximum Positions, account protections, schedules and cooldowns remain active. Study used $50 per position. One strategy/list runs at a time.</p><button type="button" id="applyCryptoExitPreset">Apply agreed stop / trailing preset</button><p id="cryptoExitPresetStatus" class="note" role="status"></p><div id="cryptoStrengthValues"></div>';$('fields').append(section);}
  if($('applyCryptoExitPreset')){$('applyCryptoExitPreset').onclick=()=>applyCryptoStrengthExitPresetDraft();$('applyCryptoExitPreset').disabled=symbolsLocked();}
@@ -29,6 +30,11 @@ function syncCryptoStrengthSettings(){
  if($('rsiSettings'))$('rsiSettings').hidden=true;
  $('strategyDescription').textContent=relaxed?'Crypto OB · CLOSED 1h · SMA200 entry filter · Opposite exit minimum 3.03% lower (32/33), close only. Settings table lists each coin’s entry and exit strengths. $0.50 stop; preset per-coin trailing $5 trigger / $0.10 drop, combined OFF. Save to apply; does not enable orders.':'Crypto Order Block · CLOSED 1h · per-coin raw strength · $0.50 stop · opposite formation reversal. Select Crypto · OB Strength Candidates 15 (or a subset). No RSI, S/R or breaks. Agreed per-coin trailing: trigger $5 / fixed drop $0.10; combined OFF. Save to apply; trailing controls remain editable. Account limits remain active; this does not enable orders.';
  if(hours)$('strategyDescription').textContent='CLOSED 1h OB / SMA200 · 48 entry candidates · Six blocked New York entry hours: 05, 08, 10, 12, 21, 23. Exits stay active. Preset: $0.50 stop; per-coin trailing $2.50 / $0.10; breakeven and combined OFF. Save to apply; does not enable orders.';
+ if(daily){
+  section.querySelector('summary').textContent='Crypto OB · Daily SMA7/50 · Entry / exit strengths';
+  section.querySelector('p').textContent='Separate 48-candidate strategy. Entry: CLOSED 1h formed Order Block at the listed minimum, confirmed by the last completed Daily SMA7 above SMA50 for Long or below for Short. No fresh Daily cross required. Equal, stale, missing or fewer than 50 consecutive completed Daily candles: no new entry. Daily candles close at 00:00 UTC. No hourly SMA200 filter. Opposite CLOSED 1h OB at 32/33 strength closes only, regardless of Daily direction or data availability. Six New York entry-hour blocks: 05–06, 08–09, 10–11, 12–13, 21–22, 23–00, independently of the general trading-window switch. Preset: $50 position value, maximum 10 positions, $0.50 gross hard stop, per-coin trailing $2.50 trigger / $0.10 fixed drop, breakeven and combined OFF. Trailing, sizing and position count remain editable. Leverage and account protections remain active. INJ/WLD zero minima cannot enter. Historical results are not a profit guarantee. Pause before saving; this does not enable orders. Switching from the six-hour SMA200 profile can retain protected positions and original hard stops; pending orders/closes must settle.';
+  $('strategyDescription').textContent='CLOSED 1h OB · Daily SMA7/50 confirmation · No hourly SMA200 · 48 candidates · Six New York entry-hour blocks · Opposite closed-hour OB exit 3.03% lower. Preset: $0.50 stop; per-coin trailing $2.50 / $0.10. Save to apply; does not enable orders.';
+ }
  const thresholds=hours?cryptoHoursData?.entry_thresholds:cryptoStrengthData;
  if(thresholds){
   const box=$('cryptoStrengthValues');box.replaceChildren();
@@ -48,7 +54,7 @@ function syncCryptoStrengthSettings(){
 $('strategyLogic').addEventListener('change',()=>{
  if(!isCryptoStrength()||symbolsLocked()||!formDraft)return;
  formDraft.saved_symbol_lists[formDraft.active_symbol_list]=[...formDraft.symbols];
- const target=$('strategyLogic').value===cryptoHoursStrategy?cryptoHoursList:cryptoStrengthList;
+ const target=[cryptoHoursStrategy,cryptoDailyStrategy].includes($('strategyLogic').value)?cryptoHoursList:cryptoStrengthList;
  formDraft.active_symbol_list=target;
  formDraft.symbols=[...(formDraft.saved_symbol_lists[target]||[])];
  dirty=true;renderSymbolLists();renderWatchlist();renderScope();renderStrategyDescription();applyCryptoStrengthExitPresetDraft();
@@ -57,7 +63,7 @@ $('strategyLogic').addEventListener('change',()=>{
 function applyCryptoStrengthExitPresetDraft(){
  if(symbolsLocked()||!formDraft||!isCryptoStrength())return;
  $('coin_pnl_trailing_enabled').checked=true;
- const hours=$('strategyLogic').value===cryptoHoursStrategy;
+ const hours=[cryptoHoursStrategy,cryptoDailyStrategy].includes($('strategyLogic').value);
  $('coin_pnl_trailing_activation_dollars').value=hours?2.5:5;
  if(hours){$('position_value').value=50;$('max_positions').value=10;}
  $('coin_pnl_trailing_drop_dollars').value=.1;
