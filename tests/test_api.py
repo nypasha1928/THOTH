@@ -37,6 +37,24 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/live/crypto-ob-comparison?limit=500').status_code,422)
         self.assertEqual(before,self.client.get('/api/live').json()['config'])
 
+    def test_crypto_daily_catalogue_and_save_do_not_enable_orders(self):
+        from thoth.crypto_ob_daily import STRATEGY,LIST,ENTRY_THRESHOLDS,EXIT_THRESHOLDS
+        before=self.client.get('/api/live').json()['config']
+        policy=self.client.get('/api/live/market-leaders').json()['crypto_ob_daily']
+        self.assertEqual(policy['entry_thresholds'],ENTRY_THRESHOLDS)
+        self.assertEqual(policy['exit_thresholds'],EXIT_THRESHOLDS)
+        self.assertFalse(policy['sma200'] or policy['crossover_required'])
+        response=self.client.put('/api/live/settings',json={**before,'strategy':STRATEGY,'symbols':list(ENTRY_THRESHOLDS),'active_symbol_list':LIST})
+        self.assertEqual(response.status_code,200,response.text)
+        data=response.json();cfg=data['config']
+        self.assertTrue(data['entry_filters']['crypto_ob_daily']['enabled'])
+        self.assertFalse(data['entry_filters']['sma200']['enabled'] or data['entry_filters']['crypto_ob_hours']['enabled'])
+        self.assertTrue(cfg['crypto_ob_daily_preset_applied'])
+        self.assertEqual((cfg['position_value'],cfg['max_positions'],cfg['stop_dollars']),(50,10,.5))
+        self.assertEqual((cfg['coin_pnl_trailing_activation_dollars'],cfg['coin_pnl_trailing_drop_dollars']),(2.5,.1))
+        self.assertFalse(data['entries'])
+        self.assertEqual(self.client.get('/api/live/analysis?strategy='+STRATEGY).status_code,200)
+
     def test_crypto_hours_catalogue_preset_and_entry_only_policy(self):
         from thoth.crypto_ob_hours import STRATEGY,LIST,THRESHOLDS,ENTRY_THRESHOLDS,EXIT_THRESHOLDS
         before=self.client.get('/api/live').json()['config']

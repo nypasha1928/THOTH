@@ -153,6 +153,9 @@ class FeedAdapter:
     def history_recovery_status(self,symbol):
         return self.primary_history_recovery.get(symbol) or self.history_recovery.get(symbol)
 
+    def daily_confirmation_inputs(self,symbol):
+        return self.staged_primary_inputs(symbol,'D')
+
     def fetch(self,symbol,interval):
         if not self.supervisor.client:raise ValueError('Testnet is not connected')
         cfg=Settings(**{k:v for k,v in self.supervisor.load()['config'].items() if k in Settings.model_fields})

@@ -46,6 +46,7 @@ class Runner:
         self.confirmation_only=confirmation_only
         self.confirmation_runner=None
         self.confirmation_last_checked={}
+        self.daily_ob_confirmations={}
         self.confirmation_symbol_cycles={}
         self.confirmation_epochs={}
         self.confirmation_statuses={}
@@ -131,12 +132,14 @@ class Runner:
             checkpoint=db.execute('SELECT source,stamp,payload FROM checkpoints WHERE symbol=? AND interval=? AND strategy=?',(symbol,cfg.timeframe,strategy)).fetchone()
             valid=checkpoint and checkpoint[0]==self.source_fingerprint
             saved=json.loads(checkpoint[2]) if valid else None
-            if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours'):
+            if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours'):
                 from .crypto_ob_strength import StrengthState
-                if cfg.strategy in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours'):
+                if cfg.strategy in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours'):
                     from .crypto_ob_sma200 import StrengthState
                     if cfg.strategy=='crypto_ob_strength_sma200_hours':
                         from .crypto_ob_hours import StrengthState
+                    if cfg.strategy=='crypto_ob_strength_daily_sma750_hours':
+                        from .crypto_ob_daily import StrengthState
                 state=StrengthState(symbol,saved,interval=cfg.timeframe)
             else:state=IndicatorState(cfg,saved)
             if valid and history[0]['time']>state.last_time+duration:
@@ -988,7 +991,8 @@ class Runner:
             self.health={**self._health,'status':'scanning','scan_started':time.time()}
         futures = {}
         # Four in-flight fetches, globally spaced starts: maximum eight requests/sec.
-        # Download concurrently; indicator state and SQLite remain on this single thread.
+        # Download concurrently; hourly indicator state advances on the scan thread.
+        # Daily inputs use the independent interval cache and never suppress hourly exits.
         request_lock = threading.Lock()
         next_request = [time.monotonic()]
         def fetch_limited(symbol):
@@ -999,7 +1003,23 @@ class Runner:
                 if self.stop_event.wait(max(0, slot-time.monotonic())):
                     raise RuntimeError('Worker stopping')
             started=time.time()
-            try:return self.fetch(symbol, cfg.timeframe)
+            try:
+                hourly=self.fetch(symbol,cfg.timeframe)
+                if cfg.strategy!='crypto_ob_strength_daily_sma750_hours':return hourly
+                from .crypto_ob_daily import daily_confirmation
+                boundary=int(time.time())//86400*86400
+                cache=getattr(self,'daily_ob_confirmations',{})
+                confirmation=cache.get(symbol)
+                if confirmation is None or confirmation.get('closed_at')!=boundary:
+                    try:
+                        fetch_daily=getattr(self.engine,'daily_confirmation_inputs',None)
+                        daily_rows=fetch_daily(symbol) if callable(fetch_daily) else self.fetch(symbol,'D')
+                        daily_rows=self.history(symbol,'D',daily_rows)
+                        confirmation=daily_confirmation(daily_rows,time.time())
+                        cache[symbol]=confirmation;self.daily_ob_confirmations=cache
+                    except Exception as exc:
+                        confirmation={'error':str(exc)[:240]}
+                return {'hourly':hourly,'daily_confirmation':confirmation}
             finally:sample_timings[symbol]=dict(sample_requested_at=started,sample_received_at=time.time())
         with ThreadPoolExecutor(max_workers=4) as pool:
             if cfg.strategy in (*STAGED_STRATEGIES,'volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit','volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit','sr_volume_intrabar','sr_4h_daily_unfiltered','trend_major_pullback_30m_close','trend_major_breakout_30m_close','major_pullback_30m_intrabar','sma_7_50_intrabar','order_block_intrabar','ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early'):
@@ -1010,10 +1030,13 @@ class Runner:
                     futures[pool.submit(fetch_limited, symbol)] = symbol
                 completed=((futures[future],future) for future in as_completed(futures))
             downloaded = {}
+            daily_confirmations = {}
             for symbol,future in completed:
                 if self.stop_event.is_set():return
                 try:
                     rows=future.result()
+                    if cfg.strategy=='crypto_ob_strength_daily_sma750_hours':
+                        daily_confirmations[symbol]=rows['daily_confirmation'];rows=rows['hourly']
                     if cfg.strategy in STAGED_STRATEGIES and rows.get('minute_on_demand'):
                         # Confirmation worker owns this tracker/cursor. Never send
                         # empty primary observations that could race a minute signal.
@@ -1050,15 +1073,25 @@ class Runner:
                     try:observer.submit(symbol,cfg,history,sample_timings.get(symbol,{}).get('sample_received_at',now))
                     except Exception:pass  # Independent research cannot affect LIVE execution.
                 result,count = self.analysis(symbol,cfg,history,now)
-                if count < (2 if cfg.strategy==DAILY_COMBINED else cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50','price_sma50_30m_close') else 14 if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
+                if count < (2 if cfg.strategy==DAILY_COMBINED else cfg.rsi.rsi_length+1 if cfg.strategy=='rsi_hourly_intrabar' else 201 if cfg.strategy=='sma_cross' else 51 if cfg.strategy in ('sma_7_50','sr_sma_7_50','price_sma50_30m_close') else 14 if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours') else max(cfg.sma_length if cfg.sma_enabled else 1,50 if cfg.sma_7_50_filter_enabled else 1, 2*cfg.pivot_long+1)):
                     raise ValueError('Insufficient confirmed candle warmup')
                 latest = result[-1]
                 observations[symbol] = self.daily_sr_rsi_observation(symbol,cfg,history,result,now) if cfg.strategy==DAILY_COMBINED else self.rsi_observation(symbol,cfg,history,now) if cfg.strategy=='rsi_hourly_intrabar' else self.intrabar_observation(symbol,cfg,history,result,now) if cfg.strategy in (STRATEGY,'sr_inverse_intrabar') else dict(time=latest['time'], mark=rows[-1]['close'], signal=latest['signal'],entry_sources=latest.get('entry_sources',[]),signal_diagnostic=latest.get('signal_diagnostic'),entry_context={'price_sma_cross':latest['signal_diagnostic']} if cfg.strategy=='price_sma50_30m_close' and latest.get('signal_diagnostic') else None)
-                if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours'):
+                if cfg.strategy in ('crypto_ob_strength_1h_close','crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours'):
                     if latest['time']!=int(now)//3600*3600-3600:
                         raise ValueError('Latest CLOSED 1h Order Block candle unavailable')
                     observations[symbol]['entry_context']={'crypto_ob_strength':latest.get('crypto_ob_strength')}
                 statuses[symbol] = {'status': 'ok', 'bar': latest['time'], 'signal': observations[symbol]['signal']}
+                if cfg.strategy=='crypto_ob_strength_daily_sma750_hours':
+                    details=dict(latest.get('crypto_ob_strength') or {})
+                    confirmation=daily_confirmations.get(symbol) or {'error':'Daily confirmation unavailable'}
+                    details['daily_confirmation']=confirmation
+                    observations[symbol]['entry_context']={'crypto_ob_strength':details}
+                    if observations[symbol].get('signal_diagnostic'):
+                        observations[symbol]['signal_diagnostic']={**observations[symbol]['signal_diagnostic'],'daily_confirmation':confirmation}
+                    statuses[symbol]['daily_confirmation']={k:v for k,v in confirmation.items() if k!='closes'}
+                    if confirmation.get('error'):
+                        statuses[symbol].update(status='degraded',message='Daily confirmation unavailable; entries blocked, hourly exits remain active')
                 if streaming:self.engine.market_observation(cfg.model_dump(),symbol,observations[symbol])
             except Exception as exc:
                 observations.pop(symbol,None)
@@ -1073,7 +1106,7 @@ class Runner:
         self.previous_scan_seconds=max(0.,time.monotonic()-scan_started)
         self.health = {'status': 'degraded' if len(observations)!=len(symbols) or any(s['status']!='ok' for s in statuses.values()) else 'ok',
                        'symbols': statuses, 'last_cycle': time.time(),'scan_seconds':self.previous_scan_seconds,
-                       'note': 'CLOSED 1h OB / SMA200 / 48 entry candidates; entries blocked 05,08,10,12,21,23 New York; exits remain active' if cfg.strategy=='crypto_ob_strength_sma200_hours' else 'CLOSED 1h OB; SMA200 entry permission; 3.03% lower opposite OB closes only; $0.50 stop' if cfg.strategy in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours') else 'CLOSED 1h formed Order Blocks; per-coin raw strength; $0.50 stop; opposite formation reverses; Crypto Candidates 15' if cfg.strategy=='crypto_ob_strength_1h_close' else '30m Major pullback + CLOSED 15m bounce/rejection confirmation; NO SMA; no fixed entry windows; 0.25 ATR distance' if cfg.strategy=='major_pullback_30m_intrabar' else 'CLOSED 1h SMA200 trend + CLOSED 30m Major BREAKOUT; entry within 0.25 ATR; saved account sizing/exits' if cfg.strategy=='trend_major_breakout_30m_close' else 'CLOSED 1h SMA200 trend + CLOSED 30m Major bounce/rejection; entry within 0.25 ATR; saved account sizing/exits' if cfg.strategy=='trend_major_pullback_30m_close' else 'INTRABAR 4h OR Daily Major S/R breakout + bounce/rejection; NO indicator filters' if cfg.strategy=='sr_4h_daily_unfiltered' else 'CLOSED 30m price crosses SMA50; first cross only; no repeated same-side signals' if cfg.strategy=='price_sma50_30m_close' else ('CLOSED 30m S/R OR six RSI signals' if cfg.strategy==RSI_STRATEGY else 'CLOSED 30m signal')+' → delayed :07 / :37 entry; no 1m entry or exit' if cfg.strategy in DELAYED_STRATEGIES else 'CLOSED 30m permission → CLOSED 1m entry / reversal / exit; Major S/R only, breakout + bounce/rejection' if cfg.strategy==CLOSED_TWO_DIRECTION else '1h window permission → 1m entry / reversal / exit; breakout + bounce/rejection' if cfg.strategy==TWO_DIRECTION else 'Volume Delta 1h · :58–:03 / :28–:33 · NO SMA exit' if cfg.strategy=='volume_delta_1h_windows_no_sma_exit' else 'Volume Delta 1h · :58–:03 / :28–:33 · closed 1m SMA7/30 crossover exit' if cfg.strategy in ('volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit') else 'Volume Delta 1h · one decision per coin :30–:31; no opposing-wick filter' if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else 'Early 1h OB / Major S/R · :55–:00 · normal reversal; rejection/distance rules + required 1h SMA200 entry direction' if cfg.strategy=='order_block_sr_1h_early' else 'Intrabar 1m Order Block / S/R; one entry per coin per UTC hour; hourly total capped by Maximum Positions; entry window ' +str(cfg.minute_entry_window_minutes)+' minutes; opposite 1m closes only; NO filters' if cfg.strategy=='ob_sr_minute_hourly' else 'Single-use CLOSED 1h permission -> intrabar 1m entry / CLOSED 1m opposite exit; minute S/R Bounce/Rejection ONLY; OB unchanged; NO filters' if cfg.strategy==HOUR_GATE else '1h CLOSED Order Block OR S/R; '+('INVERTED' if cfg.strategy=='order_block_sr_1h_inverted_close' else 'NORMAL')+' entries; NO volume filter' if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else ('1h' if cfg.timeframe=='60' else '4h')+' Order Block OR Major only S/R; both require Volume > MA 20; intrabar' if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else '4h Order Block intrabar; all four signals require Volume > MA 20; no SMA exit' if cfg.strategy=='order_block_intrabar' else '4h SMA 7/50 intrabar reversal; no SMA exit' if cfg.strategy=='sma_7_50_intrabar' else 'Direct 4h/Daily S/R intrabar entries; forming volume > MA '+str(cfg.sr_volume_period)+'; no SMA exit' if cfg.strategy=='sr_volume_intrabar' else '4h/Daily S/R ONLY permission; 5m Order Block chooses either direction; SMA 200: formation inverted, supply break above / demand break below; no SMA exit' if cfg.strategy==ORDER_BLOCK_STRATEGY else '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy in STAGED_STRATEGIES else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
+                       'note': 'CLOSED 1h OB / completed Daily SMA7/50 / 48 entry candidates; six New York entry hours blocked; exits independent of Daily confirmation' if cfg.strategy=='crypto_ob_strength_daily_sma750_hours' else 'CLOSED 1h OB / SMA200 / 48 entry candidates; entries blocked 05,08,10,12,21,23 New York; exits remain active' if cfg.strategy=='crypto_ob_strength_sma200_hours' else 'CLOSED 1h OB; SMA200 entry permission; 3.03% lower opposite OB closes only; $0.50 stop' if cfg.strategy in ('crypto_ob_strength_sma200_closeonly','crypto_ob_strength_sma200_hours','crypto_ob_strength_daily_sma750_hours') else 'CLOSED 1h formed Order Blocks; per-coin raw strength; $0.50 stop; opposite formation reverses; Crypto Candidates 15' if cfg.strategy=='crypto_ob_strength_1h_close' else '30m Major pullback + CLOSED 15m bounce/rejection confirmation; NO SMA; no fixed entry windows; 0.25 ATR distance' if cfg.strategy=='major_pullback_30m_intrabar' else 'CLOSED 1h SMA200 trend + CLOSED 30m Major BREAKOUT; entry within 0.25 ATR; saved account sizing/exits' if cfg.strategy=='trend_major_breakout_30m_close' else 'CLOSED 1h SMA200 trend + CLOSED 30m Major bounce/rejection; entry within 0.25 ATR; saved account sizing/exits' if cfg.strategy=='trend_major_pullback_30m_close' else 'INTRABAR 4h OR Daily Major S/R breakout + bounce/rejection; NO indicator filters' if cfg.strategy=='sr_4h_daily_unfiltered' else 'CLOSED 30m price crosses SMA50; first cross only; no repeated same-side signals' if cfg.strategy=='price_sma50_30m_close' else ('CLOSED 30m S/R OR six RSI signals' if cfg.strategy==RSI_STRATEGY else 'CLOSED 30m signal')+' → delayed :07 / :37 entry; no 1m entry or exit' if cfg.strategy in DELAYED_STRATEGIES else 'CLOSED 30m permission → CLOSED 1m entry / reversal / exit; Major S/R only, breakout + bounce/rejection' if cfg.strategy==CLOSED_TWO_DIRECTION else '1h window permission → 1m entry / reversal / exit; breakout + bounce/rejection' if cfg.strategy==TWO_DIRECTION else 'Volume Delta 1h · :58–:03 / :28–:33 · NO SMA exit' if cfg.strategy=='volume_delta_1h_windows_no_sma_exit' else 'Volume Delta 1h · :58–:03 / :28–:33 · closed 1m SMA7/30 crossover exit' if cfg.strategy in ('volume_delta_1h_windows_sma7_14_exit','volume_delta_1h_windows_no_sma_exit') else 'Volume Delta 1h · one decision per coin :30–:31; no opposing-wick filter' if cfg.strategy in ('volume_delta_1h_midpoint','volume_delta_1h_midpoint_sma7_exit') else 'Early 1h OB / Major S/R · :55–:00 · normal reversal; rejection/distance rules + required 1h SMA200 entry direction' if cfg.strategy=='order_block_sr_1h_early' else 'Intrabar 1m Order Block / S/R; one entry per coin per UTC hour; hourly total capped by Maximum Positions; entry window ' +str(cfg.minute_entry_window_minutes)+' minutes; opposite 1m closes only; NO filters' if cfg.strategy=='ob_sr_minute_hourly' else 'Single-use CLOSED 1h permission -> intrabar 1m entry / CLOSED 1m opposite exit; minute S/R Bounce/Rejection ONLY; OB unchanged; NO filters' if cfg.strategy==HOUR_GATE else '1h CLOSED Order Block OR S/R; '+('INVERTED' if cfg.strategy=='order_block_sr_1h_inverted_close' else 'NORMAL')+' entries; NO volume filter' if cfg.strategy in ('order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else ('1h' if cfg.timeframe=='60' else '4h')+' Order Block OR Major only S/R; both require Volume > MA 20; intrabar' if cfg.strategy in ('ob_sr_minute_hourly','order_block_sr_intrabar','order_block_sr_1h','order_block_sr_1h_inverted_close','order_block_sr_1h_close','order_block_sr_1h_early') else '4h Order Block intrabar; all four signals require Volume > MA 20; no SMA exit' if cfg.strategy=='order_block_intrabar' else '4h SMA 7/50 intrabar reversal; no SMA exit' if cfg.strategy=='sma_7_50_intrabar' else 'Direct 4h/Daily S/R intrabar entries; forming volume > MA '+str(cfg.sr_volume_period)+'; no SMA exit' if cfg.strategy=='sr_volume_intrabar' else '4h/Daily S/R ONLY permission; 5m Order Block chooses either direction; SMA 200: formation inverted, supply break above / demand break below; no SMA exit' if cfg.strategy==ORDER_BLOCK_STRATEGY else '4h/Daily S/R or RSI permission; 1m Volume Delta chooses either direction; mandatory SMA 7/50 filter; no SMA exit' if cfg.strategy in STAGED_STRATEGIES else 'Volume Delta LTF proxy; forming candle, SMA 7/50 entry filter; no SMA exit' if cfg.strategy=='volume_delta_intrabar' else 'Inverse S/R intrabar: Long signal opens Short; Short signal opens Long; inverted 1m exits: Short below / Long above' if cfg.strategy=='sr_inverse_intrabar' else 'Daily intrabar S/R OR fixed RSI; mandatory 1m SMA exits' if cfg.strategy==DAILY_COMBINED else 'Sampled selected-timeframe RSI entries; 1m SMA exits' if cfg.strategy=='rsi_hourly_intrabar' else 'Sampled selected-timeframe intrabar S/R entries; 1m SMA exits' if cfg.strategy==STRATEGY else 'Confirmed-candle strategy feed'}
 
     def run(self):
         while not self.stop_event.is_set():

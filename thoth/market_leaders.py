@@ -11,6 +11,7 @@ def report():
     from .crypto_ob_strength import THRESHOLDS
     from .crypto_ob_sma200 import POLICY
     from .crypto_ob_hours import POLICY as HOURS_POLICY,LIST as HOURS_LIST,ENTRY_THRESHOLDS as HOURS_THRESHOLDS
-    return dict(crypto_ob_hours=HOURS_POLICY,**{HOURS_LIST:list(HOURS_THRESHOLDS)},crypto_ob_sma200=POLICY,crypto_ob_candidates=list(THRESHOLDS),crypto_ob_strengths=dict(THRESHOLDS),main_leaders=list(MAIN_LEADERS),tradfi_leaders=list(TRADFI_LEADERS),
+    from .crypto_ob_daily import POLICY as DAILY_POLICY
+    return dict(crypto_ob_daily=DAILY_POLICY,crypto_ob_hours=HOURS_POLICY,**{HOURS_LIST:list(HOURS_THRESHOLDS)},crypto_ob_sma200=POLICY,crypto_ob_candidates=list(THRESHOLDS),crypto_ob_strengths=dict(THRESHOLDS),main_leaders=list(MAIN_LEADERS),tradfi_leaders=list(TRADFI_LEADERS),
         tradfi_groups=dict(stocks=list(TRADFI_STOCKS),etfs=list(TRADFI_ETFS),commodities=list(TRADFI_COMMODITIES),forex=list(TRADFI_FOREX)),
         basis='Curated starter selections from the supported catalogue, not a verified live top-50 market-cap or volume ranking. Current market-cap data unavailable. No profitability, liquidity or safety guarantee. Commodities/forex have no company market cap; ETF assets are not company market cap. No automatic rebalancing or trading changes.')

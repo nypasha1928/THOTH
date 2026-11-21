@@ -214,6 +214,27 @@ with tempfile.TemporaryDirectory(prefix='thoth-ui-') as d:
    assert writes[-1][1]['coin_pnl_trailing_activation_dollars']==2.5
    assert not writes[-1][1]['coin_breakeven_enabled']
    page.wait_for_function("() => formDraft.strategy==='crypto_ob_strength_sma200_hours' && !dirty")
+   page.select_option('#strategyLogic','crypto_ob_strength_daily_sma750_hours')
+   expect(page.locator('#activeSymbolList')).to_have_value('crypto_ob_hours_candidates')
+   expect(page.locator('#cryptoStrengthValues tr')).to_have_count(49)
+   expect(page.locator('#strategyDescription')).to_contain_text('Daily SMA7/50 confirmation')
+   expect(page.locator('#cryptoStrengthSettings')).to_contain_text('No hourly SMA200 filter')
+   expect(page.locator('#cryptoStrengthSettings')).to_contain_text('Daily candles close at 00:00 UTC')
+   expect(page.locator('#cryptoStrengthSettings')).to_contain_text('regardless of Daily direction or data availability')
+   expect(page.locator('#cryptoStrengthValues tr').filter(has_text='GRTUSDT')).to_contain_text('0.00032')
+   expect(page.locator('#strategyTf')).to_have_value('60')
+   expect(page.locator('#oppositeAction')).to_have_value('close_only')
+   expect(page.locator('#stop_dollars')).to_have_value('0.5')
+   expect(page.locator('#coin_pnl_trailing_activation_dollars')).to_have_value('2.5')
+   expect(page.locator('#coin_pnl_trailing_drop_dollars')).to_have_value('0.1')
+   expect(page.locator('#coin_pnl_trailing_activation_dollars')).to_be_enabled()
+   expect(page.locator('#coin_breakeven_enabled')).not_to_be_checked()
+   expect(page.locator('#pnl_trailing_enabled')).not_to_be_checked()
+   assert len(page.evaluate('formDraft.symbols'))==48
+   page.locator('#settings button.primary').click();expect(page.locator('#message')).to_contain_text('Settings saved')
+   assert writes[-1][1]['strategy']=='crypto_ob_strength_daily_sma750_hours'
+   assert writes[-1][1]['crypto_ob_daily_preset_applied']
+   page.wait_for_function("() => formDraft.strategy==='crypto_ob_strength_daily_sma750_hours' && !dirty")
    page.select_option('#strategyLogic','price_sma50_30m_close')
    expect(page.locator('#stop_dollars')).to_be_enabled()
    expect(page.locator('#strategyTf')).to_have_value('30');expect(page.locator('#strategyTf')).to_be_disabled()
